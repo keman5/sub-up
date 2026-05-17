@@ -6,6 +6,10 @@ import i18n, { initI18n } from './i18n'
 import { useAppStore } from '@/stores/app'
 import './style.css'
 
+if ('scrollRestoration' in window.history) {
+  window.history.scrollRestoration = 'manual'
+}
+
 function initThemeClass() {
   const savedTheme = localStorage.getItem('theme')
   const shouldUseDark =

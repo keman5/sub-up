@@ -92,6 +92,13 @@ onBeforeUnmount(() => {
 })
 
 onMounted(async () => {
+  const isStaticHome = route.path === '/' || route.path === '/home'
+  if (isStaticHome) {
+    document.title = '51token 算力'
+    updateFavicon('/favicon.ico')
+    return
+  }
+
   // Check if setup is needed
   try {
     const status = await getSetupStatus()

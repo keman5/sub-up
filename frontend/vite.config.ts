@@ -1,38 +1,7 @@
-import { defineConfig, loadEnv, Plugin } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import checker from 'vite-plugin-checker'
 import { resolve } from 'path'
-
-/**
- * Vite 插件：开发模式下注入公开配置到 index.html
- * 与生产模式的后端注入行为保持一致，消除闪烁
- */
-function injectPublicSettings(backendUrl: string): Plugin {
-  return {
-    name: 'inject-public-settings',
-    apply: 'serve',
-    transformIndexHtml: {
-      order: 'pre',
-      async handler(html) {
-        try {
-          const response = await fetch(`${backendUrl}/api/v1/settings/public`, {
-            signal: AbortSignal.timeout(2000)
-          })
-          if (response.ok) {
-            const data = await response.json()
-            if (data.code === 0 && data.data) {
-              const script = `<script>window.__APP_CONFIG__=${JSON.stringify(data.data)};</script>`
-              return html.replace('</head>', `${script}\n</head>`)
-            }
-          }
-        } catch (e) {
-          console.warn('[vite] 无法获取公开配置，将回退到 API 调用:', (e as Error).message)
-        }
-        return html
-      }
-    }
-  }
-}
 
 export default defineConfig(({ mode }) => {
   // 加载环境变量
@@ -45,8 +14,7 @@ export default defineConfig(({ mode }) => {
       vue(),
       checker({
         vueTsc: true
-      }),
-      injectPublicSettings(backendUrl)
+      })
     ],
   resolve: {
     alias: {
