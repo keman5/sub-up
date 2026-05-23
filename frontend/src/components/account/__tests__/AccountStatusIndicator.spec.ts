@@ -13,6 +13,13 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
+vi.mock('@/utils/format', () => ({
+  formatCountdown: vi.fn(() => ''),
+  formatCountdownWithSuffix: vi.fn(() => ''),
+  formatDateTime: vi.fn((value: string | null | undefined) => value || ''),
+  formatTime: vi.fn((value: string | null | undefined) => value || '')
+}))
+
 function makeAccount(overrides: Partial<Account>): Account {
   return {
     id: 1,
@@ -43,6 +50,24 @@ function makeAccount(overrides: Partial<Account>): Account {
 }
 
 describe('AccountStatusIndicator', () => {
+  it('将旧版 disabled 账号状态按 inactive 文案显示', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          status: 'disabled' as Account['status']
+        })
+      },
+      global: {
+        stubs: {
+          Icon: true
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('admin.accounts.status.inactive')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.disabled')
+  })
+
   it('模型限流 + overages 启用 + 无 AICredits key → 显示 ⚡ (credits_active)', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {

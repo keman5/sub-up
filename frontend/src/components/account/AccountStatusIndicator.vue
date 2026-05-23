@@ -338,7 +338,7 @@ const statusText = computed(() => {
     return t('admin.accounts.status.tempUnschedulable')
   }
   if (props.account.status !== 'active') {
-    return t(`admin.accounts.status.${props.account.status}`)
+    return t(`admin.accounts.status.${normalizeAccountStatusLabelKey(props.account.status)}`)
   }
   if (isQuotaExceeded.value) {
     return t('admin.accounts.status.quotaExceeded')
@@ -348,6 +348,10 @@ const statusText = computed(() => {
   }
   return t(`admin.accounts.status.${props.account.status}`)
 })
+
+const normalizeAccountStatusLabelKey = (status: string): string => {
+  return status === 'disabled' ? 'inactive' : status
+}
 
 const handleTempUnschedClick = () => {
   if (!isTempUnschedulable.value) return
