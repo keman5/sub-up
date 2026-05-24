@@ -159,7 +159,7 @@
             >
               <Icon name="questionCircle" size="md" />
             </button>
-            <button @click="showAssignModal = true" class="btn btn-primary">
+            <button @click="openAssignModal" class="btn btn-primary">
               <Icon name="plus" size="md" class="mr-2" />
               {{ t('admin.subscriptions.assignSubscription') }}
             </button>
@@ -455,8 +455,8 @@
               @focus="showUserDropdown = true"
             />
             <button
-              v-if="selectedUser"
-              @click="clearUserSelection"
+              v-if="userSearchKeyword"
+              @click="clearUserSearch"
               type="button"
               class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
             >
@@ -464,31 +464,97 @@
             </button>
             <!-- User Dropdown -->
             <div
-              v-if="showUserDropdown && (userSearchResults.length > 0 || userSearchKeyword)"
-              class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800"
+              v-if="showAssignModal"
+              class="mt-1 max-h-60 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800"
             >
-              <div
-                v-if="userSearchLoading"
-                class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-              >
+              <div class="flex items-center justify-between border-b border-gray-100 px-3 py-2 dark:border-gray-700">
+                <span class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {{
+                    userSearchKeyword.trim()
+                      ? t('admin.subscriptions.userPicker.searchResults')
+                      : t('admin.subscriptions.userPicker.recentUsers')
+                  }}
+                </span>
+                <button
+                  v-if="userSearchResults.length > 0"
+                  type="button"
+                  class="text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                  @click.stop="selectAllVisibleAssignUsers"
+                >
+                  {{ t('admin.subscriptions.userPicker.selectAllCurrent') }}
+                </button>
+              </div>
+              <div v-if="userSearchLoading" class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                 {{ t('common.loading') }}
               </div>
-              <div
-                v-else-if="userSearchResults.length === 0 && userSearchKeyword"
-                class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-              >
-                {{ t('common.noOptionsFound') }}
+              <div v-else-if="userSearchResults.length === 0" class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                {{
+                  userSearchKeyword.trim()
+                    ? t('common.noOptionsFound')
+                    : t('admin.subscriptions.userPicker.noRecentUsers')
+                }}
               </div>
+              <div v-else class="py-1">
+                <button
+                  v-for="user in userSearchResults"
+                  :key="user.id"
+                  type="button"
+                  @click="toggleAssignUser(user)"
+                  class="flex w-full items-center justify-between gap-3 px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <span class="min-w-0">
+                    <span class="block truncate font-medium text-gray-900 dark:text-white">{{ user.email }}</span>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">#{{ user.id }}</span>
+                  </span>
+                  <span
+                    :class="[
+                      'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+                      isAssignUserSelected(user.id)
+                        ? 'border-primary-500 bg-primary-500 text-white'
+                        : 'border-gray-300 text-transparent dark:border-gray-600'
+                    ]"
+                  >
+                    <Icon name="check" size="xs" :stroke-width="3" />
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-dark-700/50">
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-200">
+                {{ t('admin.subscriptions.userPicker.selectedUsers') }}
+                <span class="text-gray-500 dark:text-gray-400">({{ selectedAssignUsers.length }})</span>
+              </span>
               <button
-                v-for="user in userSearchResults"
-                :key="user.id"
+                v-if="selectedAssignUsers.length > 0"
                 type="button"
-                @click="selectUser(user)"
-                class="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                class="text-xs font-medium text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400"
+                @click="clearSelectedAssignUsers"
               >
-                <span class="font-medium text-gray-900 dark:text-white">{{ user.email }}</span>
-                <span class="ml-2 text-gray-500 dark:text-gray-400">#{{ user.id }}</span>
+                {{ t('admin.subscriptions.userPicker.clearSelected') }}
               </button>
+            </div>
+            <div v-if="selectedAssignUsers.length === 0" class="text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.subscriptions.userPicker.emptySelected') }}
+            </div>
+            <div v-else class="flex max-h-28 flex-wrap gap-2 overflow-auto">
+              <span
+                v-for="user in selectedAssignUsers"
+                :key="user.id"
+                class="inline-flex max-w-full items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs text-gray-700 ring-1 ring-gray-200 dark:bg-dark-800 dark:text-gray-200 dark:ring-gray-600"
+              >
+                <span class="max-w-[220px] truncate">{{ user.email }}</span>
+                <span class="text-gray-400">#{{ user.id }}</span>
+                <button
+                  type="button"
+                  class="text-gray-400 hover:text-red-500"
+                  :title="t('common.delete')"
+                  @click="removeAssignUser(user.id)"
+                >
+                  <Icon name="x" size="xs" />
+                </button>
+              </span>
             </div>
           </div>
         </div>
@@ -559,7 +625,13 @@
                 d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
               ></path>
             </svg>
-            {{ submitting ? t('admin.subscriptions.assigning') : t('admin.subscriptions.assign') }}
+            {{
+              submitting
+                ? t('admin.subscriptions.assigning')
+                : selectedAssignUsers.length > 1
+                  ? t('admin.subscriptions.assignToUsers', { count: selectedAssignUsers.length })
+                  : t('admin.subscriptions.assign')
+            }}
           </button>
         </div>
       </template>
@@ -742,7 +814,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
-import type { UserSubscription, Group, GroupPlatform, SubscriptionType } from '@/types'
+import type { AdminUser, UserSubscription, Group, GroupPlatform, SubscriptionType } from '@/types'
 import type { SimpleUser } from '@/api/admin/usage'
 import type { Column } from '@/components/common/types'
 import { formatDateOnly } from '@/utils/format'
@@ -913,7 +985,7 @@ const userSearchKeyword = ref('')
 const userSearchResults = ref<SimpleUser[]>([])
 const userSearchLoading = ref(false)
 const showUserDropdown = ref(false)
-const selectedUser = ref<SimpleUser | null>(null)
+const selectedAssignUsers = ref<SimpleUser[]>([])
 let userSearchTimeout: ReturnType<typeof setTimeout> | null = null
 
 const filters = reactive({
@@ -947,7 +1019,6 @@ const extendingSubscription = ref<UserSubscription | null>(null)
 const revokingSubscription = ref<UserSubscription | null>(null)
 
 const assignForm = reactive({
-  user_id: null as number | null,
   group_id: null as number | null,
   validity_days: 30
 })
@@ -1091,6 +1162,69 @@ const clearFilterUser = () => {
   applyFilters()
 }
 
+const toSimpleUser = (user: Pick<AdminUser, 'id' | 'email'>): SimpleUser => ({
+  id: user.id,
+  email: user.email
+})
+
+const openAssignModal = () => {
+  showAssignModal.value = true
+  showUserDropdown.value = true
+  loadRecentAssignUsers()
+}
+
+const loadRecentAssignUsers = async () => {
+  userSearchLoading.value = true
+  try {
+    const response = await adminAPI.users.list(1, 30, {
+      role: 'user',
+      sort_by: 'created_at',
+      sort_order: 'desc'
+    })
+    userSearchResults.value = response.items.map(toSimpleUser)
+  } catch (error) {
+    console.error('Failed to load recent users:', error)
+    userSearchResults.value = []
+  } finally {
+    userSearchLoading.value = false
+  }
+}
+
+const isAssignUserSelected = (userId: number) =>
+  selectedAssignUsers.value.some((user) => user.id === userId)
+
+const addAssignUser = (user: SimpleUser) => {
+  if (!isAssignUserSelected(user.id)) {
+    selectedAssignUsers.value.push(user)
+  }
+}
+
+const removeAssignUser = (userId: number) => {
+  selectedAssignUsers.value = selectedAssignUsers.value.filter((user) => user.id !== userId)
+}
+
+const toggleAssignUser = (user: SimpleUser) => {
+  if (isAssignUserSelected(user.id)) {
+    removeAssignUser(user.id)
+  } else {
+    addAssignUser(user)
+  }
+}
+
+const selectAllVisibleAssignUsers = () => {
+  userSearchResults.value.forEach(addAssignUser)
+}
+
+const clearSelectedAssignUsers = () => {
+  selectedAssignUsers.value = []
+}
+
+const clearUserSearch = () => {
+  userSearchKeyword.value = ''
+  showUserDropdown.value = true
+  loadRecentAssignUsers()
+}
+
 // User search with debounce
 const debounceSearchUsers = () => {
   if (userSearchTimeout) {
@@ -1102,14 +1236,8 @@ const debounceSearchUsers = () => {
 const searchUsers = async () => {
   const keyword = userSearchKeyword.value.trim()
 
-  // Clear selection if user modified the search keyword
-  if (selectedUser.value && keyword !== selectedUser.value.email) {
-    selectedUser.value = null
-    assignForm.user_id = null
-  }
-
   if (!keyword) {
-    userSearchResults.value = []
+    await loadRecentAssignUsers()
     return
   }
 
@@ -1122,20 +1250,6 @@ const searchUsers = async () => {
   } finally {
     userSearchLoading.value = false
   }
-}
-
-const selectUser = (user: SimpleUser) => {
-  selectedUser.value = user
-  userSearchKeyword.value = user.email
-  showUserDropdown.value = false
-  assignForm.user_id = user.id
-}
-
-const clearUserSelection = () => {
-  selectedUser.value = null
-  userSearchKeyword.value = ''
-  userSearchResults.value = []
-  assignForm.user_id = null
 }
 
 const handlePageChange = (page: number) => {
@@ -1158,18 +1272,18 @@ const handleSort = (key: string, order: 'asc' | 'desc') => {
 
 const closeAssignModal = () => {
   showAssignModal.value = false
-  assignForm.user_id = null
   assignForm.group_id = null
   assignForm.validity_days = 30
   // Clear user search state
-  selectedUser.value = null
+  selectedAssignUsers.value = []
   userSearchKeyword.value = ''
   userSearchResults.value = []
   showUserDropdown.value = false
 }
 
 const handleAssignSubscription = async () => {
-  if (!assignForm.user_id) {
+  const userIds = selectedAssignUsers.value.map((user) => user.id)
+  if (userIds.length === 0) {
     appStore.showError(t('admin.subscriptions.pleaseSelectUser'))
     return
   }
@@ -1184,12 +1298,24 @@ const handleAssignSubscription = async () => {
 
   submitting.value = true
   try {
-    await adminAPI.subscriptions.assign({
-      user_id: assignForm.user_id,
-      group_id: assignForm.group_id,
-      validity_days: assignForm.validity_days
-    })
-    appStore.showSuccess(t('admin.subscriptions.subscriptionAssigned'))
+    if (userIds.length === 1) {
+      await adminAPI.subscriptions.assign({
+        user_id: userIds[0],
+        group_id: assignForm.group_id,
+        validity_days: assignForm.validity_days
+      })
+    } else {
+      await adminAPI.subscriptions.bulkAssign({
+        user_ids: userIds,
+        group_id: assignForm.group_id,
+        validity_days: assignForm.validity_days
+      })
+    }
+    appStore.showSuccess(
+      userIds.length > 1
+        ? t('admin.subscriptions.subscriptionsAssigned', { count: userIds.length })
+        : t('admin.subscriptions.subscriptionAssigned')
+    )
     closeAssignModal()
     loadSubscriptions()
   } catch (error: any) {

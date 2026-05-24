@@ -1,7 +1,22 @@
+function resolveAppUrl(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const configuredOrigin = import.meta.env.VITE_HOME_APP_ORIGIN?.trim().replace(/\/+$/, '')
+
+  if (!configuredOrigin) {
+    return normalizedPath
+  }
+
+  try {
+    return new URL(normalizedPath, `${configuredOrigin}/`).toString()
+  } catch {
+    return normalizedPath
+  }
+}
+
 export const externalAppUrls = {
-  login: 'https://ai.upit.top/login',
-  register: 'https://ai.upit.top/register',
-  console: '/admin/dashboard'
+  login: resolveAppUrl('/login'),
+  register: resolveAppUrl('/register'),
+  console: resolveAppUrl('/dashboard')
 } as const
 
 export type HeroCodeTab = 'mac' | 'windows' | 'python'

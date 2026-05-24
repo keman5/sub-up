@@ -298,6 +298,16 @@
                   ⟳ {{ formatResetTime(row.reset_7d_at) }}
                 </div>
               </div>
+              <!-- Reset button -->
+              <button
+                v-if="row.usage_5h > 0 || row.usage_1d > 0 || row.usage_7d > 0"
+                @click.stop="confirmResetRateLimitFromTable(row)"
+                class="mt-0.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                :title="t('keys.resetRateLimitUsage')"
+              >
+                <Icon name="refresh" size="xs" />
+                {{ t('keys.resetUsage') }}
+              </button>
             </div>
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
@@ -1702,9 +1712,9 @@ const confirmResetRateLimit = () => {
 }
 
 // Show reset rate limit confirmation dialog (from table row)
-const confirmResetRateLimitFromTable = (row: ApiKey, window: RateLimitWindow) => {
+const confirmResetRateLimitFromTable = (row: ApiKey, window?: RateLimitWindow) => {
   selectedKey.value = row
-  pendingRateLimitWindow.value = window
+  pendingRateLimitWindow.value = window ?? null
   showResetRateLimitDialog.value = true
 }
 

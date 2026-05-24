@@ -666,8 +666,10 @@
   /* ============ 模态框 ============ */
   .modal-overlay {
     @apply fixed inset-0 z-50;
-    @apply bg-black/50 backdrop-blur-sm;
+    @apply bg-black/50;
     @apply flex items-center justify-center p-2 sm:p-4;
+    overflow: hidden;
+    overscroll-behavior: contain;
   }
 
   .modal-content {
@@ -677,6 +679,8 @@
     @apply rounded-2xl shadow-2xl;
     @apply border border-gray-200 dark:border-dark-700;
     @apply flex flex-col;
+    backface-visibility: hidden;
+    transform: translateZ(0);
   }
 
   .modal-header {
@@ -704,8 +708,10 @@
   }
 
   /* 防止body滚动的工具类 */
+  html.modal-open,
   body.modal-open {
     overflow: hidden;
+    overscroll-behavior: none;
   }
 
   .modal-enter-active {

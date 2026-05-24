@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterView, useRouter, useRoute } from 'vue-router'
-import { onMounted, onBeforeUnmount, watch } from 'vue'
+import { onBeforeUnmount, watch } from 'vue'
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
 import { resolveDocumentTitle } from '@/router/title'
@@ -14,6 +14,7 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
+let routeSetupCheckSeq = 0
 
 /**
  * Update favicon dynamically
@@ -91,7 +92,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
-onMounted(async () => {
+async function initializeRouteEnvironment() {
+  const seq = ++routeSetupCheckSeq
   const isStaticHome = route.path === '/' || route.path === '/home'
   if (isStaticHome) {
     document.title = '51token 算力'
@@ -102,8 +104,12 @@ onMounted(async () => {
   // Check if setup is needed
   try {
     const status = await getSetupStatus()
+    if (seq !== routeSetupCheckSeq) return
     if (status.needs_setup && route.path !== '/setup') {
       router.replace('/setup')
+      return
+    }
+    if (status.needs_setup) {
       return
     }
   } catch {
@@ -112,10 +118,19 @@ onMounted(async () => {
 
   // Load public settings into appStore (will be cached for other components)
   await appStore.fetchPublicSettings()
+  if (seq !== routeSetupCheckSeq) return
 
   // Re-resolve document title now that siteName is available
   document.title = resolveDocumentTitle(route.meta.title, appStore.siteName, route.meta.titleKey as string)
-})
+}
+
+watch(
+  () => route.fullPath,
+  () => {
+    void initializeRouteEnvironment()
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
