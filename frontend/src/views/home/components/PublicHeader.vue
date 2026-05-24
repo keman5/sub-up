@@ -13,15 +13,15 @@
           <router-link to="/" class="home-nav-link home-nav-link-active">主页</router-link>
           <a :href="externalAppUrls.console" class="home-nav-link">控制台</a>
           <div class="mx-2 h-4 w-px bg-[var(--border)]"></div>
-          <button class="home-icon-button" :title="isDark ? '切换浅色' : '切换深色'" @click="toggleTheme">
-            <Icon v-if="isDark" name="sun" size="md" />
-            <Icon v-else name="moon" size="md" />
-          </button>
+          <ThemeSwitcher icon-only />
         </div>
 
-        <button class="home-icon-button sm:hidden" aria-label="打开菜单" @click="mobileOpen = true">
-          <Icon name="menu" size="md" />
-        </button>
+        <div class="flex items-center gap-2 sm:hidden">
+          <ThemeSwitcher icon-only />
+          <button class="home-icon-button" aria-label="打开菜单" @click="mobileOpen = true">
+            <Icon name="menu" size="md" />
+          </button>
+        </div>
       </nav>
     </div>
 
@@ -45,18 +45,12 @@
 
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue'
+import ThemeSwitcher from '@/components/common/ThemeSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
 import SiteLogo from './SiteLogo.vue'
 import { externalAppUrls } from './homeData'
 
 const mobileOpen = ref(false)
-const isDark = ref(document.documentElement.classList.contains('dark'))
-
-function toggleTheme() {
-  isDark.value = !isDark.value
-  document.documentElement.classList.toggle('dark', isDark.value)
-  localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
-}
 
 watch(mobileOpen, (open) => {
   document.body.style.overflow = open ? 'hidden' : ''

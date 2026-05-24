@@ -7,44 +7,116 @@ export const externalAppUrls = {
 export type HeroCodeTab = 'mac' | 'windows' | 'python'
 
 export const heroTabs: Array<{ id: HeroCodeTab; label: string }> = [
-  { id: 'mac', label: 'macOS/Linux' },
+  { id: 'mac', label: 'macOS / Linux' },
   { id: 'windows', label: 'Windows' },
   { id: 'python', label: 'integration.py' }
 ]
 
-export const heroSnippets: Record<HeroCodeTab, string> = {
-  mac: `# macOS / Linux 环境设置命令
+export type HeroSnippetBlock = {
+  id: string
+  title: string
+  description: string
+  language: string
+  code: string
+}
 
-# 临时设置 (当前终端有效)
-export OPENAI_API_BASE="https://api.upit.top/51Token/v1"
-export OPENAI_API_KEY="sk-gw-xxxxxxxx"
+const codexAuthJson = `{
+  "OPENAI_API_KEY": "sk-key"
+}`
 
-# 永久设置
-echo 'export OPENAI_API_BASE="https://api.upit.top/51Token/v1"' >> ~/.zshrc
-echo 'export OPENAI_API_KEY="sk-gw-xxxxxxxx"' >> ~/.zshrc
-source ~/.zshrc`,
-  windows: `# Windows 环境设置命令 (cmd / powershell)
+const codexConfigToml = `model = "gpt-5.5"
+model_provider = "51token"
+review_model = "gpt-5.4"
+web_search = "live"
 
-# 临时设置 (当前控制台有效)
-set OPENAI_API_BASE=https://api.upit.top/51Token/v1
-set OPENAI_API_KEY=sk-gw-xxxxxxxx
+[model_providers.51token]
+name = "51token"
+approval_policy = "on-request"
+base_url = "https://api.upit.top/51token/v1"
+sandbox_mode = "workspace-write" # 或 "danger-full-access"
+wire_api = "responses"`
 
-# 永久设置 (修改系统变量)
-setx OPENAI_API_BASE "https://api.upit.top/51Token/v1"
-setx OPENAI_API_KEY "sk-gw-xxxxxxxx"`,
-  python: `import openai
+const claudeConfigJson = `{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "不带sk-开头",
+    "ANTHROPIC_BASE_URL": "https://api.upit.top/51token",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.4",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.5",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.5",
+    "ANTHROPIC_MODEL": "gpt-5.3-codex",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "gpt-5.5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "gpt-5.5"
+  }
+}`
 
-# 只需要修改两行代码，无缝切换至 Gateway
-openai.api_base = "https://api.upit.top/51Token/v1"
-openai.api_key = "sk-gw-xxxxxxxx"
+export const heroSnippetBlocks: Record<HeroCodeTab, HeroSnippetBlock[]> = {
+  mac: [
+    {
+      id: 'codex-auth',
+      title: 'Codex 配置',
+      description: '1. 使用 vi ~/.codex/auth.json 全部覆盖',
+      language: 'json',
+      code: codexAuthJson
+    },
+    {
+      id: 'codex-config',
+      title: '',
+      description: '2. 使用 vi ~/.codex/config.toml 加入以下内容',
+      language: 'toml',
+      code: codexConfigToml
+    },
+    {
+      id: 'claude-config',
+      title: 'Claude 配置',
+      description: '将环境变量配置为以下内容',
+      language: 'json',
+      code: claudeConfigJson
+    }
+  ],
+  windows: [
+    {
+      id: 'codex-auth',
+      title: 'Codex 配置',
+      description: '1. 使用 notepad %USERPROFILE%\\.codex\\auth.json 全部覆盖',
+      language: 'json',
+      code: codexAuthJson
+    },
+    {
+      id: 'codex-config',
+      title: '',
+      description: '2. 使用 notepad %USERPROFILE%\\.codex\\config.toml 加入以下内容',
+      language: 'toml',
+      code: codexConfigToml
+    },
+    {
+      id: 'claude-config',
+      title: 'Claude 配置',
+      description: '将环境变量配置为以下内容',
+      language: 'json',
+      code: claudeConfigJson
+    }
+  ],
+  python: [
+    {
+      id: 'python-sdk',
+      title: 'OpenAI SDK 接入示例',
+      description: '使用兼容 OpenAI Responses API 的 Python SDK 调用示例',
+      language: 'python',
+      code: `from openai import OpenAI
 
-# 像往常一样发请求，内部自动映射加速
-response = openai.ChatCompletion.create(
-  model="codex-pro",
-  messages=[{"role": "user", "content": "写一个快排算法"}]
+client = OpenAI(
+    api_key="sk-key",
+    base_url="https://api.upit.top/51token/v1",
 )
 
-print(response.choices[0].message.content)`
+response = client.responses.create(
+    model="gpt-5.5",
+    input="写一个快排算法",
+)
+
+print(response.output_text)`
+    }
+  ]
 }
 
 export type IntegrationTab = 'python' | 'nodejs' | 'curl' | 'langchain'
@@ -153,11 +225,11 @@ export const featureCards = [
 export const pricingPlans = [
   {
     name: '基础开发者',
-    price: '80',
+    price: '75',
     frequency: '/ 个',
     description: '适用于个人开发者测试与小规模内部系统接入。',
     features: [
-      '$500 固定额度',
+      '$300 固定额度',
       '不限使用时间，用完即止',
       '共享 Codex 基础速率',
       '基础并发限流 (3次/秒)',
@@ -169,11 +241,11 @@ export const pricingPlans = [
   },
   {
     name: 'Plus 资源合租',
-    price: '120',
+    price: '128',
     frequency: '/ 个',
     description: '独立团队或中小型企业，平摊高昂的 Plus 账号费用。',
     features: [
-      '$850 固定额度',
+      '$600 固定额度',
       '不限使用时间，用完即止',
       '独享或少量共享的 Plus 级速率',
       '放宽并发限制 (20次/秒)',
@@ -186,11 +258,11 @@ export const pricingPlans = [
   },
   {
     name: 'Pro 资源合租',
-    price: '400',
-    frequency: '/ 个',
+    price: '300',
+    frequency: '/ 月',
     description: '为高端业务场景定制，提供无缝的 Pro 层级极致体验。',
     features: [
-      '$2500 固定额度',
+      '$2000 固定额度',
       '按官方 5 小时限额与周限额同步使用',
       '独享或高级优化的 Pro 级速率',
       '极致并发与极低延迟节点',
@@ -204,12 +276,12 @@ export const pricingPlans = [
 ] as const
 
 export const shortTermPlans = [
-  { name: '1日小包', price: '5', tokens: '$33 额度', equivalent: '适合轻量测试与临时验证' },
-  { name: '1日中包', price: '15', tokens: '$100 额度', equivalent: '适合一天内集中开发调试' },
-  { name: '1日大包', price: '30', tokens: '$200 额度', equivalent: '适合短期演示与高频测试' },
-  { name: '1周小包', price: '35', tokens: '$233 额度', equivalent: '适合一周内低频稳定使用' },
-  { name: '1周中包', price: '84', tokens: '$560 额度', equivalent: '适合小团队阶段性开发' },
-  { name: '1周大包', price: '168', tokens: '$1120 额度', equivalent: '适合高频开发与项目冲刺' }
+  { name: '1日小包', price: '5', tokens: '$20 额度', equivalent: '适合轻量测试与临时验证' },
+  { name: '1日中包', price: '15', tokens: '$60 额度', equivalent: '适合一天内集中开发调试' },
+  { name: '1日大包', price: '40', tokens: '$160 额度', equivalent: '适合短期演示与高频测试' },
+  { name: '1周小包', price: '35', tokens: '$140 额度', equivalent: '适合一周内低频稳定使用' },
+  { name: '1周中包', price: '84', tokens: '$336 额度', equivalent: '适合小团队阶段性开发' },
+  { name: '1周大包', price: '168', tokens: '$672 额度', equivalent: '适合高频开发与项目冲刺' }
 ] as const
 
 export const faqs = [

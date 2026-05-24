@@ -62,8 +62,29 @@
                 </button>
               </div>
             </div>
-            <div class="flex min-h-[18rem] w-full items-center overflow-x-auto p-5 sm:p-6">
-              <pre class="font-mono text-sm leading-relaxed break-all whitespace-pre-wrap"><code class="text-foreground/90">{{ activeSnippet }}</code></pre>
+            <div class="max-h-[32rem] min-h-[18rem] w-full overflow-auto p-4 sm:p-5">
+              <div class="space-y-4">
+                <div v-for="block in activeBlocks" :key="block.id" class="space-y-2">
+                  <div>
+                    <p v-if="block.title" class="text-sm font-semibold text-foreground">{{ block.title }}</p>
+                    <p class="mt-0.5 text-xs leading-relaxed text-muted-foreground">{{ block.description }}</p>
+                  </div>
+                  <div class="overflow-hidden rounded-lg border border-white/10 bg-[#0b1020] shadow-inner">
+                    <div class="relative">
+                      <button
+                        type="button"
+                        class="absolute top-3 right-3 z-10 inline-flex shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.08] px-2.5 py-1.5 text-xs font-medium text-slate-200 backdrop-blur transition-colors hover:bg-white/[0.12]"
+                        :aria-label="copiedBlockId === block.id ? '已复制当前代码' : '复制当前代码'"
+                        @click="copySnippetBlock(block)"
+                      >
+                        <Icon :name="copiedBlockId === block.id ? 'check' : 'copy'" size="xs" :stroke-width="2" />
+                        {{ copiedBlockId === block.id ? '已复制' : '复制' }}
+                      </button>
+                      <pre class="overflow-auto p-4 font-mono text-sm leading-relaxed whitespace-pre"><code class="text-slate-100">{{ block.code }}</code></pre>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -75,13 +96,34 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import Icon from '@/components/icons/Icon.vue'
-import { externalAppUrls, heroSnippets, heroTabs, type HeroCodeTab } from './homeData'
+import {
+  externalAppUrls,
+  heroSnippetBlocks,
+  heroTabs,
+  type HeroCodeTab,
+  type HeroSnippetBlock
+} from './homeData'
 
 const activeTab = ref<HeroCodeTab>('mac')
 const cachedAuthenticated = ref(false)
+const copiedBlockId = ref<string | null>(null)
+let copyResetTimer: ReturnType<typeof setTimeout> | undefined
 
-const activeSnippet = computed(() => heroSnippets[activeTab.value])
+const activeBlocks = computed(() => heroSnippetBlocks[activeTab.value])
 const primaryActionHref = computed(() => (cachedAuthenticated.value ? '#pricing' : externalAppUrls.login))
+
+async function copySnippetBlock(block: HeroSnippetBlock) {
+  try {
+    await navigator.clipboard.writeText(block.code)
+    copiedBlockId.value = block.id
+    if (copyResetTimer) clearTimeout(copyResetTimer)
+    copyResetTimer = setTimeout(() => {
+      copiedBlockId.value = null
+    }, 1600)
+  } catch {
+    copiedBlockId.value = null
+  }
+}
 
 function scrollToPricing(event: MouseEvent) {
   const pricing = document.getElementById('pricing')

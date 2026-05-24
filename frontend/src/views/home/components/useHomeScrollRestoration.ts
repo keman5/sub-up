@@ -64,6 +64,16 @@ function withInstantScroll(callback: () => void) {
   root.style.scrollBehavior = previousScrollBehavior
 }
 
+function getHashTarget() {
+  if (!window.location.hash) return null
+
+  try {
+    return decodeURIComponent(window.location.hash.slice(1))
+  } catch (_) {
+    return window.location.hash.slice(1)
+  }
+}
+
 export function useHomeScrollRestoration(enabled: boolean) {
   let saveFrameId = 0
   let restoreFrameId = 0
@@ -94,14 +104,48 @@ export function useHomeScrollRestoration(enabled: boolean) {
     document.documentElement.classList.remove('home-scroll-restoring')
   }
 
+  const restoreHashPosition = () => {
+    const targetId = getHashTarget()
+    if (!targetId) return false
+
+    let attempts = 0
+
+    const restore = () => {
+      attempts += 1
+      const target = document.getElementById(targetId)
+
+      if (target) {
+        withInstantScroll(() => {
+          target.scrollIntoView({ behavior: 'auto', block: 'start' })
+        })
+        restoreFrameId = window.requestAnimationFrame(revealHome)
+        return
+      }
+
+      if (attempts >= 30) {
+        revealHome()
+        return
+      }
+
+      restoreTimeoutId = window.setTimeout(restore, 50)
+    }
+
+    restoreFrameId = window.requestAnimationFrame(restore)
+    return true
+  }
+
   const restoreScrollPosition = () => {
     if ('scrollRestoration' in window.history) {
       window.history.scrollRestoration = 'manual'
     }
 
+    if (enabled && restoreHashPosition()) {
+      return
+    }
+
     const isProtectedRestore = document.documentElement.classList.contains('home-scroll-restoring')
 
-    if (!enabled || window.location.hash || (!isProtectedRestore && !shouldRestoreScroll())) {
+    if (!enabled || (!isProtectedRestore && !shouldRestoreScroll())) {
       revealHome()
       return
     }
@@ -166,6 +210,7 @@ export function useHomeScrollRestoration(enabled: boolean) {
     key = getCurrentScrollKey()
     restoreScrollPosition()
     window.addEventListener('scroll', handleScroll, { passive: true })
+    window.addEventListener('hashchange', restoreScrollPosition)
     window.addEventListener('pagehide', handlePageExit)
     window.addEventListener('beforeunload', handlePageExit)
   })
@@ -176,6 +221,7 @@ export function useHomeScrollRestoration(enabled: boolean) {
     if (restoreFrameId) window.cancelAnimationFrame(restoreFrameId)
     if (restoreTimeoutId) window.clearTimeout(restoreTimeoutId)
     window.removeEventListener('scroll', handleScroll)
+    window.removeEventListener('hashchange', restoreScrollPosition)
     window.removeEventListener('pagehide', handlePageExit)
     window.removeEventListener('beforeunload', handlePageExit)
   })

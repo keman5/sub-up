@@ -608,6 +608,7 @@ export interface UpdateApiKeyRequest {
   rate_limit_1d?: number
   rate_limit_7d?: number
   reset_rate_limit_usage?: boolean
+  reset_rate_limit_window?: '5h' | '1d' | '7d'
 }
 
 export interface CreateGroupRequest {

@@ -181,7 +181,19 @@
               <!-- 5h window -->
               <div v-if="row.rate_limit_5h > 0">
                 <div class="flex items-center justify-between text-xs">
-                  <span class="text-gray-500 dark:text-gray-400">5h</span>
+                  <div class="flex items-center gap-1">
+                    <span class="text-gray-500 dark:text-gray-400">5h</span>
+                    <button
+                      v-if="row.usage_5h > 0"
+                      type="button"
+                      class="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                      :title="t('keys.resetRateLimitWindowUsage', { window: formatRateLimitWindowLabel('5h') })"
+                      :aria-label="t('keys.resetRateLimitWindowUsage', { window: formatRateLimitWindowLabel('5h') })"
+                      @click.stop="confirmResetRateLimitFromTable(row, '5h')"
+                    >
+                      <Icon name="refresh" size="xs" />
+                    </button>
+                  </div>
                   <span :class="[
                     'font-medium tabular-nums',
                     row.usage_5h >= row.rate_limit_5h ? 'text-red-500' :
@@ -209,7 +221,19 @@
               <!-- 1d window -->
               <div v-if="row.rate_limit_1d > 0">
                 <div class="flex items-center justify-between text-xs">
-                  <span class="text-gray-500 dark:text-gray-400">1d</span>
+                  <div class="flex items-center gap-1">
+                    <span class="text-gray-500 dark:text-gray-400">1d</span>
+                    <button
+                      v-if="row.usage_1d > 0"
+                      type="button"
+                      class="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                      :title="t('keys.resetRateLimitWindowUsage', { window: formatRateLimitWindowLabel('1d') })"
+                      :aria-label="t('keys.resetRateLimitWindowUsage', { window: formatRateLimitWindowLabel('1d') })"
+                      @click.stop="confirmResetRateLimitFromTable(row, '1d')"
+                    >
+                      <Icon name="refresh" size="xs" />
+                    </button>
+                  </div>
                   <span :class="[
                     'font-medium tabular-nums',
                     row.usage_1d >= row.rate_limit_1d ? 'text-red-500' :
@@ -237,7 +261,19 @@
               <!-- 7d window -->
               <div v-if="row.rate_limit_7d > 0">
                 <div class="flex items-center justify-between text-xs">
-                  <span class="text-gray-500 dark:text-gray-400">7d</span>
+                  <div class="flex items-center gap-1">
+                    <span class="text-gray-500 dark:text-gray-400">7d</span>
+                    <button
+                      v-if="row.usage_7d > 0"
+                      type="button"
+                      class="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                      :title="t('keys.resetRateLimitWindowUsage', { window: formatRateLimitWindowLabel('7d') })"
+                      :aria-label="t('keys.resetRateLimitWindowUsage', { window: formatRateLimitWindowLabel('7d') })"
+                      @click.stop="confirmResetRateLimitFromTable(row, '7d')"
+                    >
+                      <Icon name="refresh" size="xs" />
+                    </button>
+                  </div>
                   <span :class="[
                     'font-medium tabular-nums',
                     row.usage_7d >= row.rate_limit_7d ? 'text-red-500' :
@@ -262,16 +298,6 @@
                   ⟳ {{ formatResetTime(row.reset_7d_at) }}
                 </div>
               </div>
-              <!-- Reset button -->
-              <button
-                v-if="row.usage_5h > 0 || row.usage_1d > 0 || row.usage_7d > 0"
-                @click.stop="confirmResetRateLimitFromTable(row)"
-                class="mt-0.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
-                :title="t('keys.resetRateLimitUsage')"
-              >
-                <Icon name="refresh" size="xs" />
-                {{ t('keys.resetUsage') }}
-              </button>
             </div>
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
@@ -912,12 +938,19 @@
     <ConfirmDialog
       :show="showResetRateLimitDialog"
       :title="t('keys.resetRateLimitTitle')"
-      :message="t('keys.resetRateLimitConfirmMessage', { name: selectedKey?.name })"
+      :message="
+        pendingRateLimitWindow
+          ? t('keys.resetRateLimitWindowConfirmMessage', {
+              name: selectedKey?.name,
+              window: formatRateLimitWindowLabel(pendingRateLimitWindow)
+            })
+          : t('keys.resetRateLimitConfirmMessage', { name: selectedKey?.name })
+      "
       :confirm-text="t('keys.reset')"
       :cancel-text="t('common.cancel')"
       :danger="true"
       @confirm="resetRateLimitUsage"
-      @cancel="showResetRateLimitDialog = false"
+      @cancel="cancelResetRateLimit"
     />
 
     <!-- Use Key Modal -->
@@ -1095,6 +1128,8 @@ interface GroupOption {
   platform: GroupPlatform
 }
 
+type RateLimitWindow = '5h' | '1d' | '7d'
+
 const appStore = useAppStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
@@ -1142,6 +1177,7 @@ const showEditModal = ref(false)
 const showDeleteDialog = ref(false)
 const showResetQuotaDialog = ref(false)
 const showResetRateLimitDialog = ref(false)
+const pendingRateLimitWindow = ref<RateLimitWindow | null>(null)
 const showUseKeyModal = ref(false)
 const showCcsClientSelect = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
@@ -1661,13 +1697,26 @@ const resetQuotaUsed = async () => {
 
 // Show reset rate limit confirmation dialog (from edit modal)
 const confirmResetRateLimit = () => {
+  pendingRateLimitWindow.value = null
   showResetRateLimitDialog.value = true
 }
 
 // Show reset rate limit confirmation dialog (from table row)
-const confirmResetRateLimitFromTable = (row: ApiKey) => {
+const confirmResetRateLimitFromTable = (row: ApiKey, window: RateLimitWindow) => {
   selectedKey.value = row
+  pendingRateLimitWindow.value = window
   showResetRateLimitDialog.value = true
+}
+
+const cancelResetRateLimit = () => {
+  showResetRateLimitDialog.value = false
+  pendingRateLimitWindow.value = null
+}
+
+function formatRateLimitWindowLabel(window: RateLimitWindow): string {
+  if (window === '5h') return t('keys.rateLimit5h')
+  if (window === '1d') return t('keys.rateLimit1d')
+  return t('keys.rateLimit7d')
 }
 
 // Reset rate limit usage for an API key
@@ -1675,7 +1724,12 @@ const resetRateLimitUsage = async () => {
   if (!selectedKey.value) return
   showResetRateLimitDialog.value = false
   try {
-    await keysAPI.update(selectedKey.value.id, { reset_rate_limit_usage: true })
+    await keysAPI.update(
+      selectedKey.value.id,
+      pendingRateLimitWindow.value
+        ? { reset_rate_limit_window: pendingRateLimitWindow.value }
+        : { reset_rate_limit_usage: true }
+    )
     appStore.showSuccess(t('keys.rateLimitResetSuccess'))
     // Refresh key data
     await loadApiKeys()
@@ -1687,6 +1741,8 @@ const resetRateLimitUsage = async () => {
   } catch (error: any) {
     const errorMsg = error.response?.data?.detail || t('keys.failedToResetRateLimit')
     appStore.showError(errorMsg)
+  } finally {
+    pendingRateLimitWindow.value = null
   }
 }
 

@@ -280,7 +280,11 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	preUpstreamKeepalive := s.startAnthropicPreUpstreamKeepalive(c, clientStream)
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	if preUpstreamKeepalive != nil {
+		preUpstreamKeepalive.stop()
+	}
 	if err != nil {
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
 		setOpsUpstreamError(c, 0, safeErr, "")
@@ -292,7 +296,11 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			Kind:               "request_error",
 			Message:            safeErr,
 		})
-		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream request failed")
+		if preUpstreamKeepalive != nil {
+			writeAnthropicStreamError(c, "api_error", "Upstream request failed")
+		} else {
+			writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream request failed")
+		}
 		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -347,6 +355,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			}
 		}
 		// Non-failover error: return Anthropic-formatted error to client
+		if preUpstreamKeepalive != nil {
+			upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
+			upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+			if upstreamMsg == "" {
+				upstreamMsg = "Upstream request failed"
+			}
+			writeAnthropicStreamError(c, "api_error", upstreamMsg)
+			return nil, fmt.Errorf("upstream error: %d %s", resp.StatusCode, upstreamMsg)
+		}
 		return s.handleAnthropicErrorResponse(resp, c, account)
 	}
 
@@ -393,6 +410,64 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 
 	return result, handleErr
+}
+
+type anthropicPreUpstreamKeepalive struct {
+	stopCh chan struct{}
+	doneCh chan struct{}
+}
+
+func (k *anthropicPreUpstreamKeepalive) stop() {
+	if k == nil {
+		return
+	}
+	close(k.stopCh)
+	<-k.doneCh
+}
+
+func (s *OpenAIGatewayService) startAnthropicPreUpstreamKeepalive(c *gin.Context, clientStream bool) *anthropicPreUpstreamKeepalive {
+	if !clientStream || c == nil || c.Writer == nil {
+		return nil
+	}
+	keepaliveInterval := time.Duration(0)
+	if s != nil && s.cfg != nil && s.cfg.Gateway.StreamKeepaliveInterval > 0 {
+		keepaliveInterval = time.Duration(s.cfg.Gateway.StreamKeepaliveInterval) * time.Second
+	}
+	if keepaliveInterval <= 0 {
+		return nil
+	}
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	if !c.Writer.Written() {
+		c.Writer.WriteHeader(http.StatusOK)
+	}
+	if err := writeAnthropicPing(c); err != nil {
+		return nil
+	}
+
+	k := &anthropicPreUpstreamKeepalive{
+		stopCh: make(chan struct{}),
+		doneCh: make(chan struct{}),
+	}
+	go func() {
+		defer close(k.doneCh)
+		ticker := time.NewTicker(keepaliveInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := writeAnthropicPing(c); err != nil {
+					return
+				}
+			case <-k.stopCh:
+				return
+			}
+		}
+	}()
+	return k
 }
 
 func ensureCodexOAuthInstructionsField(reqBody map[string]any) {
@@ -651,7 +726,9 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
-	c.Writer.WriteHeader(http.StatusOK)
+	if !c.Writer.Written() {
+		c.Writer.WriteHeader(http.StatusOK)
+	}
 
 	state := apicompat.NewResponsesEventToAnthropicState()
 	state.Model = originalModel
@@ -949,6 +1026,29 @@ func writeAnthropicError(c *gin.Context, statusCode int, errType, message string
 			"message": message,
 		},
 	})
+}
+
+func writeAnthropicPing(c *gin.Context) error {
+	if _, err := fmt.Fprint(c.Writer, "event: ping\ndata: {\"type\":\"ping\"}\n\n"); err != nil {
+		return err
+	}
+	c.Writer.Flush()
+	return nil
+}
+
+func writeAnthropicStreamError(c *gin.Context, errType, message string) {
+	payload, err := json.Marshal(gin.H{
+		"type": "error",
+		"error": gin.H{
+			"type":    errType,
+			"message": message,
+		},
+	})
+	if err != nil {
+		payload = []byte(`{"type":"error","error":{"type":"api_error","message":"Upstream request failed"}}`)
+	}
+	_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", payload)
+	c.Writer.Flush()
 }
 
 func copyOpenAIUsageFromResponsesUsage(usage *apicompat.ResponsesUsage) OpenAIUsage {
