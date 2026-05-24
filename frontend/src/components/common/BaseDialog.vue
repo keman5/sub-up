@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <Transition name="modal">
+    <Transition name="modal" @after-leave="handleAfterLeave">
       <div
         v-if="show"
         class="modal-overlay"
@@ -59,6 +59,7 @@ const dialogId = `modal-title-${++dialogIdCounter}`
 const dialogRef = ref<HTMLElement | null>(null)
 let previousActiveElement: HTMLElement | null = null
 let hasLockedBodyScroll = false
+let pendingUnlockAfterLeave = false
 
 type DialogWidth = 'narrow' | 'normal' | 'wide' | 'extra-wide' | 'full'
 
@@ -153,11 +154,27 @@ const unlockBodyScroll = () => {
   hasLockedBodyScroll = false
 }
 
+const restorePreviousFocus = () => {
+  if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
+    previousActiveElement.focus()
+  }
+  previousActiveElement = null
+}
+
+const handleAfterLeave = () => {
+  if (pendingUnlockAfterLeave) {
+    unlockBodyScroll()
+    pendingUnlockAfterLeave = false
+  }
+  restorePreviousFocus()
+}
+
 // Prevent body scroll when modal is open and manage focus
 watch(
   () => props.show,
   async (isOpen) => {
     if (isOpen) {
+      pendingUnlockAfterLeave = false
       // 保存当前焦点元素
       previousActiveElement = document.activeElement as HTMLElement
       lockBodyScroll()
@@ -171,12 +188,11 @@ watch(
         firstFocusable?.focus()
       }
     } else {
-      unlockBodyScroll()
-      // 恢复之前的焦点
-      if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
-        previousActiveElement.focus()
+      if (hasLockedBodyScroll) {
+        pendingUnlockAfterLeave = true
+      } else {
+        restorePreviousFocus()
       }
-      previousActiveElement = null
     }
   },
   { immediate: true }

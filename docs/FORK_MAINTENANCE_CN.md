@@ -25,6 +25,7 @@
 | 日期 | 问题 | 本地修复 | 验证 | 后续同步复查 |
 | --- | --- | --- | --- | --- |
 | 2026-05-23 | 账号状态为历史值 `disabled` 时，后台账号列表显示翻译 key：`admin.accounts.status.disabled`。 | 在 `frontend/src/components/account/AccountStatusIndicator.vue` 中将旧值 `disabled` 的显示 key 规范化为 `inactive`，复用现有“停用 / Inactive”文案；在 `frontend/src/components/account/__tests__/AccountStatusIndicator.spec.ts` 增加回归测试。 | `pnpm vitest run src/components/account/__tests__/AccountStatusIndicator.spec.ts`；`pnpm typecheck`。 | 同步官方后搜索 `admin.accounts.status.disabled` 和 `normalizeAccountStatusLabelKey`。如果官方已在 API 或组件层将 `disabled` 规范化为 `inactive`，可移除此本地补丁；如果仍可能返回旧值，需要保留或按新结构重做。 |
+| 2026-05-24 | Chrome 中后台账号编辑弹窗快速滚动或频繁切换时，偶发出现弹窗内容消失、背景表格露出或关闭时弹窗残影二次出现；Edge 不易复现。 | 在 `frontend/src/components/common/BaseDialog.vue` 中将关闭时的 body 滚动解锁和焦点恢复延后到 Vue leave transition 的 `after-leave`，避免关闭动画期间提前移除 `html/body.modal-open`；在 `frontend/src/style.css` 中保留弹窗进入/关闭动画，同时在 `html.modal-open` 期间禁用背景 glass/table header 的 `backdrop-filter`，规避 Chrome 对固定弹窗、滚动容器和背景模糊层组合时的合成闪烁。 | 基线版本可复现闪烁；仅加入 modal-open 期间禁用背景 `backdrop-filter` 后，3 分钟系统录屏逐帧分析未发现稳定闪烁候选帧；`pnpm --dir frontend run typecheck`；`git diff --check`；浏览器侧确认 ESC 关闭时 `modal-open` 与 leave DOM 同步保留到动画结束。 | 同步官方后搜索 `pendingUnlockAfterLeave`、`handleAfterLeave`、`html.modal-open .glass` 和 `html.modal-open .table-scroll-container thead`。如果官方已重构弹窗或移除了背景 `backdrop-filter` 闪烁根因，需要在 Chrome 中重新执行“打开编辑账号弹窗、快速滚动、频繁切换弹窗、ESC 关闭”的回归测试；确认无闪烁后可删除本地补丁，否则按新结构补回。 |
 
 ## 同步官方版本后的复查流程
 

@@ -714,28 +714,46 @@
     overscroll-behavior: none;
   }
 
+  html.modal-open .glass,
+  html.modal-open .glass-card,
+  html.modal-open .card-glass,
+  html.modal-open .table-scroll-container thead,
+  html.modal-open .table-wrapper .table-header {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
   .modal-enter-active {
-    transition: opacity 250ms ease-out;
+    transition: opacity 250ms cubic-bezier(0.22, 0.61, 0.36, 1);
   }
 
   .modal-leave-active {
     transition: opacity 200ms ease-in;
   }
 
-  .modal-enter-from,
+  .modal-enter-from {
+    opacity: 0.32;
+  }
+
   .modal-leave-to {
     opacity: 0;
   }
 
   .modal-enter-active .modal-content {
-    transition: transform 250ms ease-out, opacity 250ms ease-out;
+    transition:
+      transform 250ms cubic-bezier(0.22, 0.61, 0.36, 1),
+      opacity 250ms ease-in-out;
   }
 
   .modal-leave-active .modal-content {
     transition: transform 200ms ease-in, opacity 200ms ease-in;
   }
 
-  .modal-enter-from .modal-content,
+  .modal-enter-from .modal-content {
+    transform: translateY(8px) scale(0.95);
+    opacity: 0.48;
+  }
+
   .modal-leave-to .modal-content {
     transform: scale(0.95);
     opacity: 0;
