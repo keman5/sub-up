@@ -114,8 +114,9 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"today_actual_cost":           stats.TodayActualCost, // 今日实际扣除
 
 		// 系统运行统计
-		"average_duration_ms": stats.AverageDurationMs,
-		"uptime":              uptime,
+		"average_duration_ms":    stats.AverageDurationMs,
+		"average_first_token_ms": stats.AverageFirstTokenMs,
+		"uptime":                 uptime,
 
 		// 性能指标
 		"rpm": stats.Rpm,

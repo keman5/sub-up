@@ -1607,10 +1607,12 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(SUM(account_cost), 0) as total_account_cost,
-			COALESCE(SUM(total_duration_ms), 0) as total_duration_ms
+			COALESCE(SUM(total_duration_ms), 0) as total_duration_ms,
+			COALESCE(SUM(total_first_token_ms), 0) as total_first_token_ms,
+			COALESCE(SUM(first_token_requests), 0) as first_token_requests
 		FROM usage_dashboard_daily
 	`
-	var totalDurationMs int64
+	var totalDurationMs, totalFirstTokenMs, firstTokenRequests int64
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -1625,12 +1627,17 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 		&stats.TotalActualCost,
 		&stats.TotalAccountCost,
 		&totalDurationMs,
+		&totalFirstTokenMs,
+		&firstTokenRequests,
 	); err != nil {
 		return err
 	}
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
 	if stats.TotalRequests > 0 {
 		stats.AverageDurationMs = float64(totalDurationMs) / float64(stats.TotalRequests)
+	}
+	if firstTokenRequests > 0 {
+		stats.AverageFirstTokenMs = float64(totalFirstTokenMs) / float64(firstTokenRequests)
 	}
 
 	todayStatsQuery := `
@@ -1696,7 +1703,8 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 				total_cost,
 				actual_cost,
 				COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) AS account_cost,
-				COALESCE(duration_ms, 0) AS duration_ms
+				COALESCE(duration_ms, 0) AS duration_ms,
+				first_token_ms
 			FROM usage_logs
 			WHERE created_at >= LEAST($1::timestamptz, $3::timestamptz)
 				AND created_at < GREATEST($2::timestamptz, $4::timestamptz)
@@ -1711,6 +1719,8 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_actual_cost,
 			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_account_cost,
 			COALESCE(SUM(duration_ms) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_duration_ms,
+			COALESCE(SUM(first_token_ms) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND first_token_ms IS NOT NULL), 0) AS total_first_token_ms,
+			COUNT(first_token_ms) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz) AS first_token_requests,
 			COUNT(*) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz) AS today_requests,
 			COALESCE(SUM(input_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_input_tokens,
 			COALESCE(SUM(output_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_output_tokens,
@@ -1721,7 +1731,7 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_account_cost
 		FROM scoped
 	`
-	var totalDurationMs int64
+	var totalDurationMs, totalFirstTokenMs, firstTokenRequests int64
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -1736,6 +1746,8 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 		&stats.TotalActualCost,
 		&stats.TotalAccountCost,
 		&totalDurationMs,
+		&totalFirstTokenMs,
+		&firstTokenRequests,
 		&stats.TodayRequests,
 		&stats.TodayInputTokens,
 		&stats.TodayOutputTokens,
@@ -1750,6 +1762,9 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
 	if stats.TotalRequests > 0 {
 		stats.AverageDurationMs = float64(totalDurationMs) / float64(stats.TotalRequests)
+	}
+	if firstTokenRequests > 0 {
+		stats.AverageFirstTokenMs = float64(totalFirstTokenMs) / float64(firstTokenRequests)
 	}
 
 	stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens
@@ -1795,7 +1810,8 @@ func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID 
 			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
+			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
 		FROM usage_logs
 		WHERE user_id = $1 AND created_at >= $2 AND created_at < $3
 	`
@@ -1813,6 +1829,7 @@ func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID 
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -1830,7 +1847,8 @@ func (r *usageLogRepository) GetAPIKeyStatsAggregated(ctx context.Context, apiKe
 			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
+			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
 		FROM usage_logs
 		WHERE api_key_id = $1 AND created_at >= $2 AND created_at < $3
 	`
@@ -1848,6 +1866,7 @@ func (r *usageLogRepository) GetAPIKeyStatsAggregated(ctx context.Context, apiKe
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -1875,7 +1894,8 @@ func (r *usageLogRepository) GetAccountStatsAggregated(ctx context.Context, acco
 			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
+			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
 		FROM usage_logs
 		WHERE account_id = $1 AND created_at >= $2 AND created_at < $3
 	`
@@ -1893,6 +1913,7 @@ func (r *usageLogRepository) GetAccountStatsAggregated(ctx context.Context, acco
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -1911,7 +1932,8 @@ func (r *usageLogRepository) GetModelStatsAggregated(ctx context.Context, modelN
 			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
+			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
 		FROM usage_logs
 		WHERE %s = $1 AND created_at >= $2 AND created_at < $3
 	`, rawUsageLogModelColumn)
@@ -1929,6 +1951,7 @@ func (r *usageLogRepository) GetModelStatsAggregated(ctx context.Context, modelN
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -1950,7 +1973,8 @@ func (r *usageLogRepository) GetDailyStatsAggregated(ctx context.Context, userID
 			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
+			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
 		FROM usage_logs
 		WHERE user_id = $1 AND created_at >= $2 AND created_at < $3
 		GROUP BY 1
@@ -1979,6 +2003,7 @@ func (r *usageLogRepository) GetDailyStatsAggregated(ctx context.Context, userID
 			totalCost         float64
 			totalActualCost   float64
 			avgDurationMs     float64
+			avgFirstTokenMs   float64
 		)
 		if err = rows.Scan(
 			&date,
@@ -1989,19 +2014,21 @@ func (r *usageLogRepository) GetDailyStatsAggregated(ctx context.Context, userID
 			&totalCost,
 			&totalActualCost,
 			&avgDurationMs,
+			&avgFirstTokenMs,
 		); err != nil {
 			return nil, err
 		}
 		result = append(result, map[string]any{
-			"date":                date,
-			"total_requests":      totalRequests,
-			"total_input_tokens":  totalInputTokens,
-			"total_output_tokens": totalOutputTokens,
-			"total_cache_tokens":  totalCacheTokens,
-			"total_tokens":        totalInputTokens + totalOutputTokens + totalCacheTokens,
-			"total_cost":          totalCost,
-			"total_actual_cost":   totalActualCost,
-			"average_duration_ms": avgDurationMs,
+			"date":                   date,
+			"total_requests":         totalRequests,
+			"total_input_tokens":     totalInputTokens,
+			"total_output_tokens":    totalOutputTokens,
+			"total_cache_tokens":     totalCacheTokens,
+			"total_tokens":           totalInputTokens + totalOutputTokens + totalCacheTokens,
+			"total_cost":             totalCost,
+			"total_actual_cost":      totalActualCost,
+			"average_duration_ms":    avgDurationMs,
+			"average_first_token_ms": avgFirstTokenMs,
 		})
 	}
 
@@ -2468,7 +2495,8 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
+			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
 		FROM usage_logs
 		WHERE user_id = $1
 	`
@@ -2485,6 +2513,7 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -2620,7 +2649,8 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
+			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
 		FROM usage_logs
 		WHERE api_key_id = $1
 	`
@@ -2637,6 +2667,7 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -3459,7 +3490,8 @@ func (r *usageLogRepository) GetGlobalStats(ctx context.Context, startTime, endT
 			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
+			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
 		FROM usage_logs
 		WHERE created_at >= $1 AND created_at < $2
 	`
@@ -3477,6 +3509,7 @@ func (r *usageLogRepository) GetGlobalStats(ctx context.Context, startTime, endT
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
+		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -3530,7 +3563,8 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as total_account_cost,
-			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
+			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
 		FROM usage_logs
 		%s
 	`, buildWhere(conditions))
@@ -3550,6 +3584,7 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		&stats.TotalActualCost,
 		&totalAccountCost,
 		&stats.AverageDurationMs,
+		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -3832,9 +3867,9 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		actualDaysUsed = 1
 	}
 
-	avgQuery := "SELECT COALESCE(AVG(duration_ms), 0) as avg_duration_ms FROM usage_logs WHERE account_id = $1 AND created_at >= $2 AND created_at < $3"
-	var avgDuration float64
-	if err := scanSingleRow(ctx, r.sql, avgQuery, []any{accountID, startTime, endTime}, &avgDuration); err != nil {
+	avgQuery := "SELECT COALESCE(AVG(duration_ms), 0) as avg_duration_ms, COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms FROM usage_logs WHERE account_id = $1 AND created_at >= $2 AND created_at < $3"
+	var avgDuration, avgFirstToken float64
+	if err := scanSingleRow(ctx, r.sql, avgQuery, []any{accountID, startTime, endTime}, &avgDuration, &avgFirstToken); err != nil {
 		return nil, err
 	}
 
@@ -3851,6 +3886,7 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		AvgDailyRequests:  float64(totalRequests) / float64(actualDaysUsed),
 		AvgDailyTokens:    float64(totalTokens) / float64(actualDaysUsed),
 		AvgDurationMs:     avgDuration,
+		AvgFirstTokenMs:   avgFirstToken,
 	}
 
 	todayStr := timezone.Now().Format("2006-01-02")

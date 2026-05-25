@@ -66,20 +66,28 @@
           </div>
         </div>
 
-        <!-- Average Duration -->
+        <!-- Response Latency -->
         <div class="card p-4">
           <div class="flex items-center gap-3">
             <div class="rounded-lg bg-purple-100 p-2 dark:bg-purple-900/30">
               <Icon name="clock" size="md" class="text-purple-600 dark:text-purple-400" />
             </div>
-            <div>
+            <div class="flex-1">
               <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                {{ t('usage.avgDuration') }}
+                {{ t('usage.responseLatency') }}
               </p>
-              <p class="text-xl font-bold text-gray-900 dark:text-white">
-                {{ formatDuration(usageStats?.average_duration_ms || 0) }}
-              </p>
-              <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('usage.perRequest') }}</p>
+              <div class="flex items-baseline gap-2">
+                <p class="text-xl font-bold text-gray-900 dark:text-white">
+                  {{ formatDuration(usageStats?.average_first_token_ms || 0) }}
+                </p>
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('usage.firstToken') }}</span>
+              </div>
+              <div class="flex items-baseline gap-2">
+                <p class="text-sm font-semibold text-purple-600 dark:text-purple-400">
+                  {{ formatDuration(usageStats?.average_duration_ms || 0) }}
+                </p>
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('usage.fullDuration') }}</span>
+              </div>
             </div>
           </div>
         </div>

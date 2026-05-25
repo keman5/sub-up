@@ -1374,7 +1374,8 @@ export interface DashboardStats {
   today_account_cost: number // 今日账号成本
 
   // 系统运行统计
-  average_duration_ms: number // 平均响应时间
+  average_duration_ms: number // 平均完整耗时
+  average_first_token_ms?: number // 平均首 Token 延迟
   uptime: number // 系统运行时间(秒)
 
   // 性能指标
@@ -1392,6 +1393,7 @@ export interface UsageStatsResponse {
   total_cost: number // 标准计费
   total_actual_cost: number // 实际扣除
   average_duration_ms: number
+  average_first_token_ms?: number
   models?: Record<string, number>
 }
 
@@ -1613,6 +1615,7 @@ export interface AccountUsageSummary {
   avg_daily_requests: number
   avg_daily_tokens: number
   avg_duration_ms: number
+  avg_first_token_ms?: number
   today: {
     date: string
     cost: number

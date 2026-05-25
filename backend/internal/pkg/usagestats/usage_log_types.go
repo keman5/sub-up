@@ -72,7 +72,8 @@ type DashboardStats struct {
 	TodayAccountCost         float64 `json:"today_account_cost"` // 今日账号成本
 
 	// 系统运行统计
-	AverageDurationMs float64 `json:"average_duration_ms"` // 平均响应时间
+	AverageDurationMs   float64 `json:"average_duration_ms"`    // 平均完整耗时
+	AverageFirstTokenMs float64 `json:"average_first_token_ms"` // 平均首 Token 延迟
 
 	// 性能指标
 	Rpm int64 `json:"rpm"` // 近5分钟平均每分钟请求数
@@ -238,7 +239,8 @@ type UserDashboardStats struct {
 	TodayActualCost          float64 `json:"today_actual_cost"` // 今日实际扣除
 
 	// 性能统计
-	AverageDurationMs float64 `json:"average_duration_ms"`
+	AverageDurationMs   float64 `json:"average_duration_ms"`
+	AverageFirstTokenMs float64 `json:"average_first_token_ms"`
 
 	// 性能指标
 	Rpm int64 `json:"rpm"` // 近5分钟平均每分钟请求数
@@ -278,18 +280,19 @@ type UsageLogFilters struct {
 
 // UsageStats represents usage statistics
 type UsageStats struct {
-	TotalRequests     int64          `json:"total_requests"`
-	TotalInputTokens  int64          `json:"total_input_tokens"`
-	TotalOutputTokens int64          `json:"total_output_tokens"`
-	TotalCacheTokens  int64          `json:"total_cache_tokens"`
-	TotalTokens       int64          `json:"total_tokens"`
-	TotalCost         float64        `json:"total_cost"`
-	TotalActualCost   float64        `json:"total_actual_cost"`
-	TotalAccountCost  *float64       `json:"total_account_cost,omitempty"`
-	AverageDurationMs float64        `json:"average_duration_ms"`
-	Endpoints         []EndpointStat `json:"endpoints,omitempty"`
-	UpstreamEndpoints []EndpointStat `json:"upstream_endpoints,omitempty"`
-	EndpointPaths     []EndpointStat `json:"endpoint_paths,omitempty"`
+	TotalRequests       int64          `json:"total_requests"`
+	TotalInputTokens    int64          `json:"total_input_tokens"`
+	TotalOutputTokens   int64          `json:"total_output_tokens"`
+	TotalCacheTokens    int64          `json:"total_cache_tokens"`
+	TotalTokens         int64          `json:"total_tokens"`
+	TotalCost           float64        `json:"total_cost"`
+	TotalActualCost     float64        `json:"total_actual_cost"`
+	TotalAccountCost    *float64       `json:"total_account_cost,omitempty"`
+	AverageDurationMs   float64        `json:"average_duration_ms"`
+	AverageFirstTokenMs float64        `json:"average_first_token_ms,omitempty"`
+	Endpoints           []EndpointStat `json:"endpoints,omitempty"`
+	UpstreamEndpoints   []EndpointStat `json:"upstream_endpoints,omitempty"`
+	EndpointPaths       []EndpointStat `json:"endpoint_paths,omitempty"`
 }
 
 // PlatformUsage 表示某用户/某 API key 在单个"有效平台"维度的用量明细。
@@ -340,6 +343,7 @@ type AccountUsageSummary struct {
 	AvgDailyRequests  float64 `json:"avg_daily_requests"`
 	AvgDailyTokens    float64 `json:"avg_daily_tokens"`
 	AvgDurationMs     float64 `json:"avg_duration_ms"`
+	AvgFirstTokenMs   float64 `json:"avg_first_token_ms"`
 	Today             *struct {
 		Date     string  `json:"date"`
 		Cost     float64 `json:"cost"`
