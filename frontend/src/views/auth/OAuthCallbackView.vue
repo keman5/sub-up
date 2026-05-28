@@ -373,6 +373,7 @@ onMounted(async () => {
 
   if (fragmentError) {
     appStore.showError(fragmentErrorDescription || fragmentError)
+    invalidCallback.value = true
     return
   }
   if (!tokenResponse) {
