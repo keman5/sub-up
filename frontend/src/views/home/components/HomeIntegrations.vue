@@ -48,10 +48,17 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import Icon from '@/components/icons/Icon.vue'
-import { integrationSnippets, integrationTabs, type IntegrationTab } from './homeData'
+import { buildIntegrationSnippets, integrationTabs, type IntegrationTab } from './homeData'
+import { buildHomeSnippetUrls } from './homeApiBase'
+
+const props = defineProps<{
+  apiBaseUrl?: string
+}>()
 
 const activeTab = ref<IntegrationTab>('python')
-const activeSnippet = computed(() => integrationSnippets[activeTab.value])
+const snippetUrls = computed(() => buildHomeSnippetUrls(props.apiBaseUrl))
+const integrationSnippets = computed(() => buildIntegrationSnippets(snippetUrls.value.apiBaseUrl))
+const activeSnippet = computed(() => integrationSnippets.value[activeTab.value])
 const bullets = [
   '完美兼容所有围绕 OpenAI 封装的开源库',
   '支持原生 Stream 流式输出，视觉无感知延迟',

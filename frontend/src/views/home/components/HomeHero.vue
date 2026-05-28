@@ -98,18 +98,25 @@ import { computed, ref } from 'vue'
 import Icon from '@/components/icons/Icon.vue'
 import {
   externalAppUrls,
-  heroSnippetBlocks,
+  buildHeroSnippetBlocks,
   heroTabs,
   type HeroCodeTab,
   type HeroSnippetBlock
 } from './homeData'
+import { buildHomeSnippetUrls } from './homeApiBase'
+
+const props = defineProps<{
+  apiBaseUrl?: string
+}>()
 
 const activeTab = ref<HeroCodeTab>('mac')
 const cachedAuthenticated = ref(false)
 const copiedBlockId = ref<string | null>(null)
 let copyResetTimer: ReturnType<typeof setTimeout> | undefined
 
-const activeBlocks = computed(() => heroSnippetBlocks[activeTab.value])
+const snippetUrls = computed(() => buildHomeSnippetUrls(props.apiBaseUrl))
+const heroSnippetBlocks = computed(() => buildHeroSnippetBlocks(snippetUrls.value))
+const activeBlocks = computed(() => heroSnippetBlocks.value[activeTab.value])
 const primaryActionHref = computed(() => (cachedAuthenticated.value ? '#pricing' : externalAppUrls.login))
 
 async function copySnippetBlock(block: HeroSnippetBlock) {

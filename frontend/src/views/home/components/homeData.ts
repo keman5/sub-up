@@ -35,11 +35,17 @@ export type HeroSnippetBlock = {
   code: string
 }
 
+type HomeSnippetUrls = {
+  apiBaseUrl: string
+  claudeBaseUrl: string
+}
+
 const codexAuthJson = `{
   "OPENAI_API_KEY": "sk-key"
 }`
 
-const codexConfigToml = `model = "gpt-5.5"
+function buildCodexConfigToml(apiBaseUrl: string): string {
+  return `model = "gpt-5.5"
 model_provider = "51token"
 review_model = "gpt-5.4"
 web_search = "live"
@@ -47,14 +53,16 @@ web_search = "live"
 [model_providers.51token]
 name = "51token"
 approval_policy = "on-request"
-base_url = "https://api.upit.top/51token/v1"
+base_url = "${apiBaseUrl}"
 sandbox_mode = "workspace-write" # 或 "danger-full-access"
 wire_api = "responses"`
+}
 
-const claudeConfigJson = `{
+function buildClaudeConfigJson(claudeBaseUrl: string): string {
+  return `{
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "不带sk-开头",
-    "ANTHROPIC_BASE_URL": "https://api.upit.top/51token",
+    "ANTHROPIC_BASE_URL": "${claudeBaseUrl}",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.4",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.5",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.5",
@@ -63,9 +71,14 @@ const claudeConfigJson = `{
     "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "gpt-5.5"
   }
 }`
+}
 
-export const heroSnippetBlocks: Record<HeroCodeTab, HeroSnippetBlock[]> = {
-  mac: [
+export function buildHeroSnippetBlocks(urls: HomeSnippetUrls): Record<HeroCodeTab, HeroSnippetBlock[]> {
+  const codexConfigToml = buildCodexConfigToml(urls.apiBaseUrl)
+  const claudeConfigJson = buildClaudeConfigJson(urls.claudeBaseUrl)
+
+  return {
+    mac: [
     {
       id: 'codex-auth',
       title: 'Codex 配置',
@@ -87,8 +100,8 @@ export const heroSnippetBlocks: Record<HeroCodeTab, HeroSnippetBlock[]> = {
       language: 'json',
       code: claudeConfigJson
     }
-  ],
-  windows: [
+    ],
+    windows: [
     {
       id: 'codex-auth',
       title: 'Codex 配置',
@@ -110,8 +123,8 @@ export const heroSnippetBlocks: Record<HeroCodeTab, HeroSnippetBlock[]> = {
       language: 'json',
       code: claudeConfigJson
     }
-  ],
-  python: [
+    ],
+    python: [
     {
       id: 'python-sdk',
       title: 'OpenAI SDK 接入示例',
@@ -121,7 +134,7 @@ export const heroSnippetBlocks: Record<HeroCodeTab, HeroSnippetBlock[]> = {
 
 client = OpenAI(
     api_key="sk-key",
-    base_url="https://api.upit.top/51token/v1",
+    base_url="${urls.apiBaseUrl}",
 )
 
 response = client.responses.create(
@@ -131,7 +144,8 @@ response = client.responses.create(
 
 print(response.output_text)`
     }
-  ]
+    ]
+  }
 }
 
 export type IntegrationTab = 'python' | 'nodejs' | 'curl' | 'langchain'
@@ -143,10 +157,11 @@ export const integrationTabs: Array<{ id: IntegrationTab; label: string }> = [
   { id: 'langchain', label: 'LangChain' }
 ]
 
-export const integrationSnippets: Record<IntegrationTab, string> = {
-  python: `import openai
+export function buildIntegrationSnippets(apiBaseUrl: string): Record<IntegrationTab, string> {
+  return {
+    python: `import openai
 
-openai.api_base = "https://api.upit.top/51Token/v1"
+openai.api_base = "${apiBaseUrl}"
 openai.api_key = "sk-gw-xxxxxxxxxxxxxxxx"
 
 response = openai.ChatCompletion.create(
@@ -159,11 +174,11 @@ response = openai.ChatCompletion.create(
 
 for chunk in response:
     print(chunk.choices[0].delta.content or "", end="")`,
-  nodejs: `import { Configuration, OpenAIApi } from "openai";
+    nodejs: `import { Configuration, OpenAIApi } from "openai";
 
 const configuration = new Configuration({
   apiKey: "sk-gw-xxxxxxxxxxxxxxxx",
-  basePath: "https://api.upit.top/51Token/v1",
+  basePath: "${apiBaseUrl}",
 });
 
 const openai = new OpenAIApi(configuration);
@@ -174,24 +189,25 @@ const completion = await openai.createChatCompletion({
 });
 
 console.log(completion.data.choices[0].message);`,
-  curl: `curl https://api.upit.top/51Token/v1/chat/completions \\
+    curl: `curl ${apiBaseUrl}/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer sk-gw-xxxxxxxxxxxxxxxx" \\
   -d '{
     "model": "codex-pro",
     "messages": [{"role": "user", "content": "Hello World!"}]
   }'`,
-  langchain: `from langchain.chat_models import ChatOpenAI
+    langchain: `from langchain.chat_models import ChatOpenAI
 from langchain.schema import HumanMessage
 
 chat = ChatOpenAI(
-    openai_api_base="https://api.upit.top/51Token/v1",
+    openai_api_base="${apiBaseUrl}",
     openai_api_key="sk-gw-xxxxxxxxxxxxxxxx",
     model_name="codex-pro"
 )
 
 response = chat([HumanMessage(content="Explain quantum computing.")])
 print(response.content)`
+  }
 }
 
 export const featureCards = [
