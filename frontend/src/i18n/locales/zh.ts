@@ -635,6 +635,7 @@ export default {
     avgResponse: '平均响应',
     averageTime: '平均时间',
     responseLatency: '响应耗时',
+    firstToken: '首 Token',
     fullDuration: '完整耗时',
     timeRange: '时间范围',
     granularity: '粒度',

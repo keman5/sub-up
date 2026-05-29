@@ -1,12 +1,12 @@
 # Fork 维护说明
 
-本文档用于记录本 fork 相对官方仓库的本地修复，并在后续同步官方版本时逐项复查这些修复是否仍然需要保留。
+本文档用于记录本 fork 相对官方仓库的本地修复、产品定制和线上部署差异，并在后续同步官方版本时逐项复查这些改动是否仍然需要保留。
 
 ## 维护原则
 
-- 本 fork 只做当前部署必须的 bugfix，不主动扩展功能。
+- 本 fork 的非上游改动必须记录为可恢复清单，包括功能目的、入口、涉及文件、验证命令和后续复查方式。
 - 每个本地 bugfix 都要记录问题现象、修改文件、验证命令和后续复查方式。
-- 同步官方版本后，先检查官方是否已经修复同类问题，再决定保留、移除或重新实现本地补丁。
+- 同步官方版本后，先检查官方是否已经提供同类功能或修复，再决定保留、移除或重新实现本地补丁。
 - VPS 部署应使用本 fork 构建出的镜像或二进制，避免使用官方 `latest` 镜像覆盖本地修复。
 
 ## 更新检查注意事项
@@ -19,6 +19,279 @@
 如果 VPS 运行的是本 fork，但保留上述默认值，后台“检查更新”和一键更新会以官方 release 为准。对于保留本地补丁的部署，不建议直接点击后台一键更新；应先在本 fork 中同步官方代码、复查补丁、验证通过后再重新构建并部署。
 
 如果希望检查更新也跟随本 fork，需要将上述仓库名改为自己的 GitHub 仓库，并在 fork 中发布对应 release。
+
+## 非上游功能恢复清单
+
+以下清单记录本 fork 中不是官方上游原生能力、但线上需要保留的功能。下次从上游重新同步或重建分支时，优先按本节逐项恢复。
+
+### 1. 51token 品牌首页与本地静态资源
+
+**目的：** 将默认首页替换为 51token 算力营销首页，提供套餐、FAQ、接入示例、登录/注册/控制台入口，并避免依赖外部字体资源。
+
+**关键入口：**
+
+- `/`、`/home`：`frontend/src/views/HomeView.vue`
+- 首页组件：`frontend/src/views/home/components/*`
+- 静态资源：`frontend/public/logo.svg`、`frontend/public/logo.png`、`frontend/public/favicon.ico`、`frontend/public/fonts/space-grotesk-*.ttf`
+
+**涉及文件：**
+
+- `frontend/index.html`
+- `frontend/src/views/HomeView.vue`
+- `frontend/src/views/home/components/AnimatedNumber.vue`
+- `frontend/src/views/home/components/HomeFaq.vue`
+- `frontend/src/views/home/components/HomeFeatures.vue`
+- `frontend/src/views/home/components/HomeFooter.vue`
+- `frontend/src/views/home/components/HomeHero.vue`
+- `frontend/src/views/home/components/HomeIntegrations.vue`
+- `frontend/src/views/home/components/HomePricing.vue`
+- `frontend/src/views/home/components/HomeStats.vue`
+- `frontend/src/views/home/components/PublicHeader.vue`
+- `frontend/src/views/home/components/SiteLogo.vue`
+- `frontend/src/views/home/components/homeData.ts`
+- `frontend/src/views/home/components/useHomeScrollRestoration.ts`
+- `frontend/src/style.css`
+- `frontend/tailwind.config.js`
+- `frontend/vite.config.ts`
+
+**恢复要点：**
+
+- 首页登录、注册、控制台链接必须指向当前 sub2api 前台路由，不新开窗口。
+- 价格卡片、FAQ 和接入示例内容维护在 `homeData.ts`。
+- `Space Grotesk` 字体文件必须放在 `frontend/public/fonts/`，由 `/fonts/*` 直接访问，避免线上 404。
+- 首页滚动恢复逻辑依赖 `home-scroll-restoring` class 和 `useHomeScrollRestoration.ts`，不要只复制组件而漏掉 `index.html` 的首屏脚本。
+
+**验证：**
+
+```bash
+pnpm --dir frontend run typecheck
+pnpm --dir frontend run build
+curl -sSIL https://a1.upit.top/fonts/space-grotesk-700.ttf
+```
+
+同步上游后复查 `frontend/src/views/HomeView.vue`、`frontend/src/views/home/components/homeData.ts`、`frontend/public/fonts/`。如果官方首页结构变化，仍以 51token 首页作为线上入口。
+
+### 2. 首页接入示例运行时 API Base 派生
+
+**目的：** 首页 Codex、Claude、OpenAI SDK、curl 等示例里的 `base_url` 跟随当前部署副本，不再硬编码单一域名。
+
+**规则：**
+
+- 优先使用公开设置里的 `api_base_url`。
+- 如果后端未返回配置，则按当前访问域名派生：`window.location.origin + /51Token/v1`。
+- Claude/Anthropic 示例去掉末尾 `/v1`。
+- 现有线上副本示例：
+  - 主环境：`https://api.upit.top/51Token/v1`
+  - a1 环境：`https://a1.upit.top/51Token/v1` 或由公开设置指定的 `https://ap1.upit.top/51Token/v1`
+
+**涉及文件：**
+
+- `frontend/src/views/HomeView.vue`
+- `frontend/src/views/home/components/homeApiBase.ts`
+- `frontend/src/views/home/components/homeData.ts`
+- `frontend/src/views/home/components/HomeHero.vue`
+- `frontend/src/views/home/components/HomeIntegrations.vue`
+- `docs/plans/2026-05-28-runtime-home-api-base.md`
+- `docs/plans/2026-05-28-runtime-home-api-base-design.md`
+
+**恢复要点：**
+
+- Codex 配置面板和 Claude 配置面板放在首页右侧示例的最前面。
+- `~/.codex/config.toml` 中 `base_url` 必须来自 `buildHomeSnippetUrls()`。
+- Claude 配置中的 `ANTHROPIC_BASE_URL` 使用 `buildClaudeBaseUrl()`。
+
+**验证：**
+
+```bash
+pnpm --dir frontend run typecheck
+pnpm --dir frontend run build
+```
+
+浏览器打开不同副本首页，确认示例中的域名随当前副本或公开设置变化。
+
+### 3. 顶部主题切换器与全局主题初始化
+
+**目的：** 在控制台和首页提供系统/浅色/深色三态主题切换，并在 Vue 挂载前应用主题，避免闪屏。
+
+**涉及文件：**
+
+- `frontend/src/components/common/ThemeSwitcher.vue`
+- `frontend/src/composables/useTheme.ts`
+- `frontend/src/components/layout/AppHeader.vue`
+- `frontend/src/views/home/components/PublicHeader.vue`
+- `frontend/src/main.ts`
+- `frontend/src/i18n/locales/zh.ts`
+- `frontend/src/i18n/locales/en.ts`
+- `docs/plans/2026-05-23-theme-switcher.md`
+- `docs/plans/2026-05-23-theme-switcher-design.md`
+
+**恢复要点：**
+
+- `localStorage.theme` 只允许 `system`、`light`、`dark`。
+- `system` 模式监听 `prefers-color-scheme`，并动态切换 `html.dark`。
+- `ThemeSwitcher` 在控制台顶部和首页导航都要可见。
+- i18n key 在 `common.theme.*` 下。
+
+**验证：**
+
+```bash
+pnpm --dir frontend run typecheck
+```
+
+手工验证：切换浅色/深色/系统后刷新页面，`html.dark` 和 `localStorage.theme` 保持一致。
+
+### 4. API Key 5h/1d/7d 速率限制用量与按窗口重置
+
+**目的：** 用户可以在密钥列表和编辑弹窗中查看 5 小时、1 天、7 天速率限制用量、重置时间，并可重置全部或单个窗口。
+
+**涉及文件：**
+
+- `frontend/src/views/user/KeysView.vue`
+- `frontend/src/types/index.ts`
+- `frontend/src/i18n/locales/zh.ts`
+- `frontend/src/i18n/locales/en.ts`
+- `frontend/src/api/keys.ts`
+- `backend/internal/handler/api_key_handler.go`
+- `backend/internal/service/api_key_service.go`
+- `backend/internal/repository/api_key_repo.go`
+- `backend/internal/handler/dto/types.go`
+
+**恢复要点：**
+
+- 前端 payload 支持 `reset_rate_limit_usage` 和 `reset_rate_limit_window`。
+- 后端 `reset_rate_limit_window` 允许值：`5h`、`1d`、`7d`。
+- 表格内每个窗口有独立重置按钮；编辑弹窗保留整体重置按钮。
+- 成功重置后要刷新 Key 列表和相关 cache。
+
+**验证：**
+
+```bash
+pnpm --dir frontend run typecheck
+go test ./internal/service ./internal/handler/...
+```
+
+同步上游后搜索 `reset_rate_limit_window`、`resetRateLimitWindow`、`reset_5h_at`。如果官方仅支持整体重置，需要恢复本地按窗口能力。
+
+### 5. 首 Token 延迟与完整耗时拆分
+
+**目的：** 避免“平均响应”被长输出时长拉高，将首 Token 延迟和完整响应耗时分开统计、展示和聚合。
+
+**涉及文件：**
+
+- `backend/migrations/142_add_first_token_to_dashboard_aggregates.sql`
+- `backend/internal/pkg/usagestats/usage_log_types.go`
+- `backend/internal/repository/usage_log_repo.go`
+- `backend/internal/repository/dashboard_aggregation_repo.go`
+- `backend/internal/repository/dashboard_cache.go`
+- `backend/internal/service/usage_service.go`
+- `backend/internal/service/admin_service.go`
+- `backend/internal/handler/gateway_handler.go`
+- `backend/internal/handler/admin/dashboard_handler.go`
+- `frontend/src/api/usage.ts`
+- `frontend/src/api/admin/usage.ts`
+- `frontend/src/components/user/dashboard/UserDashboardStats.vue`
+- `frontend/src/components/admin/usage/UsageStatsCards.vue`
+- `frontend/src/views/user/UsageView.vue`
+- `frontend/src/views/admin/DashboardView.vue`
+- `frontend/src/i18n/locales/zh.ts`
+- `frontend/src/i18n/locales/en.ts`
+
+**恢复要点：**
+
+- API 输出字段包括 `average_first_token_ms` / `avg_first_token_ms`。
+- 预聚合表需要 `total_first_token_ms` 和 `first_token_requests`。
+- 前端根级 `dashboard.firstToken`、`usage.firstToken`、`admin.dashboard.firstToken` 都必须有中英文翻译，避免显示 key。
+
+**验证：**
+
+```bash
+pnpm --dir frontend run typecheck
+go test ./internal/repository ./internal/pkg/usagestats ./internal/handler/... ./internal/service
+```
+
+同步上游后搜索 `average_first_token_ms`、`avg_first_token_ms`、`total_first_token_ms`、`first_token_requests`。
+
+### 6. 订阅管理页运营增强
+
+**目的：** 优化管理员订阅管理体验，便于按用户搜索、选择展示邮箱或用户名、查看周期用量窗口、打开内置操作说明。
+
+**涉及文件：**
+
+- `frontend/src/views/admin/SubscriptionsView.vue`
+- `frontend/src/i18n/locales/zh.ts`
+- `frontend/src/i18n/locales/en.ts`
+
+**恢复要点：**
+
+- 顶部过滤区包含用户模糊搜索下拉。
+- 列设置里可切换用户列显示邮箱或用户名，偏好写入 localStorage。
+- 订阅用量行显示日/周/月窗口进度和重置时间。
+- 页面保留“使用指南”弹窗。
+
+**验证：**
+
+```bash
+pnpm --dir frontend run typecheck
+```
+
+手工验证 `/admin/subscriptions`：用户搜索、列设置、用量窗口、指南弹窗均可用。
+
+### 7. 51token 品牌与 OAuth 回调细节
+
+**目的：** 线上前台显示 51token 品牌，并修复 OAuth 回调在部分路径中缺少安全状态的问题。
+
+**涉及文件：**
+
+- `frontend/index.html`
+- `frontend/src/router/index.ts`
+- `frontend/src/views/HomeView.vue`
+- `frontend/src/views/auth/OAuthCallbackView.vue`
+- `frontend/public/logo.svg`
+- `frontend/public/logo.png`
+- `frontend/public/favicon.ico`
+
+**恢复要点：**
+
+- 页面标题、meta description、站点名使用 51token 算力。
+- `OAuthCallbackView.vue` 中保留安全回调补丁。
+- 不恢复已删除的临时 OAuth 测试文件，遵循“不保留测试文件”的线上维护要求。
+
+**验证：**
+
+```bash
+pnpm --dir frontend run typecheck
+```
+
+### 8. 线上多副本 Caddy 与 Turnstile 部署差异
+
+**目的：** 线上同时运行主环境和 a1 环境，首页静态资源、sub2api 前台、API 前缀和 Turnstile 必须按副本正确路由。
+
+**关键线上规则：**
+
+- `api.upit.top` 转发主 sub2api。
+- `a1.upit.top` 首页和前台走 standby sub2api。
+- `ap1.upit.top` 支持 a1 API，并兼容 `/51Token/v1` 与旧 `/api/get-token/v1`。
+- Caddy 首页静态 matcher 必须使用 `path + file exists`，避免 `/fonts/*` 被首页静态目录误拦后 404。
+- Turnstile 前端脚本必须从 `https://challenges.cloudflare.com/turnstile/v0/api.js` 加载，不要下载成本地依赖。
+
+**文档位置：**
+
+- `docs/VPS_DEPLOY_NOTES.md`
+
+**恢复要点：**
+
+- 恢复 Caddy 时查看 `docs/VPS_DEPLOY_NOTES.md` 的“多站点 Caddy 静态资源路由”和“Turnstile 前端脚本与 CSP”。
+- 首页静态目录如果不包含字体，应让 `/fonts/*` 回落到 sub2api 前台。
+- Turnstile CSP 至少允许 `script-src` 和 `frame-src` 中的 `https://challenges.cloudflare.com`。
+
+**验证：**
+
+```bash
+curl -sSIL https://a1.upit.top/fonts/space-grotesk-700.ttf
+curl -sSIL 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad'
+```
+
+浏览器打开 `https://a1.upit.top/login`，确认字体 200、Turnstile 主脚本 200，且没有 `dashboard.firstToken` 等 i18n key 直出。
 
 ## 本地补丁记录
 

@@ -328,7 +328,181 @@ curl -I --max-time 10 http://127.0.0.1:3000/
 
 ***
 
-## 七、Cloudflare 源站防火墙误拦 Docker 容器出站
+## 七、多站点 Caddy 静态资源路由
+
+### 现象
+
+`a1.upit.top`、`ai.upit.top` 等站点同时承载 51token 首页和 sub2api 前台时，可能出现前台静态资源 404，例如：
+
+```text
+GET https://a1.upit.top/fonts/space-grotesk-700.ttf 404
+```
+
+这种问题不一定是 sub2api 前端构建缺少资源。曾遇到的实际原因是 Caddy 先用首页静态目录处理 `/fonts/*`，但首页目录里没有这些字体文件，请求没有继续回落到 sub2api 容器。
+
+### 判断方法
+
+先分别验证公网、Caddy 容器静态目录和 sub2api 上游：
+
+```bash
+# 公网入口
+curl -sSIL --max-time 15 https://a1.upit.top/fonts/space-grotesk-700.ttf
+
+# 首页静态目录是否真的有该文件
+find /opt/cf-origin-ssl/a1-home -maxdepth 3 -path '*/fonts/*' -type f -ls
+
+# sub2api 上游是否能直接提供该文件
+curl -sSIL --max-time 5 http://127.0.0.1:8082/fonts/space-grotesk-700.ttf
+```
+
+如果公网返回 404，但 `127.0.0.1:8082` 返回 `200`，通常是 Caddy 静态 matcher 抢先命中了错误目录。
+
+### 推荐 Caddy 写法
+
+首页静态资源 matcher 不要只按 path 匹配 `/fonts/*`，还应要求文件在首页静态目录中真实存在。这样首页资源存在时直接由 Caddy 提供；不存在时继续回落到后面的 sub2api `reverse_proxy`。
+
+`ai.upit.top` 示例：
+
+```caddyfile
+@homeStatic {
+    path /static/* /textures/* /fonts/* /favicon.ico /logo.png /logo.svg /robots.txt /pay-google.png /pay-apple.png /pay-card.png
+    file {
+        root /srv/51token-home
+        try_files {path}
+    }
+}
+handle @homeStatic {
+    root * /srv/51token-home
+    file_server
+}
+```
+
+`a1.upit.top` 示例：
+
+```caddyfile
+@homeStatic {
+    path /static/* /textures/* /fonts/* /favicon.ico /logo.png /logo.svg /robots.txt /pay-google.png /pay-apple.png /pay-card.png
+    file {
+        root /etc/caddy/a1-home
+        try_files {path}
+    }
+}
+handle @homeStatic {
+    root * /etc/caddy/a1-home
+    file_server
+}
+```
+
+注意：`@homeAssetFiles` 如果已经使用 `file` matcher，可保持同样思路。多个副本新增域名时，应复制“path + file exists”组合，而不是只复制 path matcher。
+
+### 重载与验证
+
+修改 `/opt/cf-origin-ssl/Caddyfile` 前先备份：
+
+```bash
+cp /opt/cf-origin-ssl/Caddyfile /opt/cf-origin-ssl/Caddyfile.bak-$(date +%Y%m%d%H%M%S)
+docker exec cf-origin-ssl caddy validate --config /etc/caddy/Caddyfile
+docker exec cf-origin-ssl caddy reload --config /etc/caddy/Caddyfile
+```
+
+验证字体资源：
+
+```bash
+for weight in 400 500 600 700; do
+  curl -sSIL --max-time 15 "https://a1.upit.top/fonts/space-grotesk-${weight}.ttf" | sed -n '1,12p'
+done
+```
+
+预期返回 `200` 和 `Content-Type: font/ttf`。
+
+### 本次线上处理记录
+
+- 备份：`/opt/cf-origin-ssl/Caddyfile.bak-font-fallback-20260529093717`
+- 修复：`ai.upit.top` 和 `a1.upit.top` 的 `@homeStatic` 增加 `file { root ... try_files {path} }` 条件。
+- 重载：`docker exec cf-origin-ssl caddy validate --config /etc/caddy/Caddyfile` 后执行 `caddy reload`。
+- 验证：`a1.upit.top/fonts/space-grotesk-{400,500,600,700}.ttf` 返回 `200`。
+
+***
+
+## 八、Turnstile 前端脚本与 CSP
+
+### 现象
+
+浏览器控制台可能出现：
+
+```text
+Failed to initialize Turnstile: Error: Failed to load Turnstile script
+```
+
+也可能在 Network 或 Console 里看到 Cloudflare challenge 相关的 `401`、`403`、`600010` 等信息。
+
+### 不要本地化 Turnstile `api.js`
+
+不要把下面的官方脚本下载到本地静态目录，也不要通过自己的反向代理缓存后再给浏览器加载：
+
+```text
+https://challenges.cloudflare.com/turnstile/v0/api.js
+```
+
+Cloudflare 官方要求 Turnstile `api.js` 必须从 `https://challenges.cloudflare.com/turnstile/v0/api.js` 精确加载。代理或缓存该文件可能导致后续动态挑战逻辑、版本更新或安全校验失败。
+
+正确方向是检查：
+
+- 前端是否使用官方 URL 加载脚本。
+- CSP 是否允许 `https://challenges.cloudflare.com`。
+- Turnstile site key 是否允许当前部署域名，例如 `a1.upit.top`。
+- 浏览器环境是否拦截 Cloudflare challenge，例如扩展、VPN、代理、自动化环境或公司网络策略。
+
+### CSP 要求
+
+CSP 至少需要允许：
+
+```text
+script-src ... https://challenges.cloudflare.com;
+frame-src ... https://challenges.cloudflare.com;
+connect-src ... https:;
+```
+
+线上 sub2api 曾使用的 CSP 示例中已经包含：
+
+```text
+script-src 'self' __CSP_NONCE__ https://challenges.cloudflare.com ...
+frame-src https://challenges.cloudflare.com ...
+```
+
+如果脚本加载失败，先检查响应头：
+
+```bash
+curl -sSIL --max-time 15 https://a1.upit.top/login | grep -i content-security-policy
+```
+
+### 验证方法
+
+从本地或 VPS 验证官方脚本是否可达：
+
+```bash
+curl -sSIL --max-time 15 \
+  'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad'
+
+curl -sSIL --max-time 15 \
+  -e 'https://a1.upit.top/' \
+  'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad'
+```
+
+正常情况下会先返回 `302`，再返回 `200 application/javascript`。
+
+如果主脚本是 `200` 且浏览器里 `window.turnstile` 已存在，但 challenge 子请求出现 `401` 或 Turnstile 控制台报 `600010`，通常不是“脚本需要本地化”的问题。Cloudflare 文档说明 Turnstile 控制台里的 `401` 可能是底层 Challenge Platform 的预期流程；`600*` 是通用 challenge failure，应重点排查浏览器环境、site key 域名、网络拦截和 Cloudflare 后台配置。
+
+### 本次线上处理记录
+
+- `https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad` 本地验证为 `302 -> 200`。
+- `a1.upit.top/login` 响应头 CSP 已允许 `https://challenges.cloudflare.com`。
+- 使用 Chrome 打开 `https://a1.upit.top/login` 时，Turnstile 主脚本返回 `200`，`window.turnstile` 存在。
+- 没有将 Turnstile 脚本下载到本地，因为这不是官方支持的部署方式。
+
+***
+
+## 九、Cloudflare 源站防火墙误拦 Docker 容器出站
 
 ### 现象
 
@@ -448,7 +622,7 @@ docker run --rm --network container:sub2api curlimages/curl:8.16.0 \
 
 ***
 
-## 八、本次实际结论
+## 十、本次实际结论
 
 本次最终可行路径是：
 

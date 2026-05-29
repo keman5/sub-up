@@ -636,6 +636,7 @@ export default {
     avgResponse: 'Avg Response',
     averageTime: 'Average time',
     responseLatency: 'Response Latency',
+    firstToken: 'First Token',
     fullDuration: 'Full duration',
     timeRange: 'Time Range',
     granularity: 'Granularity',
