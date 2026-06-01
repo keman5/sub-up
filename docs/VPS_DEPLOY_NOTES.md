@@ -183,6 +183,75 @@ gzip -df new-api.gz
 chmod +x new-api
 ```
 
+### 3.1 sub2api 本地构建产物的 gzip 分块上传与远端解压方案
+
+当前 sub2api 嵌入前端后的 Linux amd64 二进制约 86 MB。VPS 出口和本地到 VPS 链路不稳定时，不要直接 `scp` 原始二进制，也不要在 VPS 上重新拉取 npm / Go / apt 依赖。标准流程是：
+
+1. 本机构建前端。
+2. 本机交叉编译 Linux amd64 后端。
+3. 本地使用 `gzip -c` 生成 `.gz` 产物。
+4. 将 `.gz` 切成 1 MB 小块，通过 SSH 标准输入逐块写入远端 `/tmp/sub2api-upload-<timestamp>`。
+5. 远端按文件名顺序拼接为临时 `.gz`，执行 `gzip -t` 校验。
+6. 远端解压到临时可执行文件。
+7. `chmod +x` 后原子 `mv` 为 `/opt/sub2api-runtime-build/sub2api`。
+8. 基于上一版运行镜像只替换 `/app/sub2api`，再按 standby、primary 顺序滚动。
+
+说明：2026-06-01 线上重部署时，单条 gzip 管道和单文件 scp 在当前 VPS SSH 链路上都出现过中途停住；脚本已改为小块短连接上传，并带 5 次退避重试。
+
+仓库已提供脚本：
+
+```bash
+# 只打印计划，不改远端
+deploy/local-gzip-binary-deploy.sh
+
+# 使用已有本地产物做 dry-run
+deploy/local-gzip-binary-deploy.sh --skip-frontend-build --skip-backend-build
+
+# 构建、gzip 上传、远端解压、打镜像，但不重启服务
+deploy/local-gzip-binary-deploy.sh --apply
+
+# 构建、gzip 上传、远端解压、打镜像，并滚动部署 standby + primary
+deploy/local-gzip-binary-deploy.sh --apply --deploy
+```
+
+可用环境变量或参数覆盖目标：
+
+```bash
+HOST=new-api-vps \
+BASE_IMAGE=sub2api:subapi-6b800b77-logo-dbterms-20260530222347 \
+IMAGE_TAG=sub2api:subapi-$(git rev-parse --short HEAD)-gzip-$(date +%Y%m%d%H%M%S) \
+deploy/local-gzip-binary-deploy.sh --apply --deploy
+```
+
+脚本关键安全点：
+
+- 默认 dry-run；必须显式 `--apply` 才会改远端。
+- gzip 上传后远端先拼接并 `gzip -t` 校验，再解压。
+- 默认分块大小为 `UPLOAD_CHUNK_SIZE=1m`，可按链路情况覆盖。
+- 解压到 `sub2api.<timestamp>.tmp`，校验权限后再 `mv` 覆盖正式二进制。
+- compose 更新前会备份为 `docker-compose.yml.bak-gzip-<timestamp>`。
+- `--deploy` 会先更新 `sub2api-standby`，确认 healthy 后再更新 `sub2api`。
+- 最后验证 standby、primary 和公开 `/health`。
+
+底层等价命令示例：
+
+```bash
+gzip -c /tmp/sub2api-build-output/sub2api | ssh new-api-vps '
+  set -eu
+  mkdir -p /opt/sub2api-runtime-build
+  gz=/opt/sub2api-runtime-build/sub2api.$(date +%Y%m%d%H%M%S).gz
+  tmp=${gz%.gz}.tmp
+  cat > "$gz"
+  gzip -t "$gz"
+  gzip -dc "$gz" > "$tmp"
+  chmod +x "$tmp"
+  mv "$tmp" /opt/sub2api-runtime-build/sub2api
+  rm -f "$gz"
+  ls -lh /opt/sub2api-runtime-build/sub2api
+  file /opt/sub2api-runtime-build/sub2api
+'
+```
+
 ### 4. 构建只替换二进制的运行镜像
 
 ```bash

@@ -1,4 +1,4 @@
-.PHONY: build build-backend build-frontend build-datamanagementd test test-backend test-frontend test-frontend-critical test-datamanagementd secret-scan
+.PHONY: build build-backend build-frontend build-datamanagementd test test-backend test-frontend test-frontend-critical test-datamanagementd secret-scan fork-check fork-inventory fork-snapshot fork-verify fork-restore-dry-run deploy-gzip-dry-run
 
 FRONTEND_CRITICAL_VITEST := \
 	src/views/auth/__tests__/LinuxDoCallbackView.spec.ts \
@@ -7,6 +7,8 @@ FRONTEND_CRITICAL_VITEST := \
 	src/views/user/__tests__/PaymentResultView.spec.ts \
 	src/components/user/profile/__tests__/ProfileInfoCard.spec.ts \
 	src/views/admin/__tests__/SettingsView.spec.ts
+
+FORK_BASE ?=
 
 # 一键编译前后端
 build: build-backend build-frontend
@@ -42,3 +44,21 @@ test-datamanagementd:
 
 secret-scan:
 	@python3 tools/secret_scan.py
+
+fork-check:
+	@tools/fork-maintenance/fork-maintenance.sh check-doc
+
+fork-inventory:
+	@tools/fork-maintenance/fork-maintenance.sh inventory $(if $(FORK_BASE),--base $(FORK_BASE),)
+
+fork-snapshot:
+	@tools/fork-maintenance/fork-maintenance.sh snapshot $(if $(FORK_BASE),--base $(FORK_BASE),)
+
+fork-verify:
+	@tools/fork-maintenance/fork-maintenance.sh verify-after-upstream
+
+fork-restore-dry-run:
+	@tools/fork-maintenance/fork-maintenance.sh reapply-production-state
+
+deploy-gzip-dry-run:
+	@deploy/local-gzip-binary-deploy.sh --skip-frontend-build --skip-backend-build

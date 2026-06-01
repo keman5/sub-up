@@ -1,0 +1,49 @@
+# Fork Maintenance Automation
+
+This directory contains guardrails for preserving fork-only changes when syncing from upstream.
+
+The scripts do not silently rewrite upstream merges. They inventory fork-only changes, require the central maintenance document to be updated, export patch snapshots, run fork-specific verification, and reapply known non-Git production state when explicitly requested.
+
+## Commands
+
+```bash
+tools/fork-maintenance/fork-maintenance.sh inventory --base upstream/main
+tools/fork-maintenance/fork-maintenance.sh check-doc
+tools/fork-maintenance/fork-maintenance.sh record --title "Describe the fork-only change"
+tools/fork-maintenance/fork-maintenance.sh snapshot --base upstream/main
+tools/fork-maintenance/fork-maintenance.sh verify-after-upstream
+tools/fork-maintenance/fork-maintenance.sh reapply-production-state
+tools/fork-maintenance/fork-maintenance.sh reapply-production-state --apply
+```
+
+Equivalent Makefile shortcuts are available:
+
+```bash
+make fork-check
+make fork-inventory FORK_BASE=upstream/main
+make fork-snapshot FORK_BASE=upstream/main
+make fork-verify
+make fork-restore-dry-run
+```
+
+`reapply-production-state` is dry-run by default. It requires `--apply` before it touches the remote host.
+It regenerates `favicon.ico` from the current `frontend/public/logo.png` before upload, so the fallback icon follows the logo.
+
+`record` appends a TODO maintenance record template to `docs/FORK_MAINTENANCE_CN.md` for currently changed protected paths. Fill in the TODOs before committing.
+
+For binary deployment over slow links, use the gzip transfer/decompress helper:
+
+```bash
+deploy/local-gzip-binary-deploy.sh
+deploy/local-gzip-binary-deploy.sh --apply --deploy
+```
+
+## Optional Local Hook
+
+```bash
+tools/fork-maintenance/install-hooks.sh
+```
+
+The pre-commit hook blocks commits that touch protected fork-maintenance paths without also changing `docs/FORK_MAINTENANCE_CN.md`.
+
+The post-merge and post-rewrite hooks run fork-specific verification after merge/rebase and print a warning if protected changes need review. They do not automatically force-apply patches.

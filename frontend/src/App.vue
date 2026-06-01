@@ -7,6 +7,7 @@ import { resolveDocumentTitle } from '@/router/title'
 import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
 import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore } from '@/stores'
 import { getSetupStatus } from '@/api/setup'
+import { applySiteIcons } from '@/utils/siteIcons'
 
 const router = useRouter()
 const route = useRoute()
@@ -16,28 +17,12 @@ const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
 let routeSetupCheckSeq = 0
 
-/**
- * Update favicon dynamically
- * @param logoUrl - URL of the logo to use as favicon
- */
-function updateFavicon(logoUrl: string) {
-  // Find existing favicon link or create new one
-  let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
-  if (!link) {
-    link = document.createElement('link')
-    link.rel = 'icon'
-    document.head.appendChild(link)
-  }
-  link.type = logoUrl.endsWith('.svg') ? 'image/svg+xml' : 'image/x-icon'
-  link.href = logoUrl
-}
-
 // Watch for site settings changes and update favicon/title
 watch(
   () => appStore.siteLogo,
   (newLogo) => {
     if (newLogo) {
-      updateFavicon(newLogo)
+      applySiteIcons(newLogo)
     }
   },
   { immediate: true }
@@ -96,8 +81,10 @@ async function initializeRouteEnvironment() {
   const seq = ++routeSetupCheckSeq
   const isStaticHome = route.path === '/' || route.path === '/home'
   if (isStaticHome) {
+    await appStore.fetchPublicSettings()
+    if (seq !== routeSetupCheckSeq) return
     document.title = '51token 算力'
-    updateFavicon('/favicon.ico')
+    applySiteIcons(appStore.siteLogo || '/logo.png')
     return
   }
 
