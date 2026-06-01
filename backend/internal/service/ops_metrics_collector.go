@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/mem"
 )
 
@@ -35,6 +37,7 @@ const (
 	opsMetricsCollectorHeartbeatTimeout = 2 * time.Second
 
 	bytesPerMB = 1024 * 1024
+	bytesPerGB = 1024 * 1024 * 1024
 )
 
 var opsMetricsCollectorAdvisoryLockID = hashAdvisoryLockID(opsMetricsCollectorLeaderLockKey)
@@ -337,6 +340,10 @@ func (c *OpsMetricsCollector) collectAndPersist(ctx context.Context) error {
 		MemoryUsedMB:       sys.memoryUsedMB,
 		MemoryTotalMB:      sys.memoryTotalMB,
 		MemoryUsagePercent: sys.memoryUsagePercent,
+		DiskUsedGB:         sys.diskUsedGB,
+		DiskTotalGB:        sys.diskTotalGB,
+		DiskUsagePercent:   sys.diskUsagePercent,
+		GPUUsagePercent:    sys.gpuUsagePercent,
 
 		DBOK:    boolPtr(dbOK),
 		RedisOK: boolPtr(redisOK),
@@ -580,6 +587,10 @@ type opsCollectedSystemStats struct {
 	memoryUsedMB       *int64
 	memoryTotalMB      *int64
 	memoryUsagePercent *float64
+	diskUsedGB         *int64
+	diskTotalGB        *int64
+	diskUsagePercent   *float64
+	gpuUsagePercent    *float64
 }
 
 func (c *OpsMetricsCollector) collectSystemStats(ctx context.Context) (*opsCollectedSystemStats, error) {
@@ -638,7 +649,68 @@ func (c *OpsMetricsCollector) collectSystemStats(ctx context.Context) (*opsColle
 		}
 	}
 
+	if usage, err := disk.UsageWithContext(ctx, "/"); err == nil && usage != nil {
+		usedGB := int64(usage.Used / bytesPerGB)
+		totalGB := int64(usage.Total / bytesPerGB)
+		out.diskUsedGB = &usedGB
+		out.diskTotalGB = &totalGB
+		pct := roundTo1DP(usage.UsedPercent)
+		out.diskUsagePercent = &pct
+	}
+
+	if pct, ok := collectGPUUsagePercent(ctx); ok {
+		out.gpuUsagePercent = pct
+	}
+
 	return out, nil
+}
+
+func collectGPUUsagePercent(parentCtx context.Context) (*float64, bool) {
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parentCtx, 1200*time.Millisecond)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits")
+	raw, err := cmd.Output()
+	if err != nil {
+		return nil, false
+	}
+
+	pct, err := parseNvidiaSMIUtilizationCSV(string(raw))
+	if err != nil {
+		return nil, false
+	}
+	return &pct, true
+}
+
+func parseNvidiaSMIUtilizationCSV(raw string) (float64, error) {
+	lines := strings.Split(raw, "\n")
+	sum := 0.0
+	count := 0
+	for _, line := range lines {
+		v := strings.TrimSpace(line)
+		if v == "" {
+			continue
+		}
+		pct, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse nvidia-smi utilization %q: %w", v, err)
+		}
+		if pct < 0 {
+			pct = 0
+		}
+		if pct > 100 {
+			pct = 100
+		}
+		sum += pct
+		count++
+	}
+	if count == 0 {
+		return 0, fmt.Errorf("empty nvidia-smi output")
+	}
+	return roundTo1DP(sum / float64(count)), nil
 }
 
 func (c *OpsMetricsCollector) tryCgroupCPUPercent(now time.Time) *float64 {
