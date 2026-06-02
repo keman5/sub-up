@@ -156,6 +156,7 @@
       BlinkMacSystemFont,
       'Segoe UI',
       sans-serif;
+    overflow-wrap: anywhere;
   }
 
   .font-display {
@@ -163,6 +164,7 @@
   }
 
   .container-main {
+    width: 100%;
     max-width: 80rem;
     margin-inline: auto;
     padding-inline: 1rem;
@@ -184,6 +186,7 @@
     background: var(--card);
     border: 1px solid var(--card-border);
     border-radius: 1rem;
+    min-width: 0;
   }
 
   .text-gradient-main {
@@ -252,12 +255,16 @@
   .home-btn-primary,
   .home-btn-secondary {
     display: flex;
+    min-width: 0;
+    max-width: 100%;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
     border-radius: 0.5rem;
     padding: 0.75rem 1.5rem;
     font-weight: 500;
+    overflow-wrap: anywhere;
+    text-align: center;
     transition:
       opacity 150ms ease,
       background-color 150ms ease,

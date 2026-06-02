@@ -723,6 +723,8 @@ type GatewayConfig struct {
 	OpenAIHTTP2 GatewayOpenAIHTTP2Config `mapstructure:"openai_http2"`
 	// ImageConcurrency: 图片生成独立并发限制配置（默认关闭）
 	ImageConcurrency ImageConcurrencyConfig `mapstructure:"image_concurrency"`
+	// ModelRouter: OpenAI/Codex 动态模型路由配置（默认关闭）
+	ModelRouter GatewayModelRouterConfig `mapstructure:"model_router"`
 
 	// HTTP 上游连接池配置（性能优化：支持高并发场景调优）
 	// MaxIdleConns: 所有主机的最大空闲连接总数
@@ -797,6 +799,38 @@ type GatewayConfig struct {
 	// UserMessageQueue: 用户消息串行队列配置
 	// 对 role:"user" 的真实用户消息实施账号级串行化 + RPM 自适应延迟
 	UserMessageQueue UserMessageQueueConfig `mapstructure:"user_message_queue"`
+}
+
+// GatewayModelRouterConfig controls dynamic OpenAI/Codex model routing.
+// Route decisions are based on request intent + Codex usage snapshot pressure.
+type GatewayModelRouterConfig struct {
+	// Enabled toggles dynamic model routing.
+	Enabled bool `mapstructure:"enabled"`
+	// DefaultModel is the economy baseline model for regular text requests.
+	// Example: gpt-5.3-codex-spark
+	DefaultModel string `mapstructure:"default_model"`
+	// BalancedModel is used for complex text workloads when configured.
+	// Example: gpt-5.4
+	BalancedModel string `mapstructure:"balanced_model"`
+	// PremiumModel is used for image/vision requests and explicit escalations.
+	// Example: gpt-5.5
+	PremiumModel string `mapstructure:"premium_model"`
+	// SessionRouteTTLSeconds controls how long per-session route mode is remembered.
+	SessionRouteTTLSeconds int `mapstructure:"session_route_ttl_seconds"`
+	// EscalateCooldownSeconds is the minimum interval between two escalations in one session.
+	EscalateCooldownSeconds int `mapstructure:"escalate_cooldown_seconds"`
+	// CapabilityErrorEscalateConsecutiveFailures promotes one tier after this many consecutive capability failures.
+	CapabilityErrorEscalateConsecutiveFailures int `mapstructure:"capability_error_escalate_consecutive_failures"`
+	// ComplexInputMinChars is a low-cost complexity heuristic for text requests.
+	ComplexInputMinChars int `mapstructure:"complex_input_min_chars"`
+	// ComplexInputMinItems is another complexity heuristic based on input item count.
+	ComplexInputMinItems int `mapstructure:"complex_input_min_items"`
+	// PressureLowRemainingPercent and PressureMediumRemainingPercent define dynamic pressure bands.
+	// Values are in [0,100], and low <= medium.
+	PressureLowRemainingPercent    float64 `mapstructure:"pressure_low_remaining_percent"`
+	PressureMediumRemainingPercent float64 `mapstructure:"pressure_medium_remaining_percent"`
+	// ImageOrVisionForcePremium enforces premium tier for image/vision intent.
+	ImageOrVisionForcePremium bool `mapstructure:"image_or_vision_force_premium"`
 }
 
 // GatewayOpenAIHTTP2Config OpenAI HTTP 上游协议配置。
@@ -1794,6 +1828,18 @@ func setDefaults() {
 	viper.SetDefault("gateway.force_codex_cli", false)
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
+	viper.SetDefault("gateway.model_router.enabled", false)
+	viper.SetDefault("gateway.model_router.default_model", "gpt-5.3-codex-spark")
+	viper.SetDefault("gateway.model_router.balanced_model", "gpt-5.4")
+	viper.SetDefault("gateway.model_router.premium_model", "gpt-5.5")
+	viper.SetDefault("gateway.model_router.session_route_ttl_seconds", 1800)
+	viper.SetDefault("gateway.model_router.escalate_cooldown_seconds", 300)
+	viper.SetDefault("gateway.model_router.capability_error_escalate_consecutive_failures", 2)
+	viper.SetDefault("gateway.model_router.complex_input_min_chars", 2400)
+	viper.SetDefault("gateway.model_router.complex_input_min_items", 8)
+	viper.SetDefault("gateway.model_router.pressure_low_remaining_percent", 40.0)
+	viper.SetDefault("gateway.model_router.pressure_medium_remaining_percent", 70.0)
+	viper.SetDefault("gateway.model_router.image_or_vision_force_premium", true)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)
 	viper.SetDefault("gateway.openai_ws.mode_router_v2_enabled", false)
@@ -2441,6 +2487,30 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.ImageConcurrency.MaxWaitingRequests < 0 {
 		return fmt.Errorf("gateway.image_concurrency.max_waiting_requests must be non-negative")
+	}
+	if c.Gateway.ModelRouter.SessionRouteTTLSeconds <= 0 {
+		return fmt.Errorf("gateway.model_router.session_route_ttl_seconds must be positive")
+	}
+	if c.Gateway.ModelRouter.EscalateCooldownSeconds < 0 {
+		return fmt.Errorf("gateway.model_router.escalate_cooldown_seconds must be non-negative")
+	}
+	if c.Gateway.ModelRouter.CapabilityErrorEscalateConsecutiveFailures <= 0 {
+		return fmt.Errorf("gateway.model_router.capability_error_escalate_consecutive_failures must be positive")
+	}
+	if c.Gateway.ModelRouter.ComplexInputMinChars < 0 {
+		return fmt.Errorf("gateway.model_router.complex_input_min_chars must be non-negative")
+	}
+	if c.Gateway.ModelRouter.ComplexInputMinItems < 0 {
+		return fmt.Errorf("gateway.model_router.complex_input_min_items must be non-negative")
+	}
+	if c.Gateway.ModelRouter.PressureLowRemainingPercent < 0 || c.Gateway.ModelRouter.PressureLowRemainingPercent > 100 {
+		return fmt.Errorf("gateway.model_router.pressure_low_remaining_percent must be between 0-100")
+	}
+	if c.Gateway.ModelRouter.PressureMediumRemainingPercent < 0 || c.Gateway.ModelRouter.PressureMediumRemainingPercent > 100 {
+		return fmt.Errorf("gateway.model_router.pressure_medium_remaining_percent must be between 0-100")
+	}
+	if c.Gateway.ModelRouter.PressureLowRemainingPercent > c.Gateway.ModelRouter.PressureMediumRemainingPercent {
+		return fmt.Errorf("gateway.model_router.pressure_low_remaining_percent must be <= pressure_medium_remaining_percent")
 	}
 	if c.Gateway.MaxIdleConns <= 0 {
 		return fmt.Errorf("gateway.max_idle_conns must be positive")

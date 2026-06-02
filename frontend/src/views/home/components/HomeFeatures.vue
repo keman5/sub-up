@@ -7,29 +7,29 @@
 
     <div class="container-main relative z-10">
       <div class="mb-16 text-center">
-        <h2 class="font-display mb-4 text-3xl font-bold tracking-tight text-foreground md:text-4xl">
+        <h2 class="font-display mb-4 text-3xl font-bold tracking-tight break-words text-foreground md:text-4xl">
           高可用 AI 服务的核心基础设施
         </h2>
-        <p class="mx-auto max-w-2xl text-lg text-muted-foreground">
+        <p class="mx-auto max-w-2xl text-lg break-words text-muted-foreground">
           不止解决接口转发，更解决国内团队获取官方 AI 额度、稳定使用、权限隔离与成本核算的一整套问题。
         </p>
       </div>
 
-      <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div class="grid min-w-0 gap-6 md:grid-cols-2 lg:grid-cols-4">
         <article
           v-for="(feature, index) in featureCards"
           :key="feature.title"
-          class="panel-card group p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
+          class="panel-card group min-w-0 p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
           :class="'landing-animate-fade-up'"
           :style="{ animationDelay: `${index * 50}ms` }"
         >
           <div class="mb-6 flex size-12 shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-background shadow-inner transition-all duration-300 group-hover:border-primary/50 group-hover:shadow-[0_0_15px_color-mix(in_oklch,var(--primary)_20%,transparent)]">
             <Icon :name="feature.icon" size="lg" class="text-muted-foreground transition-colors group-hover:text-primary" />
           </div>
-          <h3 class="font-display mb-2 text-lg font-bold text-foreground">
+          <h3 class="font-display mb-2 text-lg font-bold break-words text-foreground">
             {{ feature.title }}
           </h3>
-          <p class="text-sm leading-relaxed font-medium text-muted-foreground">
+          <p class="text-sm leading-relaxed font-medium break-words text-muted-foreground">
             {{ feature.description }}
           </p>
         </article>

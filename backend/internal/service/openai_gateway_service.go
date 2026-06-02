@@ -2314,6 +2314,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	originalBody := body
 	reqModel, reqStream, promptCacheKey := extractOpenAIRequestMetaFromBody(body)
 	originalModel := reqModel
+	sessionHash := s.GenerateSessionHash(c, body)
 
 	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
@@ -2480,6 +2481,32 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		markPatchSet("model", billingModel)
 	}
 	upstreamModel := billingModel
+	if routeDecision := s.decideOpenAIModelRoute(
+		ctx,
+		sessionHash,
+		account,
+		reqBody,
+		body,
+		billingModel,
+		IsImageGenerationIntentMap(openAIResponsesEndpoint, reqModel, reqBody),
+	); routeDecision.Enabled && strings.TrimSpace(routeDecision.UpstreamModel) != "" {
+		if routeDecision.UpstreamModel != billingModel {
+			logger.LegacyPrintf(
+				"service.openai_gateway",
+				"[OpenAI] Dynamic model route applied: %s -> %s (tier=%s reason=%s account=%s)",
+				billingModel,
+				routeDecision.UpstreamModel,
+				routeDecision.Tier,
+				routeDecision.Reason,
+				account.Name,
+			)
+			reqBody["model"] = routeDecision.UpstreamModel
+			bodyModified = true
+			markPatchSet("model", routeDecision.UpstreamModel)
+		}
+		billingModel = routeDecision.UpstreamModel
+		upstreamModel = routeDecision.UpstreamModel
+	}
 	if imageGenerationAllowed && normalizeOpenAIResponsesImageOnlyModel(reqBody) {
 		bodyModified = true
 		disablePatch()
@@ -3074,12 +3101,14 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				})
 
 				s.handleFailoverSideEffects(ctx, resp, account, upstreamModel)
+				s.onOpenAIModelRouterResult(ctx, sessionHash, errors.New(upstreamMsg))
 				return nil, &UpstreamFailoverError{
 					StatusCode:             resp.StatusCode,
 					ResponseBody:           respBody,
 					RetryableOnSameAccount: account.IsPoolMode() && (account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody)),
 				}
 			}
+			s.onOpenAIModelRouterResult(ctx, sessionHash, errors.New(upstreamMsg))
 			return s.handleErrorResponse(ctx, resp, c, account, body, billingModel)
 		}
 		defer func() { _ = resp.Body.Close() }()
@@ -3096,6 +3125,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		if reqStream {
 			streamResult, err := s.handleStreamingResponse(ctx, resp, c, account, startTime, originalModel, upstreamModel)
 			if err != nil {
+				s.onOpenAIModelRouterResult(ctx, sessionHash, err)
 				return nil, err
 			}
 			usage = streamResult.usage
@@ -3105,12 +3135,14 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		} else {
 			nonStreamResult, err := s.handleNonStreamingResponse(ctx, resp, c, account, originalModel, upstreamModel)
 			if err != nil {
+				s.onOpenAIModelRouterResult(ctx, sessionHash, err)
 				return nil, err
 			}
 			usage = nonStreamResult.usage
 			imageCount = nonStreamResult.imageCount
 			imageOutputSizes = nonStreamResult.imageOutputSizes
 		}
+		s.onOpenAIModelRouterResult(ctx, sessionHash, nil)
 
 		// Extract and save Codex usage snapshot from response headers (for OAuth accounts)
 		if account.Type == AccountTypeOAuth {

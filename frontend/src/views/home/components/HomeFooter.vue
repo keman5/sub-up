@@ -1,12 +1,12 @@
 <template>
   <footer class="relative z-10 border-t border-[var(--border-light)] bg-background py-10 md:py-12">
     <div class="container-main">
-      <div class="mb-12 grid grid-cols-2 gap-8 md:grid-cols-4">
-        <div class="col-span-2">
+      <div class="mb-12 grid min-w-0 grid-cols-1 gap-8 sm:grid-cols-2 md:grid-cols-4">
+        <div class="sm:col-span-2">
           <router-link to="/" class="font-display mb-4 block text-lg font-bold tracking-tight text-foreground">
             51token Pro
           </router-link>
-          <p class="max-w-xs text-sm text-muted-foreground">
+          <p class="max-w-xs text-sm break-words text-muted-foreground">
             高性能 AI 接口分发基础设施。无缝兼容 OpenAI 接口规范，专注于 Codex Pro 账号额度的高效、安全、稳定分发。
           </p>
         </div>
@@ -38,7 +38,7 @@
             所有系统运行正常
           </div>
           <div class="text-center text-xs text-muted-foreground/45 sm:text-right">
-            <span>&copy; {{ currentYear }} <span class="font-medium text-foreground/70">51Token Power</span></span>
+            <span>&copy; {{ currentYear }} <span class="font-medium text-foreground/70">51token 算力</span></span>
           </div>
         </div>
       </div>
