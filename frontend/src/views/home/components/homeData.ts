@@ -19,6 +19,14 @@ export const externalAppUrls = {
   console: resolveAppUrl('/dashboard')
 } as const
 
+export const homeSupportEntry = {
+  buttonLabel: '联系客服',
+  panelTitle: '加入 QQ 群获取支持',
+  helperText: '扫码进群，或复制群号后在 QQ 内搜索加入。',
+  groupNumber: '550744305',
+  qrImagePath: '/qq-support-qr.jpeg'
+} as const
+
 export type HeroCodeTab = 'mac' | 'windows' | 'python'
 
 export const heroTabs: Array<{ id: HeroCodeTab; label: string }> = [

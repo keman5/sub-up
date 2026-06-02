@@ -8,6 +8,7 @@
     <HomeIntegrations :api-base-url="apiBaseUrl" />
     <HomeFaq />
     <HomeFooter />
+    <HomeSupportWidget />
   </div>
 </template>
 
@@ -21,6 +22,7 @@ import HomeIntegrations from './home/components/HomeIntegrations.vue'
 import HomePricing from './home/components/HomePricing.vue'
 import HomeFaq from './home/components/HomeFaq.vue'
 import HomeFooter from './home/components/HomeFooter.vue'
+import HomeSupportWidget from './home/components/HomeSupportWidget.vue'
 import { useHomeScrollRestoration } from './home/components/useHomeScrollRestoration'
 import { useAppStore } from '@/stores/app'
 
