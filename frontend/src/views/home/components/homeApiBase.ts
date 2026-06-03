@@ -24,7 +24,12 @@ export function resolveHomeApiBaseUrl(configuredBaseUrl?: string | null, origin 
 }
 
 export function buildClaudeBaseUrl(apiBaseUrl: string): string {
-  return trimTrailingSlashes(apiBaseUrl).replace(/\/v1$/i, '')
+  const normalized = trimTrailingSlashes(apiBaseUrl)
+  try {
+    return new URL(normalized).origin
+  } catch {
+    return normalized.replace(/\/v1$/i, '')
+  }
 }
 
 export function buildHomeSnippetUrls(configuredBaseUrl?: string | null, origin?: string): HomeSnippetUrls {
