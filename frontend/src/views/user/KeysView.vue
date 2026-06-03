@@ -1773,15 +1773,31 @@ const importToCcswitch = (row: ApiKey) => {
 const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
   const baseUrl = publicSettings.value?.api_base_url || window.location.origin
   const platform = row.group?.platform || 'anthropic'
+  const usageUrl = `${baseUrl.replace(/\/+$/, '')}/usage`
 
   const usageScript = `({
     request: {
-      url: "{{baseUrl}}/v1/usage",
+      url: "${usageUrl}",
       method: "GET",
       headers: { "Authorization": "Bearer {{apiKey}}" }
     },
     extractor: function(response) {
-      const remaining = response?.remaining ?? response?.quota?.remaining ?? response?.balance;
+      const rateLimitRemaining = Array.isArray(response?.rate_limits)
+        ? response.rate_limits
+            .map(function(limit) { return limit?.remaining; })
+            .filter(function(value) { return typeof value === "number"; })
+            .sort(function(a, b) { return a - b; })[0]
+        : undefined;
+      const subscriptionRemaining = response?.subscription
+        ? Math.min(
+            ...[
+              response.subscription.daily_limit_usd != null ? response.subscription.daily_limit_usd - (response.subscription.daily_usage_usd ?? 0) : undefined,
+              response.subscription.weekly_limit_usd != null ? response.subscription.weekly_limit_usd - (response.subscription.weekly_usage_usd ?? 0) : undefined,
+              response.subscription.monthly_limit_usd != null ? response.subscription.monthly_limit_usd - (response.subscription.monthly_usage_usd ?? 0) : undefined
+            ].filter(function(value) { return typeof value === "number"; })
+          )
+        : undefined;
+      const remaining = response?.remaining ?? response?.quota?.remaining ?? response?.balance ?? subscriptionRemaining ?? rateLimitRemaining;
       const unit = response?.unit ?? response?.quota?.unit ?? "USD";
       return {
         isValid: response?.is_active ?? response?.isValid ?? true,
