@@ -637,6 +637,15 @@ go generate ./cmd/server
 
 Sub2API 支持 [Antigravity](https://antigravity.so/) 账户，授权后可通过专用端点访问 Claude 和 Gemini 模型。
 
+### Claude Code 配置示例
+
+普通 Claude/Anthropic 兼容入口中，`ANTHROPIC_BASE_URL` 填服务根地址。不要填写已经带路径的 OpenAI/Codex API Base，例如 `/openai/v1` 或 `/51Token/v1`，因为 Claude Code 会自己追加 `/v1/messages`。
+
+```bash
+export ANTHROPIC_BASE_URL="http://localhost:8080"
+export ANTHROPIC_AUTH_TOKEN="sk-xxx"
+```
+
 ### 专用端点
 
 | 端点 | 模型 |
@@ -644,7 +653,7 @@ Sub2API 支持 [Antigravity](https://antigravity.so/) 账户，授权后可通�
 | `/antigravity/v1/messages` | Claude 模型 |
 | `/antigravity/v1beta/` | Gemini 模型 |
 
-### Claude Code 配置示例
+### Antigravity Claude Code 配置示例
 
 ```bash
 export ANTHROPIC_BASE_URL="http://localhost:8080/antigravity"

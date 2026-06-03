@@ -573,6 +573,15 @@ go generate ./cmd/server
 
 Sub2API は [Antigravity](https://antigravity.so/) アカウントをサポートしています。認証後、Claude および Gemini モデル用の専用エンドポイントが利用可能になります。
 
+### Claude Code の設定
+
+通常の Claude/Anthropic 互換アクセスでは、`ANTHROPIC_BASE_URL` にはサービスの origin を設定します。Claude Code は `/v1/messages` を自分で追加するため、`/openai/v1` や `/51Token/v1` などのパスを含む OpenAI/Codex API Base は指定しないでください。
+
+```bash
+export ANTHROPIC_BASE_URL="http://localhost:8080"
+export ANTHROPIC_AUTH_TOKEN="sk-xxx"
+```
+
 ### 専用エンドポイント
 
 | エンドポイント | モデル |
@@ -580,7 +589,7 @@ Sub2API は [Antigravity](https://antigravity.so/) アカウントをサポー�
 | `/antigravity/v1/messages` | Claude モデル |
 | `/antigravity/v1beta/` | Gemini モデル |
 
-### Claude Code の設定
+### Antigravity Claude Code の設定
 
 ```bash
 export ANTHROPIC_BASE_URL="http://localhost:8080/antigravity"
