@@ -490,7 +490,7 @@ func (s *OpenAIGatewayService) isUpstreamModelRestrictedByChannel(ctx context.Co
 	if s.channelService == nil {
 		return false
 	}
-	upstreamModel := resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)
+	upstreamModel := resolveOpenAIAccountUpstreamModelForRequestWithOptions(account, requestedModel, s.buildOpenAIAccountRequestOptions(ctx, requireCompact, ""))
 	if upstreamModel == "" {
 		return false
 	}
@@ -1305,6 +1305,75 @@ func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool)
 	return errors.New("no available OpenAI accounts")
 }
 
+type openAIAccountRequestOptions struct {
+	RequireCompact      bool
+	RequiredCapability  OpenAIEndpointCapability
+	ModelRouteEvalInput *openAIModelRouteEvalInput
+	RouterService       *OpenAIGatewayService
+}
+
+type openAIModelRouteEvalCtxKey struct{}
+
+func withOpenAIModelRouteEvalInput(ctx context.Context, input *openAIModelRouteEvalInput) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if input == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, openAIModelRouteEvalCtxKey{}, input)
+}
+
+func openAIModelRouteEvalInputFromContext(ctx context.Context) *openAIModelRouteEvalInput {
+	if ctx == nil {
+		return nil
+	}
+	input, _ := ctx.Value(openAIModelRouteEvalCtxKey{}).(*openAIModelRouteEvalInput)
+	return input
+}
+
+func (s *OpenAIGatewayService) WithModelRouteRequestContext(
+	ctx context.Context,
+	sessionHash string,
+	requestedModel string,
+	imageIntent bool,
+	reqBody map[string]any,
+	rawBody []byte,
+) context.Context {
+	if s == nil || s.cfg == nil {
+		return ctx
+	}
+	return withOpenAIModelRouteEvalInput(ctx, &openAIModelRouteEvalInput{
+		SessionHash:    sessionHash,
+		RequestedModel: requestedModel,
+		RequestMeta: openAIModelRouterRequestMeta{
+			RequestedModel: strings.TrimSpace(requestedModel),
+			ImageIntent:    imageIntent,
+			ComplexText: isOpenAIModelRouterComplexText(
+				reqBody,
+				rawBody,
+				s.cfg.Gateway.ModelRouter.ComplexInputMinChars,
+				s.cfg.Gateway.ModelRouter.ComplexInputMinItems,
+			),
+			PremiumText: isOpenAIModelRouterComplexText(
+				reqBody,
+				rawBody,
+				s.cfg.Gateway.ModelRouter.PremiumInputMinChars,
+				s.cfg.Gateway.ModelRouter.PremiumInputMinItems,
+			),
+		},
+	})
+}
+
+func (s *OpenAIGatewayService) buildOpenAIAccountRequestOptions(ctx context.Context, requireCompact bool, requiredCapability OpenAIEndpointCapability) openAIAccountRequestOptions {
+	return openAIAccountRequestOptions{
+		RequireCompact:      requireCompact,
+		RequiredCapability:  requiredCapability,
+		ModelRouteEvalInput: openAIModelRouteEvalInputFromContext(ctx),
+		RouterService:       s,
+	}
+}
+
 // openAICompactSupportTier classifies an OpenAI account by compact capability.
 // 0 = explicitly unsupported, 1 = unknown / not yet probed, 2 = explicitly supported.
 func openAICompactSupportTier(account *Account) int {
@@ -1324,7 +1393,14 @@ func openAICompactSupportTier(account *Account) int {
 // isOpenAIAccountEligibleForRequest centralises the schedulable / OpenAI / model /
 // compact-support checks used during account selection.
 func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
-	if account == nil || !account.IsOpenAI() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
+	return isOpenAIAccountEligibleForRequestWithOptions(ctx, account, requestedModel, openAIAccountRequestOptions{
+		RequireCompact:     requireCompact,
+		RequiredCapability: requiredCapability,
+	})
+}
+
+func isOpenAIAccountEligibleForRequestWithOptions(ctx context.Context, account *Account, requestedModel string, opts openAIAccountRequestOptions) bool {
+	if account == nil || !account.IsOpenAI() || !account.IsSchedulable() {
 		return false
 	}
 	if paused, reason := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
@@ -1338,13 +1414,22 @@ func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, re
 		)
 		return false
 	}
+	effectiveModel := resolveOpenAIAccountUpstreamModelForRequestWithOptions(account, requestedModel, opts)
+	if effectiveModel != "" && account.GetRateLimitRemainingTimeWithContext(ctx, effectiveModel) > 0 {
+		return false
+	}
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
+		if effectiveModel == "" || !account.IsModelSupported(effectiveModel) {
+			return false
+		}
+	}
+	if effectiveModel != "" && effectiveModel != requestedModel && !account.IsModelSupported(effectiveModel) {
 		return false
 	}
-	if !account.SupportsOpenAIEndpointCapability(requiredCapability) {
+	if !account.SupportsOpenAIEndpointCapability(opts.RequiredCapability) {
 		return false
 	}
-	if requireCompact && openAICompactSupportTier(account) == 0 {
+	if opts.RequireCompact && openAICompactSupportTier(account) == 0 {
 		return false
 	}
 	return true
@@ -1576,11 +1661,30 @@ func prioritizeOpenAICompactAccounts(accounts []*Account) []*Account {
 // would be sent for a given request, honouring compact-only mappings when the
 // caller is on the /responses/compact path.
 func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedModel string, requireCompact bool) string {
+	return resolveOpenAIAccountUpstreamModelForRequestWithOptions(account, requestedModel, openAIAccountRequestOptions{
+		RequireCompact: requireCompact,
+	})
+}
+
+func resolveOpenAIAccountUpstreamModelForRequestWithOptions(account *Account, requestedModel string, opts openAIAccountRequestOptions) string {
 	upstreamModel := resolveOpenAIForwardModel(account, requestedModel, "")
 	if upstreamModel == "" {
 		return ""
 	}
-	if requireCompact {
+	if opts.ModelRouteEvalInput != nil {
+		routeInput := *opts.ModelRouteEvalInput
+		routeInput.Account = account
+		routeInput.RequestedModel = upstreamModel
+		if strings.TrimSpace(routeInput.RequestMeta.RequestedModel) == "" {
+			routeInput.RequestMeta.RequestedModel = upstreamModel
+		}
+		if opts.RouterService != nil {
+			if decision := opts.RouterService.evaluateOpenAIModelRoute(context.Background(), routeInput); decision.Enabled && strings.TrimSpace(decision.UpstreamModel) != "" {
+				upstreamModel = strings.TrimSpace(decision.UpstreamModel)
+			}
+		}
+	}
+	if opts.RequireCompact {
 		return resolveOpenAICompactForwardModel(account, upstreamModel)
 	}
 	return upstreamModel
@@ -1666,7 +1770,9 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 
 	// 验证账号是否可用于当前请求
 	// Verify account is usable for current request
-	if !isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, false, requiredCapability) {
+	opts := s.buildOpenAIAccountRequestOptions(ctx, requireCompact, requiredCapability)
+	if !isOpenAIAccountEligibleForRequestWithOptions(ctx, account, requestedModel, opts) {
+		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
 	if s.isOpenAIAccountRuntimeBlocked(account) {
@@ -1866,7 +1972,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 				if clearSticky {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 				}
-				if !clearSticky && isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, false, requiredCapability) {
+				if !clearSticky && isOpenAIAccountEligibleForRequestWithOptions(ctx, account, requestedModel, s.buildOpenAIAccountRequestOptions(ctx, requireCompact, requiredCapability)) {
 					account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel, requireCompact, requiredCapability)
 					if account == nil {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
@@ -1911,7 +2017,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		// Scheduler snapshots can be temporarily stale (bucket rebuild is throttled);
 		// re-check schedulability here so recently rate-limited/overloaded accounts
 		// are not selected again before the bucket is rebuilt.
-		if !isOpenAIAccountEligibleForRequest(ctx, acc, requestedModel, false, requiredCapability) {
+		if !isOpenAIAccountEligibleForRequestWithOptions(ctx, acc, requestedModel, s.buildOpenAIAccountRequestOptions(ctx, false, requiredCapability)) {
 			continue
 		}
 		if s.isOpenAIAccountRuntimeBlocked(acc) {
@@ -2141,7 +2247,7 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccount(ctx context.
 		fresh = current
 	}
 
-	if !isOpenAIAccountEligibleForRequest(ctx, fresh, requestedModel, requireCompact, requiredCapability) {
+	if !isOpenAIAccountEligibleForRequestWithOptions(ctx, fresh, requestedModel, s.buildOpenAIAccountRequestOptions(ctx, requireCompact, requiredCapability)) {
 		return nil
 	}
 	if s.isOpenAIAccountRuntimeBlocked(fresh) {
@@ -2155,7 +2261,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 		return nil
 	}
 	if s.schedulerSnapshot == nil || s.accountRepo == nil {
-		if !isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, requireCompact, requiredCapability) {
+		if !isOpenAIAccountEligibleForRequestWithOptions(ctx, account, requestedModel, s.buildOpenAIAccountRequestOptions(ctx, requireCompact, requiredCapability)) {
 			return nil
 		}
 		return account
@@ -2165,7 +2271,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 	if err != nil || latest == nil {
 		return nil
 	}
-	if !isOpenAIAccountEligibleForRequest(ctx, latest, requestedModel, requireCompact, requiredCapability) {
+	if !isOpenAIAccountEligibleForRequestWithOptions(ctx, latest, requestedModel, s.buildOpenAIAccountRequestOptions(ctx, requireCompact, requiredCapability)) {
 		return nil
 	}
 	if s.isOpenAIAccountRuntimeBlocked(latest) {

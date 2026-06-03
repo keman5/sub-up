@@ -233,6 +233,94 @@ deploy/local-gzip-binary-deploy.sh --apply --deploy
 - `--deploy` 会先更新 `sub2api-standby`，确认 healthy 后再更新 `sub2api`。
 - 最后验证 standby、primary 和公开 `/health`。
 
+### 3.2 动态模型路由上线核对
+
+动态模型路由的代码默认配置是关闭的，线上必须通过 compose 环境变量显式开启，否则即使账号 `extra` 中已有 Codex 5h / 7d 用量快照，请求也仍会按调用方原始模型转发。
+
+生产 compose 需要保留以下环境变量：
+
+```yaml
+- GATEWAY_MODEL_ROUTER_ENABLED=${GATEWAY_MODEL_ROUTER_ENABLED:-true}
+- GATEWAY_MODEL_ROUTER_OAUTH_MODE=${GATEWAY_MODEL_ROUTER_OAUTH_MODE:-passthrough}
+- GATEWAY_MODEL_ROUTER_DEFAULT_MODEL=${GATEWAY_MODEL_ROUTER_DEFAULT_MODEL:-gpt-5.3-codex-spark}
+- GATEWAY_MODEL_ROUTER_BALANCED_MODEL=${GATEWAY_MODEL_ROUTER_BALANCED_MODEL:-gpt-5.4}
+- GATEWAY_MODEL_ROUTER_PREMIUM_MODEL=${GATEWAY_MODEL_ROUTER_PREMIUM_MODEL:-gpt-5.5}
+- GATEWAY_MODEL_ROUTER_PREMIUM_INPUT_MIN_CHARS=${GATEWAY_MODEL_ROUTER_PREMIUM_INPUT_MIN_CHARS:-12000}
+- GATEWAY_MODEL_ROUTER_PREMIUM_INPUT_MIN_ITEMS=${GATEWAY_MODEL_ROUTER_PREMIUM_INPUT_MIN_ITEMS:-20}
+- GATEWAY_MODEL_ROUTER_PRESSURE_LOW_REMAINING_PERCENT=${GATEWAY_MODEL_ROUTER_PRESSURE_LOW_REMAINING_PERCENT:-40}
+- GATEWAY_MODEL_ROUTER_PRESSURE_MEDIUM_REMAINING_PERCENT=${GATEWAY_MODEL_ROUTER_PRESSURE_MEDIUM_REMAINING_PERCENT:-70}
+- GATEWAY_MODEL_ROUTER_IMAGE_OR_VISION_FORCE_PREMIUM=${GATEWAY_MODEL_ROUTER_IMAGE_OR_VISION_FORCE_PREMIUM:-true}
+```
+
+`GATEWAY_MODEL_ROUTER_OAUTH_MODE` 默认 `passthrough`，OpenAI OAuth / Codex Pro 账号保持调用方原始模型。若要让 OAuth 账号参与 5.3 Spark / 5.4 / 5.5 自适应路由，先仅在 ap2/a2 灰度设置为 `adaptive_codex`；ap1 和主环境保持 `passthrough` 或关闭动态路由，等 a2 验证稳定后再推进。
+
+路由分层规则：普通文本优先 `GATEWAY_MODEL_ROUTER_DEFAULT_MODEL`，中等复杂文本走 `GATEWAY_MODEL_ROUTER_BALANCED_MODEL`，超过 `GATEWAY_MODEL_ROUTER_PREMIUM_INPUT_*` 的大请求、图片/视觉或连续能力失败升级到 `GATEWAY_MODEL_ROUTER_PREMIUM_MODEL`。当账号 5h/7d 剩余额度进入压力区间时，会优先压回 economy/balanced 以节省额度。
+
+对外隐藏规则：动态路由只改变内部上游 `upstream_model`；客户端响应体、流式 SSE `model` 字段和普通用户用量记录继续显示调用方请求模型。真实上游模型仅在管理员用量/运维日志中保留，用于排障和成本核对。
+
+上线后检查：
+
+```bash
+ssh new-api-vps 'docker exec sub2api env | grep GATEWAY_MODEL_ROUTER'
+ssh new-api-vps 'docker exec sub2api-standby env | grep GATEWAY_MODEL_ROUTER'
+curl -fsS https://ai.upit.top/health
+curl -fsS https://a1.upit.top/health
+```
+
+若用户反馈高压账号仍未切到 `gpt-5.3-codex-spark`，先看容器环境变量，再查对应 OpenAI 账号 `extra` 中的 `codex_5h_used_percent`、`codex_7d_used_percent` 和最近 `usage_logs.model/upstream_model`。
+
+### 3.3 ap2 / a2 灰度环境单独重部署
+
+`ap2` 不是 `sub2api-standby`。当前线上单独存在一套灰度环境：
+
+- compose 目录：`/opt/sub2api-ap2-deploy`
+- compose project：`sub2api-ap2-deploy`
+- 服务名 / 容器名：`sub2api-ap2`
+- 本地健康检查：`http://127.0.0.1:8083/health`
+- 镜像来源：`/opt/sub2api-ap2-deploy/.env` 中的 `IMAGE_TAG=...`
+
+因此，如果只是重新部署 `ap2/a2`，不要使用 `deploy/local-gzip-binary-deploy.sh --apply --deploy`，因为那个流程会更新 `sub2api-standby` 和 `sub2api`。正确做法是：
+
+1. 先用脚本仅完成“本地构建 + gzip 上传 + 远端替换 `/opt/sub2api-runtime-build/sub2api` + 打新镜像”，不要滚动主环境：
+
+```bash
+IMAGE_TAG="sub2api:subapi-<git-sha>-ap2-redeploy-$(date +%Y%m%d%H%M%S)" \
+BASE_IMAGE="$(ssh new-api-vps \"grep '^IMAGE_TAG=' /opt/sub2api-ap2-deploy/.env | cut -d= -f2-\")" \
+deploy/local-gzip-binary-deploy.sh --apply
+```
+
+2. 然后仅修改 `ap2` 目录下的 `.env` 并重启 `sub2api-ap2`：
+
+```bash
+ssh new-api-vps '
+  set -eu
+  cd /opt/sub2api-ap2-deploy
+  TS=$(date +%Y%m%d%H%M%S)
+  cp .env .env.bak.$TS.redeploy-ap2
+  sed -i "s#^IMAGE_TAG=.*#IMAGE_TAG=sub2api:subapi-<git-sha>-ap2-redeploy-<timestamp>#\" .env
+  docker compose up -d sub2api-ap2
+  curl -fsS http://127.0.0.1:8083/health
+'
+```
+
+3. 再确认容器与镜像：
+
+```bash
+ssh new-api-vps '
+  docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" sub2api-ap2
+  docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | grep sub2api-ap2
+'
+```
+
+2026-06-02 实测：
+
+- 旧镜像：`sub2api:subapi-a5e4b0c6-ap2-oauth-adaptive-v2-202606021754`
+- 新镜像：`sub2api:subapi-9d75fb6b-ap2-redeploy-20260602232707`
+- `sub2api-ap2` 更新后状态为 `healthy`
+- `http://127.0.0.1:8083/health` 返回 `{"status":"ok"}`
+
+如果只想验证灰度 OAuth/Codex 自适应路由，不要动 `sub2api-standby` 或 `sub2api`，保持 `ap2` 独立切换即可。
+
 底层等价命令示例：
 
 ```bash

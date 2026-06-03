@@ -26,6 +26,11 @@ const (
 	openAIModelRouterTierPremium  openAIModelRouterTier = "premium"
 )
 
+const (
+	openAIModelRouterOAuthModePassthrough   = "passthrough"
+	openAIModelRouterOAuthModeAdaptiveCodex = "adaptive_codex"
+)
+
 type openAIModelRouterRouteState struct {
 	Tier                         openAIModelRouterTier `json:"tier"`
 	CapabilityFailureConsecutive int                   `json:"capability_failure_consecutive"`
@@ -44,6 +49,14 @@ type openAIModelRouterRequestMeta struct {
 	RequestedModel string
 	ImageIntent    bool
 	ComplexText    bool
+	PremiumText    bool
+}
+
+type openAIModelRouteEvalInput struct {
+	SessionHash    string
+	Account        *Account
+	RequestedModel string
+	RequestMeta    openAIModelRouterRequestMeta
 }
 
 func (s *OpenAIGatewayService) isOpenAIModelRouterEnabled() bool {
@@ -59,13 +72,39 @@ func (s *OpenAIGatewayService) decideOpenAIModelRoute(
 	requestedModel string,
 	imageIntent bool,
 ) openAIModelRouterDecision {
+	if s == nil || s.cfg == nil {
+		return openAIModelRouterDecision{
+			Enabled:       false,
+			Tier:          openAIModelRouterTierEconomy,
+			UpstreamModel: strings.TrimSpace(requestedModel),
+			Reason:        "router_disabled",
+		}
+	}
+	meta := openAIModelRouterRequestMeta{
+		RequestedModel: strings.TrimSpace(requestedModel),
+		ImageIntent:    imageIntent,
+		ComplexText:    isOpenAIModelRouterComplexText(reqBody, rawBody, s.cfg.Gateway.ModelRouter.ComplexInputMinChars, s.cfg.Gateway.ModelRouter.ComplexInputMinItems),
+		PremiumText:    isOpenAIModelRouterComplexText(reqBody, rawBody, s.cfg.Gateway.ModelRouter.PremiumInputMinChars, s.cfg.Gateway.ModelRouter.PremiumInputMinItems),
+	}
+	return s.evaluateOpenAIModelRoute(ctx, openAIModelRouteEvalInput{
+		SessionHash:    sessionHash,
+		Account:        account,
+		RequestedModel: requestedModel,
+		RequestMeta:    meta,
+	})
+}
+
+func (s *OpenAIGatewayService) evaluateOpenAIModelRoute(
+	ctx context.Context,
+	input openAIModelRouteEvalInput,
+) openAIModelRouterDecision {
 	decision := openAIModelRouterDecision{
 		Enabled:       s.isOpenAIModelRouterEnabled(),
 		Tier:          openAIModelRouterTierEconomy,
-		UpstreamModel: strings.TrimSpace(requestedModel),
+		UpstreamModel: strings.TrimSpace(input.RequestedModel),
 		Reason:        "router_disabled",
 	}
-	if !decision.Enabled || account == nil || account.Platform != PlatformOpenAI {
+	if !decision.Enabled || input.Account == nil || input.Account.Platform != PlatformOpenAI {
 		return decision
 	}
 
@@ -74,7 +113,7 @@ func (s *OpenAIGatewayService) decideOpenAIModelRoute(
 	balancedModel := strings.TrimSpace(cfg.BalancedModel)
 	premiumModel := strings.TrimSpace(cfg.PremiumModel)
 	if defaultModel == "" {
-		defaultModel = strings.TrimSpace(requestedModel)
+		defaultModel = strings.TrimSpace(input.RequestedModel)
 	}
 	if balancedModel == "" {
 		balancedModel = defaultModel
@@ -82,14 +121,21 @@ func (s *OpenAIGatewayService) decideOpenAIModelRoute(
 	if premiumModel == "" {
 		premiumModel = balancedModel
 	}
-
-	meta := openAIModelRouterRequestMeta{
-		RequestedModel: strings.TrimSpace(requestedModel),
-		ImageIntent:    imageIntent,
-		ComplexText:    isOpenAIModelRouterComplexText(reqBody, rawBody, cfg.ComplexInputMinChars, cfg.ComplexInputMinItems),
+	meta := input.RequestMeta
+	if strings.TrimSpace(meta.RequestedModel) == "" {
+		meta.RequestedModel = strings.TrimSpace(input.RequestedModel)
+	}
+	if openAIModelRouterShouldPassthroughAccount(input.Account, cfg) && !(meta.ImageIntent && cfg.ImageOrVisionForcePremium) {
+		decision.Tier = openAIModelRouterTierPremium
+		decision.UpstreamModel = strings.TrimSpace(input.RequestedModel)
+		if decision.UpstreamModel == "" {
+			decision.UpstreamModel = premiumModel
+		}
+		decision.Reason = "oauth_account_passthrough"
+		return decision
 	}
 
-	state := s.getOpenAIModelRouterState(ctx, sessionHash)
+	state := s.getOpenAIModelRouterState(ctx, input.SessionHash)
 	nowUnix := time.Now().Unix()
 	if state.UpdatedAtUnix == 0 {
 		state.UpdatedAtUnix = nowUnix
@@ -98,31 +144,35 @@ func (s *OpenAIGatewayService) decideOpenAIModelRoute(
 		state.Tier = openAIModelRouterTierEconomy
 	}
 
-	pressure := openAIModelRouterPressureFromAccount(account, cfg)
+	pressure := openAIModelRouterPressureFromAccount(input.Account, cfg)
 	targetTier := openAIModelRouterTierEconomy
 	reason := "economy_default"
 
 	if meta.ImageIntent && cfg.ImageOrVisionForcePremium {
 		targetTier = openAIModelRouterTierPremium
 		reason = "image_or_vision_force_premium"
-	} else if meta.ComplexText {
-		if pressure == openAIModelRouterPressureHigh || pressure == openAIModelRouterPressureMedium {
-			targetTier = openAIModelRouterTierBalanced
-			reason = "complex_text_pressure_balanced"
-		} else {
-			targetTier = openAIModelRouterTierPremium
-			reason = "complex_text_promote_premium"
-		}
+	} else if meta.PremiumText {
+		targetTier = openAIModelRouterTierPremium
+		reason = "premium_text_promote_premium"
 	} else if pressure == openAIModelRouterPressureLow {
 		targetTier = openAIModelRouterTierEconomy
 		reason = "low_remaining_budget_economy"
 	} else if pressure == openAIModelRouterPressureMedium {
-		targetTier = openAIModelRouterTierEconomy
-		reason = "medium_remaining_budget_economy"
+		if meta.ComplexText {
+			targetTier = openAIModelRouterTierBalanced
+			reason = "complex_text_pressure_balanced"
+		} else {
+			targetTier = openAIModelRouterTierEconomy
+			reason = "medium_remaining_budget_economy"
+		}
+	} else if meta.ComplexText {
+		targetTier = openAIModelRouterTierBalanced
+		reason = "complex_text_promote_balanced"
 	}
 
 	// Capability-failure escalation: promote one tier in cooldown-safe window.
-	if state.CapabilityFailureConsecutive >= cfg.CapabilityErrorEscalateConsecutiveFailures &&
+	if cfg.CapabilityErrorEscalateConsecutiveFailures > 0 &&
+		state.CapabilityFailureConsecutive >= cfg.CapabilityErrorEscalateConsecutiveFailures &&
 		!openAIModelRouterEscalationCooldown(state, nowUnix, cfg.EscalateCooldownSeconds) {
 		targetTier = openAIModelRouterPromoteOneTier(targetTier)
 		state.LastEscalatedAtUnix = nowUnix
@@ -144,8 +194,16 @@ func (s *OpenAIGatewayService) decideOpenAIModelRoute(
 
 	state.Tier = targetTier
 	state.UpdatedAtUnix = nowUnix
-	s.setOpenAIModelRouterState(ctx, sessionHash, state, time.Duration(cfg.SessionRouteTTLSeconds)*time.Second)
+	s.setOpenAIModelRouterState(ctx, input.SessionHash, state, time.Duration(cfg.SessionRouteTTLSeconds)*time.Second)
 	return decision
+}
+
+func openAIModelRouterShouldPassthroughAccount(account *Account, cfg config.GatewayModelRouterConfig) bool {
+	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
+		return false
+	}
+	mode := strings.ToLower(strings.TrimSpace(cfg.OAuthMode))
+	return mode == "" || mode == openAIModelRouterOAuthModePassthrough
 }
 
 func (s *OpenAIGatewayService) onOpenAIModelRouterResult(

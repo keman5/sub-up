@@ -209,7 +209,41 @@ pnpm --dir frontend run build
 
 浏览器打开不同副本首页，确认示例中的域名随当前副本或公开设置变化。
 
-### 3. 顶部主题切换器与全局主题初始化
+### 3. CC Switch 导入服务商与用量查询脚本
+
+**目的：** 用户在 API Key 列表中点击“导入到 CC Switch”后，Codex 服务商可直接带入当前副本的 API Base URL、API Key 和用量查询脚本，并能在 CC Switch 桌面版显示 51token 剩余额度。
+
+**规则：**
+
+- 模型请求地址继续使用公开设置里的 `api_base_url`，例如 `https://ap1.upit.top/51Token/v1`、`https://ap2.upit.top/51Token/v1` 或 `https://api.upit.top/51Token/v1`。
+- `usageScript.request.url` 使用当前 `baseUrl` 去掉尾斜杠后拼接 `/usage`，不要额外拼 `/v1`。
+- extractor 需要兼容三类响应：
+  - 钱包/订阅余额型：`remaining`、`quota.remaining`、`balance`。
+  - 订阅窗口型：按日/周/月 limit - usage 取可用余额。
+  - API Key 速率限制型：从 `rate_limits[].remaining` 取最小剩余额度。
+
+**涉及文件：**
+
+- `frontend/src/views/user/KeysView.vue`
+- `frontend/src/utils/ccswitchImport.ts`
+
+**恢复要点：**
+
+- `usageScript` 保持在 `executeCcsImport()` 内联生成，不额外抽新文件。
+- `baseUrl=https://<host>/51Token/v1` 时，脚本 URL 必须是 `https://<host>/51Token/v1/usage`。
+- 重新导入旧服务商后，要在 CC Switch 中确认“配置用量查询”的脚本不包含 `/v1/v1/usage`。
+
+**验证：**
+
+```bash
+pnpm --dir frontend run typecheck
+```
+
+手工验证：在 CC Switch 桌面版刷新 `51token 算力`、`Ap1`、`Ap2`、`api` 等条目的用量，限额型 key 应显示类似 `剩余：40.00 USD`，订阅/钱包型 key 应显示对应余额。
+
+同步上游后搜索 `executeCcsImport`、`usageScript`、`rate_limits`、`/v1/usage`。如果官方新增 CC Switch 导入逻辑，也必须保留 51token 的 `/51Token/v1/usage` 与速率限制型 extractor 兼容。
+
+### 4. 顶部主题切换器与全局主题初始化
 
 **目的：** 在控制台和首页提供系统/浅色/深色三态主题切换，并在 Vue 挂载前应用主题，避免闪屏。
 
@@ -240,7 +274,7 @@ pnpm --dir frontend run typecheck
 
 手工验证：切换浅色/深色/系统后刷新页面，`html.dark` 和 `localStorage.theme` 保持一致。
 
-### 4. API Key 5h/1d/7d 速率限制用量与按窗口重置
+### 5. API Key 5h/1d/7d 速率限制用量与按窗口重置
 
 **目的：** 用户可以在密钥列表和编辑弹窗中查看 5 小时、1 天、7 天速率限制用量、重置时间，并可重置全部或单个窗口。
 
@@ -272,7 +306,7 @@ go test ./internal/service ./internal/handler/...
 
 同步上游后搜索 `reset_rate_limit_window`、`resetRateLimitWindow`、`reset_5h_at`。如果官方仅支持整体重置，需要恢复本地按窗口能力。
 
-### 5. 首 Token 延迟与完整耗时拆分
+### 6. 首 Token 延迟与完整耗时拆分
 
 **目的：** 避免“平均响应”被长输出时长拉高，将首 Token 延迟和完整响应耗时分开统计、展示和聚合。
 
@@ -311,7 +345,7 @@ go test ./internal/repository ./internal/pkg/usagestats ./internal/handler/... .
 
 同步上游后搜索 `average_first_token_ms`、`avg_first_token_ms`、`total_first_token_ms`、`first_token_requests`。
 
-### 6. 订阅管理页运营增强
+### 7. 订阅管理页运营增强
 
 **目的：** 优化管理员订阅管理体验，便于按用户搜索、选择展示邮箱或用户名、查看周期用量窗口、打开内置操作说明。
 
@@ -336,7 +370,7 @@ pnpm --dir frontend run typecheck
 
 手工验证 `/admin/subscriptions`：用户搜索、列设置、用量窗口、指南弹窗均可用。
 
-### 7. 51token 品牌与 OAuth 回调细节
+### 8. 51token 品牌与 OAuth 回调细节
 
 **目的：** 线上前台显示 51token 品牌，并修复 OAuth 回调在部分路径中缺少安全状态的问题。
 
@@ -583,10 +617,12 @@ curl -k -sS -H 'Cache-Control: no-cache' 'https://ai.upit.top/?redeploy=20260601
 | 2026-05-25 | 线上“平均响应”容易被完整流式输出时长拉高，无法区分首 Token 延迟和完整输出耗时。 | 后端统计类型、用户/管理端用量聚合、API Key 查询和账号统计新增 `average_first_token_ms` / `avg_first_token_ms`；新增迁移 `backend/migrations/142_add_first_token_to_dashboard_aggregates.sql`，为仪表盘预聚合表记录首 Token 总耗时与样本数；前端仪表盘、用量统计、API Key 查询和账号统计将响应耗时拆为“首 Token”和“完整耗时”。 | `pnpm --dir frontend run typecheck`；`go test ./internal/repository`；`go test ./internal/pkg/usagestats`；`go test ./internal/handler/...`；`go test ./internal/service`。 | 同步官方后搜索 `average_first_token_ms`、`avg_first_token_ms`、`total_first_token_ms` 和 `first_token_requests`。如果官方已提供等价的 TTFT/完整耗时拆分，按官方字段名收敛前端展示；否则保留本地迁移和聚合逻辑。历史预聚合行默认没有首 Token 累计值，如需要历史口径准确，升级后执行对应聚合回填。 |
 | 2026-05-31 | 手机浏览器打开 `ai.upit.top` 时仍显示旧 `/favicon.ico` 图标；同时完成 GitLab/OIDC OAuth 排障、登录条款入库和两个 sub2api 服务滚动部署。 | 前端新增 `siteIcons` 工具并让首页使用 public settings 的 `site_logo` 更新 favicon / touch icon；`frontend/index.html` 静态图标改为 `/logo.svg`；线上 Caddy 静态首页 `/opt/51token-home` 移除旧 favicon 引用，替换当前 logo 与 ICO 兜底；两个后台库写入登录条款；两个服务部署镜像 `sub2api:subapi-6b800b77-favicon-20260531210858`；新增 fork 维护自动化，支持关键路径变更文档护栏、上游同步后验证、线上静态资源和登录条款恢复、gzip 分块传输部署。 | `pnpm vitest run src/__tests__/app-favicon.spec.ts`；`pnpm build`；`curl -fsS https://ai.upit.top/health`；`curl -k -sS -H 'Cache-Control: no-cache' 'https://ai.upit.top/?v=bg-20260531'`，确认公开 HTML 不再包含 `favicon.ico` / `alternate icon`；故意破坏 `/opt/51token-home` 后执行 `reapply-production-state --apply`，再直查公网 HTML、ICO 哈希和两个库登录条款；`verify-after-upstream --skip-build`；`make fork-check`；`make fork-restore-dry-run`；`git diff --check`。 | 同步官方后搜索 `applySiteIcons`、`resolveIconMimeType`、`favicon.ico`、`site_logo`；merge/rebase 后 hook 会自动运行 `verify-after-upstream --skip-build`；必要时先看 `make fork-restore-dry-run`，确认无误后执行 `tools/fork-maintenance/fork-maintenance.sh reapply-production-state --apply`；重建 Caddy 或静态首页后检查 `/srv/51token-home/index.html` 和 `/opt/51token-home/index.html` 是否一致，并确认 `/favicon.ico` 仍为当前 logo 兜底。 |
 | 2026-06-01 | 重新构建上线时，仓库根目录执行 Go 构建找不到 `go.mod`，且当前 VPS SSH 链路对长时间 gzip 管道和单文件 scp 不稳定。 | 修正 `deploy/local-gzip-binary-deploy.sh` 后端构建目录为 `backend/`；gzip 上传改为本地 `.gz` + 1 MB chunk + SSH stdin 写入 `/tmp` + 远端拼接校验解压；增加 SSH 操作重试；重新构建并部署镜像 `sub2api:subapi-0507503d-redeploy-20260601-20260601083104` 到 standby 和 primary。 | `bash -n deploy/local-gzip-binary-deploy.sh`；前端 `pnpm --dir frontend run build` 通过；后端本地交叉编译通过；远端 `/opt/sub2api-runtime-build/sub2api` 为 86 MB 静态 Linux x86_64 可执行文件；两个 compose 指向新镜像；`8081`、`8082` 和公网 `/health` 均返回 ok；公网首页图标链接未回退。 | 后续部署继续使用 gzip 分块方案；若 SSH 链路恢复稳定，可调大 `UPLOAD_CHUNK_SIZE`，但保留远端 `gzip -t` 和 standby-first 滚动顺序。 |
-| 2026-06-02 | 首页在移动端部分区块存在文本与代码片段横向溢出风险；同时新增网关动态模型路由以在不同压力和能力场景自动选择模型。 | 前端 `HomeHero/HomeIntegrations/HomePricing/HomeFeatures/HomeFaq/HomeFooter`、`homeData.ts` 与 `style.css` 调整为移动端优先，增加 `min-w-0`、`break-words`、窄屏字号与容器约束避免横向滚动；后端新增 `gateway.model_router.*` 配置与网关接入逻辑（`backend/internal/config/config.go`、`backend/internal/service/openai_gateway_service.go`、`backend/internal/service/openai_model_router.go`）。 | `pnpm --dir frontend run typecheck`；移动端手工检查首页无横向超出；网关日志确认路由决策在不同会话/能力场景生效。 | 同步官方后复查首页组件是否仍保留移动端防溢出约束（`min-w-0`、`break-words`、`whitespace-pre-wrap` 等）；若官方已提供同等修复可移除本地差异。路由侧复查 `gateway.model_router` 与 `openai_model_router.go` 是否被覆盖，必要时按官方网关结构重接。 |
+| 2026-06-02 | 首页在移动端部分区块存在文本与代码片段横向溢出风险；同时新增网关动态模型路由以在不同压力和能力场景自动选择模型。 | 前端 `HomeHero/HomeIntegrations/HomePricing/HomeFeatures/HomeFaq/HomeFooter`、`homeData.ts` 与 `style.css` 调整为移动端优先，增加 `min-w-0`、`break-words`、窄屏字号与容器约束避免横向滚动；后端新增 `gateway.model_router.*` 配置与网关接入逻辑（`backend/internal/config/config.go`、`backend/internal/service/openai_gateway_service.go`、`backend/internal/service/openai_model_router.go`）；部署 compose 模板补充 `GATEWAY_MODEL_ROUTER_*` 环境变量，默认启用 `gpt-5.3-codex-spark` / `gpt-5.4` / `gpt-5.5` 三档路由；OpenAI OAuth 默认 `passthrough`，可通过 `GATEWAY_MODEL_ROUTER_OAUTH_MODE=adaptive_codex` 在 a2 灰度启用 OAuth/Codex Pro 自适应路由，用户侧响应和普通用量记录仍隐藏真实 `upstream_model`。 | `pnpm --dir frontend run typecheck`；移动端手工检查首页无横向超出；线上检查 `docker exec sub2api env | grep GATEWAY_MODEL_ROUTER`；`go test ./internal/service -run 'TestOpenAIModelRouter|TestReplaceModelInSSELine|TestReplaceModelInResponseBody'`；`curl -fsS https://ai.upit.top/health` 与 `https://a1.upit.top/health`。 | 同步官方后复查首页组件是否仍保留移动端防溢出约束（`min-w-0`、`break-words`、`whitespace-pre-wrap` 等）；若官方已提供同等修复可移除本地差异。路由侧复查 `gateway.model_router`、`openai_model_router.go` 和 compose 中的 `GATEWAY_MODEL_ROUTER_*` 是否被覆盖；如果线上看到高压账号仍走 `gpt-5.5/gpt-5.4`，先检查容器环境变量是否存在且 `GATEWAY_MODEL_ROUTER_ENABLED=true`，并确认 OAuth 是否需要显式设置 `GATEWAY_MODEL_ROUTER_OAUTH_MODE=adaptive_codex`。 |
+| 2026-06-02 | 首页新增悬浮客服入口，需要在移动端和桌面端保持可见但不遮挡主要 CTA，同时保留 Turnstile 校验与现有首页内容布局。 | 新增 `frontend/src/views/home/components/HomeSupportWidget.vue` 和 `frontend/public/qq-support-qr.jpeg`，在首页右下角提供可展开的 QQ 客服悬浮窗与二维码；`frontend/src/views/HomeView.vue` 挂载该组件；`frontend/src/components/TurnstileWidget.vue` 调整容器与层级，避免悬浮客服与 Turnstile/弹窗覆盖冲突；`frontend/src/views/home/components/homeData.ts` 增补客服展示数据。 | 建议执行 `pnpm --dir frontend run typecheck`；桌面端与移动端分别打开首页，确认悬浮按钮可展开/收起，二维码清晰可见，且不会遮挡首页主按钮、表单或 Turnstile。 | 同步官方后搜索 `HomeSupportWidget`、`qq-support-qr.jpeg`、`supportWidget` 和 `TurnstileWidget`。如果官方后续引入统一的悬浮客服/联系入口，可优先收敛到官方方案；否则保留当前组件，并继续检查移动端安全区、z-index 和 Turnstile 覆盖关系。 |
 | 2026-06-02 | 运维监控缺少磁盘/GPU 运行指标，管理员无法在同一面板直接判断容器磁盘压力与 GPU 负载。 | 新增迁移 `backend/migrations/145_add_ops_system_disk_gpu_metrics.sql` 扩展 `ops_system_metrics`；后端采集器 `backend/internal/service/ops_metrics_collector.go` 增加根文件系统磁盘用量采样与可选 `nvidia-smi` GPU 使用率采样（无 GPU/无命令时自动降级为空）；仓储与 DTO 扩展 `backend/internal/repository/ops_repo_metrics.go`、`backend/internal/service/ops_port.go`；前端 `frontend/src/views/admin/ops/components/OpsDashboardHeader.vue` 新增 Disk/GPU 卡片并补充 `frontend/src/i18n/locales/zh.ts`、`frontend/src/i18n/locales/en.ts` 文案与 `frontend/src/api/admin/ops.ts` 类型。 | `go test ./...`（backend）；`pnpm --dir frontend exec tsc --noEmit`；`pnpm --dir frontend exec vitest run src/views/admin/ops/components/__tests__/OpsOpenAITokenStatsCard.spec.ts src/views/admin/ops/components/__tests__/OpsErrorScopeCharts.spec.ts`。 | 同步官方后搜索 `disk_usage_percent`、`gpu_usage_percent`、`collectGPUUsagePercent`、`145_add_ops_system_disk_gpu_metrics.sql`；若官方已提供等价字段/采集逻辑，优先收敛到官方实现并删除重复迁移与前端卡片差异；若官方仅提供主机指标不含容器视角，保留当前 cgroup/根盘口径并在 PR 描述中注明。 |
 | 2026-06-02 | 运维告警规则缺少磁盘空间预警，无法在磁盘接近满载时提前通知。 | 后端规则白名单与评估器新增 `disk_usage_percent`（`backend/internal/handler/admin/ops_alerts_handler.go`、`backend/internal/service/ops_alert_evaluator_service.go`）；前端规则类型与配置项新增磁盘指标（`frontend/src/api/admin/ops.ts`、`frontend/src/views/admin/ops/components/OpsAlertRulesCard.vue`、`frontend/src/i18n/locales/zh.ts`、`frontend/src/i18n/locales/en.ts`）；新增迁移 `backend/migrations/146_seed_ops_disk_alert_rules.sql` 预置两条规则：85%/5分钟/P2 与 95%/3分钟/P1。 | `go test ./internal/service ./internal/handler/admin`；`pnpm --dir frontend exec tsc --noEmit`。 | 同步官方后搜索 `disk_usage_percent` 与 `146_seed_ops_disk_alert_rules.sql`；若官方已提供同等磁盘告警指标与种子规则，清理本地重复；若仅有面板展示无告警能力，保留本地预警规则并复跑告警创建/触发回归。 |
-| 2026-06-02 | 运维告警规则缺少磁盘空间预警，无法在磁盘接近满载时提前通知。 | 后端规则白名单与评估器新增 `disk_usage_percent`（`backend/internal/handler/admin/ops_alerts_handler.go`、`backend/internal/service/ops_alert_evaluator_service.go`）；前端规则类型与配置项新增磁盘指标（`frontend/src/api/admin/ops.ts`、`frontend/src/views/admin/ops/components/OpsAlertRulesCard.vue`、`frontend/src/i18n/locales/zh.ts`、`frontend/src/i18n/locales/en.ts`）；新增迁移 `backend/migrations/146_seed_ops_disk_alert_rules.sql` 预置两条规则：85%/5分钟/P2 与 95%/3分钟/P1。 | `go test ./internal/service ./internal/handler/admin`；`pnpm --dir frontend exec tsc --noEmit`。 | 同步官方后搜索 `disk_usage_percent` 与 `146_seed_ops_disk_alert_rules.sql`；若官方已提供同等磁盘告警指标与种子规则，清理本地重复；若仅有面板展示无告警能力，保留本地预警规则并复跑告警创建/触发回归。 |
+| 2026-06-02 | CC Switch 从 `ap1.upit.top` / `ap2.upit.top` / `api.upit.top` 导入服务商时，用量查询脚本会把已带 `/51Token/v1` 的 `api_base_url` 再拼一次 `/v1`，导致桌面版请求 `.../v1/v1/usage` 并显示“查询失败”；限额型 API Key 只返回 `rate_limits[].remaining` 时，旧 extractor 也会取不到剩余额度。 | 在 `frontend/src/views/user/KeysView.vue` 的 `executeCcsImport()` 内联生成 `usageUrl` 和 `usageScript`：`baseUrl` 去掉尾斜杠后拼接 `/usage`，不再写死 `{{baseUrl}}/v1/usage`；extractor 兼容 `remaining`、`quota.remaining`、`balance`、订阅窗口剩余量和 `rate_limits[].remaining`，确保钱包/订阅/限额型 Key 都能显示余额；`frontend/src/utils/ccswitchImport.ts` 继续只负责 deep link 参数组装。 | `pnpm --dir frontend typecheck`；在 CC Switch 桌面版打开“配置用量查询”，确认 `request.url` 为当前 `api_base_url` 对应的 `.../usage`，且不会出现 `.../v1/v1/usage`；刷新 `51token 算力`，限额型 Key 应显示类似 `剩余：40.00 USD`。 | 同步官方后搜索 `executeCcsImport`、`usageScript`、`rate_limits` 和 `/v1/usage`。如果官方后续也改为根据 `api_base_url` 直接拼 `/usage`，仍需确认 extractor 支持限额型 `rate_limits` 响应；若导入逻辑再次抽出页面层，需要重新验证 `api_base_url=https://<host>/51Token/v1` 时 CC Switch 脚本是否仍只生成一层 `/v1`。 |
+| 2026-06-02 | `ap2/a2` 灰度环境并不复用 `sub2api-standby`，而是单独运行 `sub2api-ap2` compose；如果沿用 `--deploy` 的双环境滚动脚本，会误更新 standby / primary，而不是只更新 ap2。 | 线上确认 `ap2` 目录为 `/opt/sub2api-ap2-deploy`，通过 `.env` 中的 `IMAGE_TAG=` 控制镜像；单独部署 ap2 时，先用 `deploy/local-gzip-binary-deploy.sh --apply` 完成本地构建、gzip 分块上传、远端解压和打镜像，再仅修改 `sub2api-ap2` 的 `.env` 并执行 `docker compose up -d sub2api-ap2`；2026-06-02 实际将 ap2 从 `sub2api:subapi-a5e4b0c6-ap2-oauth-adaptive-v2-202606021754` 升级到 `sub2api:subapi-9d75fb6b-ap2-redeploy-20260602232707`。 | `ssh new-api-vps 'grep ^IMAGE_TAG= /opt/sub2api-ap2-deploy/.env'`；`ssh new-api-vps 'docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" sub2api-ap2'`；`ssh new-api-vps 'curl -fsS http://127.0.0.1:8083/health'`；`ssh new-api-vps 'docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | grep sub2api-ap2'`。 | 同步官方或后续重构部署脚本后，优先确认 `ap2` 是否仍保持独立 compose 目录 `/opt/sub2api-ap2-deploy` 与 `IMAGE_TAG` 控制方式；如果未来把 ap2 并回 standby 或纳入统一脚本，先更新 `docs/VPS_DEPLOY_NOTES.md` 的单独部署步骤，再删除这条本地差异说明。 |
 
 ## 同步官方版本后的复查流程
 

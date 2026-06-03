@@ -806,6 +806,9 @@ type GatewayConfig struct {
 type GatewayModelRouterConfig struct {
 	// Enabled toggles dynamic model routing.
 	Enabled bool `mapstructure:"enabled"`
+	// OAuthMode controls dynamic routing for OpenAI OAuth/Codex accounts.
+	// "passthrough" keeps the requested model; "adaptive_codex" enables tier routing.
+	OAuthMode string `mapstructure:"oauth_mode"`
 	// DefaultModel is the economy baseline model for regular text requests.
 	// Example: gpt-5.3-codex-spark
 	DefaultModel string `mapstructure:"default_model"`
@@ -825,6 +828,10 @@ type GatewayModelRouterConfig struct {
 	ComplexInputMinChars int `mapstructure:"complex_input_min_chars"`
 	// ComplexInputMinItems is another complexity heuristic based on input item count.
 	ComplexInputMinItems int `mapstructure:"complex_input_min_items"`
+	// PremiumInputMinChars promotes very large text requests to premium tier.
+	PremiumInputMinChars int `mapstructure:"premium_input_min_chars"`
+	// PremiumInputMinItems promotes very broad multi-item requests to premium tier.
+	PremiumInputMinItems int `mapstructure:"premium_input_min_items"`
 	// PressureLowRemainingPercent and PressureMediumRemainingPercent define dynamic pressure bands.
 	// Values are in [0,100], and low <= medium.
 	PressureLowRemainingPercent    float64 `mapstructure:"pressure_low_remaining_percent"`
@@ -1829,6 +1836,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.model_router.enabled", false)
+	viper.SetDefault("gateway.model_router.oauth_mode", "passthrough")
 	viper.SetDefault("gateway.model_router.default_model", "gpt-5.3-codex-spark")
 	viper.SetDefault("gateway.model_router.balanced_model", "gpt-5.4")
 	viper.SetDefault("gateway.model_router.premium_model", "gpt-5.5")
@@ -1837,6 +1845,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.model_router.capability_error_escalate_consecutive_failures", 2)
 	viper.SetDefault("gateway.model_router.complex_input_min_chars", 2400)
 	viper.SetDefault("gateway.model_router.complex_input_min_items", 8)
+	viper.SetDefault("gateway.model_router.premium_input_min_chars", 12000)
+	viper.SetDefault("gateway.model_router.premium_input_min_items", 20)
 	viper.SetDefault("gateway.model_router.pressure_low_remaining_percent", 40.0)
 	viper.SetDefault("gateway.model_router.pressure_medium_remaining_percent", 70.0)
 	viper.SetDefault("gateway.model_router.image_or_vision_force_premium", true)
@@ -2491,6 +2501,11 @@ func (c *Config) Validate() error {
 	if c.Gateway.ModelRouter.SessionRouteTTLSeconds <= 0 {
 		return fmt.Errorf("gateway.model_router.session_route_ttl_seconds must be positive")
 	}
+	switch strings.ToLower(strings.TrimSpace(c.Gateway.ModelRouter.OAuthMode)) {
+	case "", "passthrough", "adaptive_codex":
+	default:
+		return fmt.Errorf("gateway.model_router.oauth_mode must be passthrough or adaptive_codex")
+	}
 	if c.Gateway.ModelRouter.EscalateCooldownSeconds < 0 {
 		return fmt.Errorf("gateway.model_router.escalate_cooldown_seconds must be non-negative")
 	}
@@ -2502,6 +2517,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.ModelRouter.ComplexInputMinItems < 0 {
 		return fmt.Errorf("gateway.model_router.complex_input_min_items must be non-negative")
+	}
+	if c.Gateway.ModelRouter.PremiumInputMinChars < 0 {
+		return fmt.Errorf("gateway.model_router.premium_input_min_chars must be non-negative")
+	}
+	if c.Gateway.ModelRouter.PremiumInputMinItems < 0 {
+		return fmt.Errorf("gateway.model_router.premium_input_min_items must be non-negative")
 	}
 	if c.Gateway.ModelRouter.PressureLowRemainingPercent < 0 || c.Gateway.ModelRouter.PressureLowRemainingPercent > 100 {
 		return fmt.Errorf("gateway.model_router.pressure_low_remaining_percent must be between 0-100")

@@ -118,6 +118,14 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
+	reqCtx := h.gatewayService.WithModelRouteRequestContext(
+		c.Request.Context(),
+		sessionHash,
+		reqModel,
+		service.IsImageGenerationIntent("/v1/responses", reqModel, body),
+		nil,
+		body,
+	)
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
@@ -128,7 +136,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	for {
 		reqLog.Debug("openai_chat_completions.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
+			reqCtx,
 			apiKey.GroupID,
 			"",
 			sessionHash,

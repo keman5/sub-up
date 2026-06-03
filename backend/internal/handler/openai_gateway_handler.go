@@ -282,6 +282,14 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// Generate session hash (header first; fallback to prompt_cache_key)
 	sessionHash := h.gatewayService.GenerateSessionHash(c, sessionHashBody)
 	requireCompact := isOpenAIRemoteCompactPath(c)
+	reqCtx := h.gatewayService.WithModelRouteRequestContext(
+		c.Request.Context(),
+		sessionHash,
+		reqModel,
+		service.IsImageGenerationIntent("/v1/responses", reqModel, body),
+		nil,
+		body,
+	)
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
@@ -293,7 +301,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// Select account supporting the requested model
 		reqLog.Debug("openai.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
+			reqCtx,
 			apiKey.GroupID,
 			previousResponseID,
 			sessionHash,
@@ -688,6 +696,14 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
 	sessionHash, promptCacheKey = resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel, body)
+	reqCtx := h.gatewayService.WithModelRouteRequestContext(
+		c.Request.Context(),
+		sessionHash,
+		reqModel,
+		service.IsImageGenerationIntent("/v1/responses", reqModel, body),
+		nil,
+		body,
+	)
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
@@ -703,7 +719,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		}
 		reqLog.Debug("openai_messages.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
+			reqCtx,
 			apiKey.GroupID,
 			"", // no previous_response_id
 			sessionHash,
