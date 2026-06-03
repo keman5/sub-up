@@ -579,6 +579,8 @@ For regular Claude/Anthropic-compatible access, set `ANTHROPIC_BASE_URL` to the 
 ```bash
 export ANTHROPIC_BASE_URL="http://localhost:8080"
 export ANTHROPIC_AUTH_TOKEN="sk-xxx"
+export ANTHROPIC_MODEL="gpt-5.5"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5"
 ```
 
 ### Dedicated Endpoints
@@ -593,6 +595,8 @@ export ANTHROPIC_AUTH_TOKEN="sk-xxx"
 ```bash
 export ANTHROPIC_BASE_URL="http://localhost:8080/antigravity"
 export ANTHROPIC_AUTH_TOKEN="sk-xxx"
+export ANTHROPIC_MODEL="gpt-5.5"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5"
 ```
 
 ### Hybrid Scheduling Mode

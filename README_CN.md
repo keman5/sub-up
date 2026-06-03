@@ -644,6 +644,8 @@ Sub2API 支持 [Antigravity](https://antigravity.so/) 账户，授权后可通�
 ```bash
 export ANTHROPIC_BASE_URL="http://localhost:8080"
 export ANTHROPIC_AUTH_TOKEN="sk-xxx"
+export ANTHROPIC_MODEL="gpt-5.5"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5"
 ```
 
 ### 专用端点
@@ -658,6 +660,8 @@ export ANTHROPIC_AUTH_TOKEN="sk-xxx"
 ```bash
 export ANTHROPIC_BASE_URL="http://localhost:8080/antigravity"
 export ANTHROPIC_AUTH_TOKEN="sk-xxx"
+export ANTHROPIC_MODEL="gpt-5.5"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5"
 ```
 
 ### 混合调度模式

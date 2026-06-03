@@ -74,7 +74,7 @@ function buildClaudeConfigJson(claudeBaseUrl: string): string {
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.4",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.5",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.5",
-    "ANTHROPIC_MODEL": "gpt-5.3-codex",
+    "ANTHROPIC_MODEL": "gpt-5.5",
     "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "gpt-5.5",
     "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "gpt-5.5"
   }

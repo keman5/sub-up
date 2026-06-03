@@ -580,6 +580,8 @@ Sub2API は [Antigravity](https://antigravity.so/) アカウントをサポー�
 ```bash
 export ANTHROPIC_BASE_URL="http://localhost:8080"
 export ANTHROPIC_AUTH_TOKEN="sk-xxx"
+export ANTHROPIC_MODEL="gpt-5.5"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5"
 ```
 
 ### 専用エンドポイント
@@ -594,6 +596,8 @@ export ANTHROPIC_AUTH_TOKEN="sk-xxx"
 ```bash
 export ANTHROPIC_BASE_URL="http://localhost:8080/antigravity"
 export ANTHROPIC_AUTH_TOKEN="sk-xxx"
+export ANTHROPIC_MODEL="gpt-5.5"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5"
 ```
 
 ### ハイブリッドスケジューリングモード
