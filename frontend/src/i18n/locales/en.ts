@@ -2105,6 +2105,7 @@ export default {
         description: 'Description',
         platform: 'Platform',
         rateMultiplier: 'Rate Multiplier',
+        displayRateMultiplier: 'User Display Multiplier',
         status: 'Status',
         exclusive: 'Exclusive Group',
         rpmLimit: 'Requests Per Minute (RPM)',
@@ -2115,7 +2116,8 @@ export default {
       optionalDescription: 'Optional description',
       platformHint: 'Select the platform this group is associated with',
       platformNotEditable: 'Platform cannot be changed after creation',
-      rateMultiplierHint: 'Cost multiplier for this group (e.g., 1.5 = 150% of base cost)',
+      rateMultiplierHint: 'Actual billing multiplier for this group (e.g., 1.5 = 150% of base cost)',
+      displayRateMultiplierHint: 'Multiplier shown to users only. Defaults to 1x and does not affect billing.',
       exclusiveHint: 'Exclusive group, manually assign to specific users',
       exclusiveTooltip: {
         title: 'What is an exclusive group?',

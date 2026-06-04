@@ -2156,6 +2156,7 @@ export default {
         description: '描述',
         platform: '平台',
         rateMultiplier: '费率倍数',
+        displayRateMultiplier: '用户显示倍率',
         status: '状态',
         exclusive: '专属分组',
         nameLabel: '分组名称',
@@ -2191,7 +2192,8 @@ export default {
         exampleContent:
           '公开分组费率 0.8，您可以创建一个费率 0.7 的专属分组，手动分配给 VIP 用户，让他们享受更优惠的价格。'
       },
-      rateMultiplierHint: '1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
+      rateMultiplierHint: '真实计费倍率：1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
+      displayRateMultiplierHint: '仅用户端展示使用，默认 1 倍，不影响实际扣费。',
       platforms: {
         all: '全部平台',
         anthropic: 'Anthropic',
