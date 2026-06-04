@@ -1553,26 +1553,43 @@ export interface UserSubscription {
 }
 
 export interface SubscriptionProgress {
-  subscription_id: number
+  id?: number
+  subscription_id?: number
   daily: {
-    used: number
-    limit: number | null
+    used_usd?: number
+    used?: number
+    limit_usd?: number
+    limit?: number | null
     percentage: number
-    reset_in_seconds: number | null
+    window_start?: string
+    resets_at?: string
+    resets_in_seconds?: number
+    reset_in_seconds?: number | null
   } | null
   weekly: {
-    used: number
-    limit: number | null
+    used_usd?: number
+    used?: number
+    limit_usd?: number
+    limit?: number | null
     percentage: number
-    reset_in_seconds: number | null
+    window_start?: string
+    resets_at?: string
+    resets_in_seconds?: number
+    reset_in_seconds?: number | null
   } | null
   monthly: {
-    used: number
-    limit: number | null
+    used_usd?: number
+    used?: number
+    limit_usd?: number
+    limit?: number | null
     percentage: number
-    reset_in_seconds: number | null
+    window_start?: string
+    resets_at?: string
+    resets_in_seconds?: number
+    reset_in_seconds?: number | null
   } | null
   expires_at: string | null
+  expires_in_days?: number
   days_remaining: number | null
 }
 

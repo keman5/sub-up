@@ -887,6 +887,7 @@ import type { Column } from '@/components/common/types'
 import { formatDateOnly } from '@/utils/format'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { getSubscriptionUserLabel, getSubscriptionUserNotes } from './subscriptionUserDisplay'
+import { mergeSubscriptionProgressById } from './subscriptionProgressMerge'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -1042,6 +1043,8 @@ const subscriptions = ref<UserSubscription[]>([])
 const groups = ref<Group[]>([])
 const loading = ref(false)
 let abortController: AbortController | null = null
+let progressRefreshRun = 0
+const PROGRESS_REFRESH_CONCURRENCY = 3
 
 // Toolbar user filter (fuzzy search -> select user_id)
 const filterUserKeyword = ref('')
@@ -1159,10 +1162,46 @@ const applyFilters = () => {
   loadSubscriptions()
 }
 
+const refreshVisibleSubscriptionProgress = async (items: UserSubscription[]) => {
+  const run = ++progressRefreshRun
+  const queue = items
+    .filter(subscription =>
+      subscription.group?.daily_limit_usd ||
+      subscription.group?.weekly_limit_usd ||
+      subscription.group?.monthly_limit_usd
+    )
+    .map(subscription => subscription.id)
+
+  let nextIndex = 0
+
+  const worker = async () => {
+    while (nextIndex < queue.length && run === progressRefreshRun) {
+      const subscriptionId = queue[nextIndex++]
+      try {
+        const progress = await adminAPI.subscriptions.getProgress(subscriptionId)
+        if (run !== progressRefreshRun) return
+        subscriptions.value = mergeSubscriptionProgressById(
+          subscriptions.value,
+          subscriptionId,
+          progress
+        )
+      } catch (error: any) {
+        if (run !== progressRefreshRun) return
+        console.error('Failed to refresh subscription progress:', error)
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(PROGRESS_REFRESH_CONCURRENCY, queue.length) }, worker)
+  )
+}
+
 const loadSubscriptions = async () => {
   if (abortController) {
     abortController.abort()
   }
+  progressRefreshRun++
   const requestController = new AbortController()
   abortController = requestController
   const { signal } = requestController
@@ -1188,6 +1227,7 @@ const loadSubscriptions = async () => {
     subscriptions.value = response.items
     pagination.total = response.total
     pagination.pages = response.pages
+    refreshVisibleSubscriptionProgress(response.items)
   } catch (error: any) {
     if (signal.aborted || error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') {
       return
@@ -1638,6 +1678,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  progressRefreshRun++
   document.removeEventListener('click', handleClickOutside)
   if (filterUserSearchTimeout) {
     clearTimeout(filterUserSearchTimeout)
