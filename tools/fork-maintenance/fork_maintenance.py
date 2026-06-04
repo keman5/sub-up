@@ -18,22 +18,12 @@ STATE_DIR = ROOT / "tools" / "fork-maintenance" / "production-state"
 LOGIN_AGREEMENT_STATE = STATE_DIR / "login-agreement.json"
 
 
-PROTECTED_PATTERNS = (
-    "frontend/index.html",
-    "frontend/public/favicon.ico",
-    "frontend/public/logo.png",
-    "frontend/public/logo.svg",
-    "frontend/src/App.vue",
-    "frontend/src/__tests__/app-favicon.spec.ts",
-    "frontend/src/utils/siteIcons.ts",
-    "frontend/src/views/HomeView.vue",
-    "frontend/src/views/auth/",
-    "frontend/src/views/home/",
-    "deploy/",
-    "backend/migrations/",
-    "backend/internal/handler/auth_",
-    "backend/internal/service/setting_service.go",
-    "docs/VPS_DEPLOY_NOTES.md",
+FORK_DOC_REL = "docs/FORK_MAINTENANCE_CN.md"
+
+IGNORED_RECORD_PATTERNS = (
+    FORK_DOC_REL,
+    "backend/internal/web/dist/",
+    "tmp/",
 )
 
 VERIFY_SEARCHES = (
@@ -102,6 +92,11 @@ def changed_files_from_status() -> set[str]:
     return files
 
 
+def changed_files_from_index() -> set[str]:
+    output = git(["diff", "--cached", "--name-only", "--diff-filter=ACMRTD"])
+    return {line.strip() for line in output.splitlines() if line.strip()}
+
+
 def changed_files_from_base(base: str) -> set[str]:
     output = git(["diff", "--name-only", f"{base}...HEAD"])
     files = {line.strip() for line in output.splitlines() if line.strip()}
@@ -109,12 +104,30 @@ def changed_files_from_base(base: str) -> set[str]:
     return files
 
 
-def is_protected(path: str) -> bool:
-    return any(path == pattern or path.startswith(pattern) for pattern in PROTECTED_PATTERNS)
+def path_matches(path: str, pattern: str) -> bool:
+    return path == pattern or path.startswith(pattern)
+
+
+def is_record_candidate(path: str) -> bool:
+    return not any(path_matches(path, pattern) for pattern in IGNORED_RECORD_PATTERNS)
 
 
 def doc_changed() -> bool:
-    return "docs/FORK_MAINTENANCE_CN.md" in changed_files_from_status()
+    return FORK_DOC_REL in changed_files_from_status()
+
+
+def doc_staged() -> bool:
+    return FORK_DOC_REL in changed_files_from_index()
+
+
+def upstream_sync_in_progress() -> bool:
+    git_dir = Path(git(["rev-parse", "--git-dir"]).strip())
+    if not git_dir.is_absolute():
+        git_dir = ROOT / git_dir
+    return any(
+        (git_dir / marker).exists()
+        for marker in ("MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "rebase-merge", "rebase-apply")
+    )
 
 
 def print_table(rows: list[tuple[str, str, str]]) -> None:
@@ -134,54 +147,45 @@ def cmd_inventory(args: argparse.Namespace) -> int:
     files = sorted(changed_files_from_base(base))
     rows = []
     for path in files:
-        kind = "fork-protected" if is_protected(path) else "regular"
-        action = "record in docs/FORK_MAINTENANCE_CN.md" if kind == "fork-protected" else "normal review"
+        kind = "record-candidate" if is_record_candidate(path) else "ignored"
+        action = "record in docs/FORK_MAINTENANCE_CN.md" if kind == "record-candidate" else "no record required"
         rows.append((path, kind, action))
     print(f"Base: {base}")
     print_table(rows)
     return 0
 
 
-def cmd_check_doc(args: argparse.Namespace) -> int:
-    files = sorted(changed_files_from_status())
-    protected = [path for path in files if is_protected(path)]
-    if not protected:
-        print("No protected fork-maintenance paths changed.")
-        return 0
-    if doc_changed():
-        print("Fork maintenance doc changed with protected paths.")
-        for path in protected:
-            print(f"  - {path}")
-        return 0
-    print("Protected fork-maintenance paths changed, but docs/FORK_MAINTENANCE_CN.md was not updated:")
-    for path in protected:
-        print(f"  - {path}")
-    print("\nAdd a recovery/review note to docs/FORK_MAINTENANCE_CN.md before committing.")
-    return 1
-
-
-def cmd_record(args: argparse.Namespace) -> int:
-    files = sorted(path for path in changed_files_from_status() if is_protected(path))
-    if not files:
-        print("No protected fork-maintenance paths changed; nothing to record.")
-        return 0
-    title = args.title or "待补充 fork 本地改动"
+def build_record_text(files: list[str], title: str, *, auto: bool) -> str:
     today = datetime.now().date().isoformat()
-    lines = [
-        "",
-        f"### {today}: {title}",
-        "",
-        "**现象：**",
-        "",
-        "- TODO: 描述用户看到的问题、页面、接口或日志。",
-        "",
-        "**原因：**",
-        "",
-        "- TODO: 描述定位到的根因，尽量引用具体文件和 key。",
-        "",
-        "**修改：**",
-        "",
-    ]
+    if auto:
+        lines = [
+            "",
+            f"### {today}: {title}",
+            "",
+            "**自动记录：**",
+            "",
+            "- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。",
+            "- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。",
+            "",
+            "**涉及文件：**",
+            "",
+        ]
+    else:
+        lines = [
+            "",
+            f"### {today}: {title}",
+            "",
+            "**现象：**",
+            "",
+            "- TODO: 描述用户看到的问题、页面、接口或日志。",
+            "",
+            "**原因：**",
+            "",
+            "- TODO: 描述定位到的根因，尽量引用具体文件和 key。",
+            "",
+            "**修改：**",
+            "",
+        ]
     lines.extend(f"- `{path}`" for path in files)
     lines.extend(
         [
@@ -198,15 +202,49 @@ def cmd_record(args: argparse.Namespace) -> int:
             "",
         ]
     )
+    return "\n".join(lines)
+
+
+def append_record(files: list[str], title: str, *, auto: bool) -> None:
     text = FORK_DOC.read_text(encoding="utf-8")
     marker = "\n## 同步官方版本后的复查流程"
-    insert = "\n".join(lines)
+    insert = build_record_text(files, title, auto=auto)
     if marker not in text:
         raise CommandError(f"cannot find insertion marker in {FORK_DOC}: {marker.strip()}")
-    if args.dry_run:
-        print(insert)
-        return 0
     FORK_DOC.write_text(text.replace(marker, insert + marker, 1), encoding="utf-8")
+
+
+def cmd_check_doc(args: argparse.Namespace) -> int:
+    if upstream_sync_in_progress():
+        print("Upstream sync in progress; fork maintenance auto-record skipped.")
+        return 0
+    candidates = sorted(path for path in changed_files_from_index() if is_record_candidate(path))
+    if not candidates:
+        print("No fork-maintenance record candidates staged.")
+        return 0
+    if doc_staged():
+        print("Fork maintenance doc staged with local changes.")
+        for path in candidates:
+            print(f"  - {path}")
+        return 0
+    append_record(candidates, "自动记录本地改动", auto=True)
+    git(["add", FORK_DOC_REL])
+    print("Auto-recorded fork maintenance entry for staged local changes:")
+    for path in candidates:
+        print(f"  - {path}")
+    return 0
+
+
+def cmd_record(args: argparse.Namespace) -> int:
+    files = sorted(path for path in changed_files_from_status() if is_record_candidate(path))
+    if not files:
+        print("No fork-maintenance record candidates changed; nothing to record.")
+        return 0
+    title = args.title or "待补充 fork 本地改动"
+    if args.dry_run:
+        print(build_record_text(files, title, auto=False))
+        return 0
+    append_record(files, title, auto=False)
     print(f"Appended fork maintenance record template to {FORK_DOC}")
     return 0
 
@@ -252,9 +290,12 @@ def cmd_verify_after_upstream(args: argparse.Namespace) -> int:
         else:
             failures += 1
             print(f"[fail] {label}: pattern not found: {pattern} in {path}")
-    test_cmds = [
-        ["pnpm", "--dir", "frontend", "exec", "vitest", "run", "src/__tests__/app-favicon.spec.ts"],
-    ]
+    test_cmds = []
+    favicon_spec = ROOT / "frontend" / "src" / "__tests__" / "app-favicon.spec.ts"
+    if favicon_spec.exists():
+        test_cmds.append(["pnpm", "--dir", "frontend", "exec", "vitest", "run", "src/__tests__/app-favicon.spec.ts"])
+    else:
+        print("[skip] favicon test: frontend/src/__tests__/app-favicon.spec.ts not found")
     if not args.skip_build:
         test_cmds.append(["pnpm", "--dir", "frontend", "run", "build"])
     for cmd in test_cmds:
@@ -427,10 +468,10 @@ def build_parser() -> argparse.ArgumentParser:
     inventory.add_argument("--base", help="Base ref, defaults to upstream/main when available.")
     inventory.set_defaults(func=cmd_inventory)
 
-    check_doc = sub.add_parser("check-doc", help="Fail when protected fork paths changed without updating the maintenance doc.")
+    check_doc = sub.add_parser("check-doc", help="Auto-record staged local changes in the maintenance doc.")
     check_doc.set_defaults(func=cmd_check_doc)
 
-    record = sub.add_parser("record", help="Append a maintenance record template for currently changed protected paths.")
+    record = sub.add_parser("record", help="Append a maintenance record template for current record-candidate changes.")
     record.add_argument("--title", help="Record title.")
     record.add_argument("--dry-run", action="store_true", help="Print the generated record without editing the doc.")
     record.set_defaults(func=cmd_record)

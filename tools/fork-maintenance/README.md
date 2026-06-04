@@ -2,7 +2,7 @@
 
 This directory contains guardrails for preserving fork-only changes when syncing from upstream.
 
-The scripts do not silently rewrite upstream merges. They inventory fork-only changes, require the central maintenance document to be updated, export patch snapshots, run fork-specific verification, and reapply known non-Git production state when explicitly requested.
+The scripts do not silently rewrite upstream merges. They inventory fork-only changes, auto-record staged local changes in the central maintenance document, export patch snapshots, run fork-specific verification, and reapply known non-Git production state when explicitly requested.
 
 ## Commands
 
@@ -29,7 +29,7 @@ make fork-restore-dry-run
 `reapply-production-state` is dry-run by default. It requires `--apply` before it touches the remote host.
 It regenerates `favicon.ico` from the current `frontend/public/logo.png` before upload, so the fallback icon follows the logo.
 
-`record` appends a TODO maintenance record template to `docs/FORK_MAINTENANCE_CN.md` for currently changed protected paths. Fill in the TODOs before committing.
+`record` appends a TODO maintenance record template to `docs/FORK_MAINTENANCE_CN.md` for current record-candidate changes. Fill in the TODOs before committing.
 
 For binary deployment over slow links, use the gzip transfer/decompress helper:
 
@@ -44,6 +44,6 @@ deploy/local-gzip-binary-deploy.sh --apply --deploy
 tools/fork-maintenance/install-hooks.sh
 ```
 
-The pre-commit hook blocks commits that touch protected fork-maintenance paths without also changing `docs/FORK_MAINTENANCE_CN.md`.
+The pre-commit hook auto-appends a pending entry to `docs/FORK_MAINTENANCE_CN.md` for staged local changes unless a merge, rebase, or cherry-pick is in progress.
 
-The post-merge and post-rewrite hooks run fork-specific verification after merge/rebase and print a warning if protected changes need review. They do not automatically force-apply patches.
+The post-merge and post-rewrite hooks run fork-specific verification after merge/rebase and print a warning if fork changes need review. They do not automatically force-apply patches.

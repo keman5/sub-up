@@ -717,16 +717,69 @@
       @cancel="showRevokeDialog = false"
     />
 
-    <!-- Reset Quota Confirmation Dialog -->
-    <ConfirmDialog
+    <!-- Reset Quota Dialog -->
+    <BaseDialog
       :show="showResetQuotaConfirm"
       :title="t('admin.subscriptions.resetQuotaTitle')"
-      :message="t('admin.subscriptions.resetQuotaConfirm', { user: resettingSubscription?.user?.email })"
-      :confirm-text="t('admin.subscriptions.resetQuota')"
-      :cancel-text="t('common.cancel')"
-      @confirm="confirmResetQuota"
-      @cancel="showResetQuotaConfirm = false"
-    />
+      width="narrow"
+      @close="closeResetQuotaDialog"
+    >
+      <div v-if="resettingSubscription" class="space-y-5">
+        <div class="rounded-lg bg-gray-50 p-4 dark:bg-dark-700">
+          <p class="text-sm text-gray-600 dark:text-gray-400">
+            {{ t('admin.subscriptions.resetQuotaFor') }}
+            <span class="font-medium text-gray-900 dark:text-white">{{
+              resettingSubscription.user?.email
+            }}</span>
+          </p>
+          <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+            {{ t('admin.subscriptions.resetQuotaHint') }}
+          </p>
+        </div>
+
+        <fieldset class="space-y-2">
+          <legend class="input-label">{{ t('admin.subscriptions.resetQuotaScope') }}</legend>
+          <label
+            v-for="option in resetQuotaScopeOptions"
+            :key="option.value"
+            class="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 p-3 transition-colors hover:border-primary-300 hover:bg-primary-50/60 dark:border-dark-600 dark:hover:border-primary-700 dark:hover:bg-primary-900/15"
+            :class="resetQuotaScope === option.value ? 'border-primary-500 bg-primary-50 dark:border-primary-600 dark:bg-primary-900/20' : ''"
+          >
+            <input
+              v-model="resetQuotaScope"
+              type="radio"
+              name="reset-quota-scope"
+              :value="option.value"
+              class="mt-0.5 h-4 w-4 text-primary-600 focus:ring-primary-500"
+            />
+            <span>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                {{ option.label }}
+              </span>
+              <span class="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
+                {{ option.description }}
+              </span>
+            </span>
+          </label>
+        </fieldset>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <button @click="closeResetQuotaDialog" type="button" class="btn btn-secondary">
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            @click="confirmResetQuota"
+            type="button"
+            :disabled="resettingQuota"
+            class="btn btn-primary"
+          >
+            {{ resettingQuota ? t('common.loading') : t('admin.subscriptions.resetQuota') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
     <!-- Subscription Guide Modal -->
     <teleport to="body">
       <transition name="modal">
@@ -843,6 +896,8 @@ interface GroupOption {
   subscriptionType: SubscriptionType
   rate: number
 }
+
+type ResetQuotaScope = 'daily' | 'weekly' | 'monthly' | 'all'
 
 // Guide modal state
 const showGuideModal = ref(false)
@@ -1016,6 +1071,7 @@ const showResetQuotaConfirm = ref(false)
 const submitting = ref(false)
 const resettingSubscription = ref<UserSubscription | null>(null)
 const resettingQuota = ref(false)
+const resetQuotaScope = ref<ResetQuotaScope>('all')
 const extendingSubscription = ref<UserSubscription | null>(null)
 const revokingSubscription = ref<UserSubscription | null>(null)
 
@@ -1027,6 +1083,33 @@ const assignForm = reactive({
 const extendForm = reactive({
   days: 30
 })
+
+const resetQuotaScopeOptions = computed<Array<{
+  value: ResetQuotaScope
+  label: string
+  description: string
+}>>(() => [
+  {
+    value: 'daily',
+    label: t('admin.subscriptions.resetQuotaScopes.daily'),
+    description: t('admin.subscriptions.resetQuotaScopeDescriptions.daily')
+  },
+  {
+    value: 'weekly',
+    label: t('admin.subscriptions.resetQuotaScopes.weekly'),
+    description: t('admin.subscriptions.resetQuotaScopeDescriptions.weekly')
+  },
+  {
+    value: 'monthly',
+    label: t('admin.subscriptions.resetQuotaScopes.monthly'),
+    description: t('admin.subscriptions.resetQuotaScopeDescriptions.monthly')
+  },
+  {
+    value: 'all',
+    label: t('admin.subscriptions.resetQuotaScopes.all'),
+    description: t('admin.subscriptions.resetQuotaScopeDescriptions.all')
+  }
+])
 
 // Group options for filter (all groups)
 const groupOptions = computed(() => [
@@ -1389,18 +1472,32 @@ const confirmRevoke = async () => {
 
 const handleResetQuota = (subscription: UserSubscription) => {
   resettingSubscription.value = subscription
+  resetQuotaScope.value = 'all'
   showResetQuotaConfirm.value = true
+}
+
+const closeResetQuotaDialog = () => {
+  if (resettingQuota.value) return
+  showResetQuotaConfirm.value = false
+  resettingSubscription.value = null
+  resetQuotaScope.value = 'all'
 }
 
 const confirmResetQuota = async () => {
   if (!resettingSubscription.value) return
   if (resettingQuota.value) return
   resettingQuota.value = true
+  const scope = resetQuotaScope.value
   try {
-    await adminAPI.subscriptions.resetQuota(resettingSubscription.value.id, { daily: true, weekly: true, monthly: true })
+    await adminAPI.subscriptions.resetQuota(resettingSubscription.value.id, {
+      daily: scope === 'daily' || scope === 'all',
+      weekly: scope === 'weekly' || scope === 'all',
+      monthly: scope === 'monthly' || scope === 'all'
+    })
     appStore.showSuccess(t('admin.subscriptions.quotaResetSuccess'))
     showResetQuotaConfirm.value = false
     resettingSubscription.value = null
+    resetQuotaScope.value = 'all'
     await loadSubscriptions()
   } catch (error: any) {
     appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToResetQuota'))

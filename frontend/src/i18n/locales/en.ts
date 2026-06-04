@@ -2929,7 +2929,21 @@ export default {
       revoke: 'Revoke',
       resetQuota: 'Reset Quota',
       resetQuotaTitle: 'Reset Usage Quota',
-      resetQuotaConfirm: "Reset the daily, weekly, and monthly usage quota for '{user}'? Usage will be zeroed and windows restarted from today.",
+      resetQuotaFor: 'Reset quota for',
+      resetQuotaHint: 'Selected usage will be zeroed and its window restarted from today.',
+      resetQuotaScope: 'Reset scope',
+      resetQuotaScopes: {
+        daily: 'Daily quota',
+        weekly: 'Weekly quota',
+        monthly: 'Monthly quota',
+        all: 'Daily, weekly, and monthly'
+      },
+      resetQuotaScopeDescriptions: {
+        daily: 'Only reset today\'s usage counter.',
+        weekly: 'Only reset the current weekly usage counter.',
+        monthly: 'Only reset the current monthly usage counter.',
+        all: 'Reset all three usage counters together.'
+      },
       quotaResetSuccess: 'Quota reset successfully',
       failedToResetQuota: 'Failed to reset quota',
       noSubscriptionsYet: 'No subscriptions yet',

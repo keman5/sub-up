@@ -3006,7 +3006,21 @@ export default {
       revoke: '撤销',
       resetQuota: '重置配额',
       resetQuotaTitle: '重置用量配额',
-      resetQuotaConfirm: "确定要重置 '{user}' 的每日、每周和每月用量配额吗？用量将归零并从今天开始重新计算。",
+      resetQuotaFor: '重置配额用户',
+      resetQuotaHint: '所选用量将归零，并从今天开始重新计算。',
+      resetQuotaScope: '重置范围',
+      resetQuotaScopes: {
+        daily: '每日配额',
+        weekly: '每周配额',
+        monthly: '每月配额',
+        all: '每日、每周和每月'
+      },
+      resetQuotaScopeDescriptions: {
+        daily: '仅重置今天的用量计数。',
+        weekly: '仅重置当前每周用量计数。',
+        monthly: '仅重置当前每月用量计数。',
+        all: '同时重置三种用量计数。'
+      },
       quotaResetSuccess: '配额重置成功',
       failedToResetQuota: '重置配额失败',
       noSubscriptionsYet: '暂无订阅',

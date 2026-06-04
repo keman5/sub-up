@@ -37,7 +37,7 @@
 # 上游同步前：盘点当前 fork 相对官方上游的差异
 tools/fork-maintenance/fork-maintenance.sh inventory --base upstream/main
 
-# 提交前：检查关键 fork 路径变更是否同时更新本文件
+# 提交前：为非上游同步的 staged 本地改动自动追加维护记录
 tools/fork-maintenance/fork-maintenance.sh check-doc
 
 # 自动追加一段待完善记录模板；提交前需要补完 TODO
@@ -91,7 +91,7 @@ git fetch upstream
 tools/fork-maintenance/install-hooks.sh
 ```
 
-安装后，`pre-commit` 会在提交前执行 `check-doc`。如果修改了品牌首页、logo/favicon、OAuth、部署、迁移等关键 fork 路径，但没有同步更新 `docs/FORK_MAINTENANCE_CN.md`，提交会被阻止。
+安装后，`pre-commit` 会在提交前执行 `check-doc`。如果当前不是 merge/rebase/cherry-pick 等上游同步流程，脚本会把本次 staged 的源码、配置和文档改动视为 fork 维护候选；当 `docs/FORK_MAINTENANCE_CN.md` 尚未 staged 时，会自动追加一条待完善记录并把文档加入本次提交。提交后需要将自动记录补充为可复查的业务说明、验证命令和同步官方后的处理方式。
 
 安装脚本同时写入 `post-merge` 和 `post-rewrite` hook。执行 merge/rebase 后会自动运行 `verify-after-upstream --skip-build`，若 fork 关键补丁缺失会打印警告；它不会自动硬套补丁，也不会替代人工冲突审查。
 
@@ -99,6 +99,7 @@ tools/fork-maintenance/install-hooks.sh
 
 - Git 内改动：
   - 通过 `inventory`、`check-doc`、`snapshot` 和 `verify-after-upstream` 盘点和验证。
+  - `check-doc` 不再依赖固定 protected 路径；除维护文档本身、临时目录和构建产物外，非 merge/rebase/cherry-pick 等上游同步期间 staged 的本地改动都会触发自动记录。
   - 已提交的代码改动仍依赖 Git merge/rebase 保留；脚本只做护栏，不替代人工冲突处理。
 - 线上非 Git 状态：
   - `reapply-production-state` 可恢复 `/opt/51token-home` 静态首页 logo/favicon 覆盖。
@@ -625,6 +626,8 @@ curl -k -sS -H 'Cache-Control: no-cache' 'https://ai.upit.top/?redeploy=20260601
 | 2026-06-02 | CC Switch 从 `ap1.upit.top` / `ap2.upit.top` / `api.upit.top` 导入服务商时，用量查询脚本会把已带 `/51Token/v1` 的 `api_base_url` 再拼一次 `/v1`，导致桌面版请求 `.../v1/v1/usage` 并显示“查询失败”；限额型 API Key 只返回 `rate_limits[].remaining` 时，旧 extractor 也会取不到剩余额度。 | 在 `frontend/src/views/user/KeysView.vue` 的 `executeCcsImport()` 内联生成 `usageUrl` 和 `usageScript`：`baseUrl` 去掉尾斜杠后拼接 `/usage`，不再写死 `{{baseUrl}}/v1/usage`；extractor 兼容 `remaining`、`quota.remaining`、`balance`、订阅窗口剩余量和 `rate_limits[].remaining`，确保钱包/订阅/限额型 Key 都能显示余额；`frontend/src/utils/ccswitchImport.ts` 继续只负责 deep link 参数组装。 | `pnpm --dir frontend typecheck`；在 CC Switch 桌面版打开“配置用量查询”，确认 `request.url` 为当前 `api_base_url` 对应的 `.../usage`，且不会出现 `.../v1/v1/usage`；刷新 `51token 算力`，限额型 Key 应显示类似 `剩余：40.00 USD`。 | 同步官方后搜索 `executeCcsImport`、`usageScript`、`rate_limits` 和 `/v1/usage`。如果官方后续也改为根据 `api_base_url` 直接拼 `/usage`，仍需确认 extractor 支持限额型 `rate_limits` 响应；若导入逻辑再次抽出页面层，需要重新验证 `api_base_url=https://<host>/51Token/v1` 时 CC Switch 脚本是否仍只生成一层 `/v1`。 |
 | 2026-06-03 | 首页和 API Key 使用弹窗里的 Claude/Anthropic 配置不能直接复用带路径的 OpenAI/Codex `api_base_url`；否则 Claude Code 会在该路径后拼 `/v1/messages` 并检查失败。 | 前台配置生成逻辑从公开设置里的 OpenAI/Codex base 派生 Claude base：`buildClaudeBaseUrl()` 和 `buildAnthropicBaseUrl()` 对绝对 URL 取 `origin`，因此 `https://ap1.upit.top/51Token/v1`、`https://api.upit.top/openai/v1` 等都会生成 `ANTHROPIC_BASE_URL=https://<host>`，Antigravity 则生成 `https://<host>/antigravity`。这属于前台配置问题，不需要修改 sub2api Go 路由，也不硬编码某个业务前缀。 | `pnpm --dir frontend run typecheck`；打开首页和 API Key 使用弹窗，确认 Claude/Anthropic 配置中的 `ANTHROPIC_BASE_URL` 是当前域名根，Codex/OpenAI 配置仍保留公开设置中的完整 API base。 | 同步官方后搜索 `buildClaudeBaseUrl` 和 `buildAnthropicBaseUrl`。如果官方改动了首页示例或 API Key 使用弹窗，必须继续确认 Claude/Anthropic 配置从带路径的 OpenAI/Codex base 派生时会取 URL origin。 |
 | 2026-06-03 | Claude Code 配置示例缺少模型环境变量，用户复制 `~/.claude/settings.json` 后会落到 Claude 默认模型或错误模型，无法稳定使用 51token 的 GPT 模型。 | 首页 `frontend/src/views/home/components/homeData.ts` 与 API Key 使用弹窗 `frontend/src/components/keys/UseKeyModal.vue` 的 Claude 配置示例统一加入 `ANTHROPIC_MODEL=gpt-5.5` 和 `ANTHROPIC_DEFAULT_SONNET_MODEL=gpt-5.5`；三语 README 的普通 Claude 与 Antigravity Claude 示例同步补充这两项。 | `pnpm --dir frontend run typecheck`；打开首页和 API Key 使用弹窗，确认 `~/.claude/settings.json`、Terminal、Command Prompt、PowerShell 示例都包含 `ANTHROPIC_MODEL` 与 `ANTHROPIC_DEFAULT_SONNET_MODEL`。 | 同步官方后搜索 `ANTHROPIC_MODEL`、`ANTHROPIC_DEFAULT_SONNET_MODEL`、`generateAnthropicFiles` 和 `buildClaudeConfigJson`，确认模型字段没有被上游示例覆盖丢失。 |
+| 2026-06-04 | 订阅管理列表的“重置配额”原本只能一次性重置日/周/月三种用量；运营需要只重置每日、每周、每月或全部额度，避免误清其它周期用量。 | 将 `frontend/src/views/admin/SubscriptionsView.vue` 的重置配额确认框改为可选范围弹窗，新增 `daily`、`weekly`、`monthly`、`all` 单选状态，并按选择向既有 `resetQuota` 接口发送 `{ daily, weekly, monthly }`；补充中英文文案 `resetQuotaScopes` 和 `resetQuotaScopeDescriptions`。 | `pnpm --dir frontend run typecheck`；`pnpm --dir frontend exec eslint src/views/admin/SubscriptionsView.vue src/i18n/locales/en.ts src/i18n/locales/zh.ts`；`pnpm --dir frontend run build`。 | 同步官方后搜索 `resetQuotaScope`、`resetQuotaScopeOptions`、`resetQuotaScopes`。如果官方已提供等价范围选择，优先收敛到官方组件；否则保留本地弹窗逻辑，并确认后端 `AdminResetQuota` 仍支持三个布尔字段。 |
+| 2026-06-04 | fork 维护护栏只检查一组写死的 protected 路径，而且只会阻止提交；订阅配额范围选择这类本地改动不在旧路径表里，所以提交时没有自动写入维护文档。 | 将 `tools/fork-maintenance/fork_maintenance.py` 的 `check-doc` 改为基于 Git staged 文件判断：非 merge/rebase/cherry-pick 流程中，只要 staged 本地改动不是维护文档自身、临时目录或构建产物，就自动追加一条待完善记录并 `git add docs/FORK_MAINTENANCE_CN.md`；同步更新 README 和本文档说明。`verify-after-upstream` 对已不存在的 favicon 测试改为显式 skip，避免 amend 后 post-rewrite 假失败。 | `python3 -m py_compile tools/fork-maintenance/fork_maintenance.py`；`tools/fork-maintenance/fork-maintenance.sh record --title "测试自动记录" --dry-run`；`tools/fork-maintenance/fork-maintenance.sh check-doc`；`tools/fork-maintenance/fork-maintenance.sh verify-after-upstream --skip-build`；`rg -n "PROTECTED_PATTERNS|is_protected|protected fork|protected paths|protected fork-maintenance" tools/fork-maintenance`。 | 同步官方后搜索 `check-doc`、`changed_files_from_index`、`upstream_sync_in_progress`、`IGNORED_RECORD_PATTERNS`。如果官方新增自己的 fork 维护机制，保留“非上游同步 staged 本地改动自动记录”的行为，不再恢复固定 protected 路径表。 |
 | 2026-06-02 | `ap2/a2` 灰度环境并不复用 `sub2api-standby`，而是单独运行 `sub2api-ap2` compose；如果沿用 `--deploy` 的双环境滚动脚本，会误更新 standby / primary，而不是只更新 ap2。 | 线上确认 `ap2` 目录为 `/opt/sub2api-ap2-deploy`，通过 `.env` 中的 `IMAGE_TAG=` 控制镜像；单独部署 ap2 时，先用 `deploy/local-gzip-binary-deploy.sh --apply` 完成本地构建、gzip 分块上传、远端解压和打镜像，再仅修改 `sub2api-ap2` 的 `.env` 并执行 `docker compose up -d sub2api-ap2`；2026-06-02 实际将 ap2 从 `sub2api:subapi-a5e4b0c6-ap2-oauth-adaptive-v2-202606021754` 升级到 `sub2api:subapi-9d75fb6b-ap2-redeploy-20260602232707`。 | `ssh new-api-vps 'grep ^IMAGE_TAG= /opt/sub2api-ap2-deploy/.env'`；`ssh new-api-vps 'docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" sub2api-ap2'`；`ssh new-api-vps 'curl -fsS http://127.0.0.1:8083/health'`；`ssh new-api-vps 'docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | grep sub2api-ap2'`。 | 同步官方或后续重构部署脚本后，优先确认 `ap2` 是否仍保持独立 compose 目录 `/opt/sub2api-ap2-deploy` 与 `IMAGE_TAG` 控制方式；如果未来把 ap2 并回 standby 或纳入统一脚本，先更新 `docs/VPS_DEPLOY_NOTES.md` 的单独部署步骤，再删除这条本地差异说明。 |
 
 ## 同步官方版本后的复查流程
