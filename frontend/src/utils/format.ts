@@ -7,7 +7,7 @@ import { i18n, getLocale } from '@/i18n'
 
 function translateOrFallback(key: string, params: Record<string, unknown>, fallback: string): string {
   const translated = i18n.global.t(key, params)
-  return translated === key ? fallback : translated
+  return translated.includes(key) ? fallback : translated
 }
 
 /**
