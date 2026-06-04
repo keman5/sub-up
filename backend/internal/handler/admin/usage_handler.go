@@ -350,17 +350,21 @@ func (h *UsageHandler) SearchUsers(c *gin.Context) {
 		return
 	}
 
-	// Return simplified user list (only id and email)
+	// Return simplified user list with display fields used by admin pickers.
 	type SimpleUser struct {
-		ID    int64  `json:"id"`
-		Email string `json:"email"`
+		ID       int64  `json:"id"`
+		Email    string `json:"email"`
+		Username string `json:"username"`
+		Notes    string `json:"notes"`
 	}
 
 	result := make([]SimpleUser, len(users))
 	for i, u := range users {
 		result[i] = SimpleUser{
-			ID:    u.ID,
-			Email: u.Email,
+			ID:       u.ID,
+			Email:    u.Email,
+			Username: u.Username,
+			Notes:    u.Notes,
 		}
 	}
 

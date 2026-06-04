@@ -190,11 +190,16 @@
                   }}
                 </span>
               </div>
-              <span class="font-medium text-gray-900 dark:text-white">
-                {{ userColumnMode === 'email'
-                  ? (row.user?.email || t('admin.redeem.userPrefix', { id: row.user_id }))
-                  : (row.user?.username || '-')
-                }}
+              <span class="min-w-0">
+                <span class="block truncate font-medium text-gray-900 dark:text-white">
+                  {{ getSubscriptionUserLabel(row, userColumnMode, t('admin.redeem.userPrefix', { id: row.user_id })) }}
+                </span>
+                <span
+                  v-if="getSubscriptionUserNotes(row)"
+                  class="block truncate text-xs text-gray-500 dark:text-gray-400"
+                >
+                  {{ getSubscriptionUserNotes(row) }}
+                </span>
               </span>
             </div>
           </template>
@@ -504,7 +509,13 @@
                 >
                   <span class="min-w-0">
                     <span class="block truncate font-medium text-gray-900 dark:text-white">{{ user.email }}</span>
-                    <span class="text-xs text-gray-500 dark:text-gray-400">#{{ user.id }}</span>
+                    <span
+                      v-if="formatSimpleUserMeta(user)"
+                      class="block truncate text-xs text-gray-500 dark:text-gray-400"
+                    >
+                      {{ formatSimpleUserMeta(user) }}
+                    </span>
+                    <span class="block text-xs text-gray-400 dark:text-gray-500">#{{ user.id }}</span>
                   </span>
                   <span
                     :class="[
@@ -545,6 +556,9 @@
                 class="inline-flex max-w-full items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs text-gray-700 ring-1 ring-gray-200 dark:bg-dark-800 dark:text-gray-200 dark:ring-gray-600"
               >
                 <span class="max-w-[220px] truncate">{{ user.email }}</span>
+                <span v-if="formatSimpleUserMeta(user)" class="max-w-[180px] truncate text-gray-500">
+                  {{ formatSimpleUserMeta(user) }}
+                </span>
                 <span class="text-gray-400">#{{ user.id }}</span>
                 <button
                   type="button"
@@ -872,6 +886,7 @@ import type { SimpleUser } from '@/api/admin/usage'
 import type { Column } from '@/components/common/types'
 import { formatDateOnly } from '@/utils/format'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { getSubscriptionUserLabel, getSubscriptionUserNotes } from './subscriptionUserDisplay'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -1071,7 +1086,7 @@ const showResetQuotaConfirm = ref(false)
 const submitting = ref(false)
 const resettingSubscription = ref<UserSubscription | null>(null)
 const resettingQuota = ref(false)
-const resetQuotaScope = ref<ResetQuotaScope>('all')
+const resetQuotaScope = ref<ResetQuotaScope>('daily')
 const extendingSubscription = ref<UserSubscription | null>(null)
 const revokingSubscription = ref<UserSubscription | null>(null)
 
@@ -1246,10 +1261,18 @@ const clearFilterUser = () => {
   applyFilters()
 }
 
-const toSimpleUser = (user: Pick<AdminUser, 'id' | 'email'>): SimpleUser => ({
+const toSimpleUser = (user: Pick<AdminUser, 'id' | 'email' | 'username' | 'notes'>): SimpleUser => ({
   id: user.id,
-  email: user.email
+  email: user.email,
+  username: user.username,
+  notes: user.notes
 })
+
+const formatSimpleUserMeta = (user: SimpleUser) =>
+  [user.username, user.notes]
+    .map((value) => value?.trim())
+    .filter(Boolean)
+    .join(' · ')
 
 const openAssignModal = () => {
   showAssignModal.value = true
@@ -1472,7 +1495,7 @@ const confirmRevoke = async () => {
 
 const handleResetQuota = (subscription: UserSubscription) => {
   resettingSubscription.value = subscription
-  resetQuotaScope.value = 'all'
+  resetQuotaScope.value = 'daily'
   showResetQuotaConfirm.value = true
 }
 
@@ -1480,7 +1503,7 @@ const closeResetQuotaDialog = () => {
   if (resettingQuota.value) return
   showResetQuotaConfirm.value = false
   resettingSubscription.value = null
-  resetQuotaScope.value = 'all'
+  resetQuotaScope.value = 'daily'
 }
 
 const confirmResetQuota = async () => {
@@ -1497,7 +1520,7 @@ const confirmResetQuota = async () => {
     appStore.showSuccess(t('admin.subscriptions.quotaResetSuccess'))
     showResetQuotaConfirm.value = false
     resettingSubscription.value = null
-    resetQuotaScope.value = 'all'
+    resetQuotaScope.value = 'daily'
     await loadSubscriptions()
   } catch (error: any) {
     appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToResetQuota'))

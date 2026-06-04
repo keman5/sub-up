@@ -28,6 +28,8 @@ export interface AdminUsageStatsResponse {
 export interface SimpleUser {
   id: number
   email: string
+  username?: string
+  notes?: string
 }
 
 export interface SimpleApiKey {

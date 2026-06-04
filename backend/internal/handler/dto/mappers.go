@@ -722,6 +722,7 @@ func UserSubscriptionFromServiceAdmin(sub *service.UserSubscription) *AdminUserS
 		AssignedBy:       sub.AssignedBy,
 		AssignedAt:       sub.AssignedAt,
 		Notes:            sub.Notes,
+		User:             UserFromServiceAdmin(sub.User),
 		AssignedByUser:   UserFromServiceShallow(sub.AssignedByUser),
 	}
 }
