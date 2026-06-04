@@ -888,6 +888,7 @@ import { formatDateOnly } from '@/utils/format'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { getSubscriptionUserLabel, getSubscriptionUserNotes } from './subscriptionUserDisplay'
 import { mergeSubscriptionProgressById } from './subscriptionProgressMerge'
+import { filterRecentRegisteredUsers } from './subscriptionRecentUsers'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -1309,10 +1310,9 @@ const toSimpleUser = (user: Pick<AdminUser, 'id' | 'email' | 'username' | 'notes
 })
 
 const formatSimpleUserMeta = (user: SimpleUser) =>
-  [user.username, user.notes]
+  [user.notes, user.username]
     .map((value) => value?.trim())
-    .filter(Boolean)
-    .join(' · ')
+    .find(Boolean) || ''
 
 const openAssignModal = () => {
   showAssignModal.value = true
@@ -1328,7 +1328,7 @@ const loadRecentAssignUsers = async () => {
       sort_by: 'created_at',
       sort_order: 'desc'
     })
-    userSearchResults.value = response.items.map(toSimpleUser)
+    userSearchResults.value = filterRecentRegisteredUsers(response.items).map(toSimpleUser)
   } catch (error) {
     console.error('Failed to load recent users:', error)
     userSearchResults.value = []
