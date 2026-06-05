@@ -266,8 +266,8 @@
             </div>
           </template>
 
-          <template #cell-username="{ value }">
-            <span class="text-sm text-gray-700 dark:text-gray-300">{{ value || '-' }}</span>
+          <template #cell-username="{ row }">
+            <span class="text-sm text-gray-700 dark:text-gray-300">{{ formatUsernameWithNotes(row) }}</span>
           </template>
 
           <template #cell-notes="{ value }">
@@ -785,6 +785,12 @@ const attributeColumns = computed<Column[]>(() =>
       sortable: false
     }))
 )
+
+const formatUsernameWithNotes = (user: Pick<AdminUser, 'username' | 'notes'>): string => {
+  const username = user.username?.trim() || '-'
+  const notes = user.notes?.trim()
+  return notes ? `${username}(${notes})` : username
+}
 
 // Get formatted attribute value for display in table
 const getAttributeValue = (userId: number, attrId: number): string => {

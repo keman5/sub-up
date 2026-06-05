@@ -634,29 +634,8 @@ curl -k -sS -H 'Cache-Control: no-cache' 'https://ai.upit.top/?redeploy=20260601
 | 2026-06-04 | fork 维护护栏只检查一组写死的 protected 路径，而且只会阻止提交；订阅配额范围选择这类本地改动不在旧路径表里，所以提交时没有自动写入维护文档。 | 将 `tools/fork-maintenance/fork_maintenance.py` 的 `check-doc` 改为基于 Git staged 文件判断：非 merge/rebase/cherry-pick 流程中，只要 staged 本地改动不是维护文档自身、临时目录或构建产物，就自动追加一条待完善记录并 `git add docs/FORK_MAINTENANCE_CN.md`；同步更新 README 和本文档说明。`verify-after-upstream` 对已不存在的 favicon 测试改为显式 skip，避免 amend 后 post-rewrite 假失败。 | `python3 -m py_compile tools/fork-maintenance/fork_maintenance.py`；`tools/fork-maintenance/fork-maintenance.sh record --title "测试自动记录" --dry-run`；`tools/fork-maintenance/fork-maintenance.sh check-doc`；`tools/fork-maintenance/fork-maintenance.sh verify-after-upstream --skip-build`；`rg -n "PROTECTED_PATTERNS|is_protected|protected fork|protected paths|protected fork-maintenance" tools/fork-maintenance`。 | 同步官方后搜索 `check-doc`、`changed_files_from_index`、`upstream_sync_in_progress`、`IGNORED_RECORD_PATTERNS`。如果官方新增自己的 fork 维护机制，保留“非上游同步 staged 本地改动自动记录”的行为，不再恢复固定 protected 路径表。 |
 | 2026-06-05 | 分组真实费率倍数需要继续参与实际扣费，但用户端不应看到真实倍率；运营需要在分组管理中单独配置用户看到的“展示倍率”，默认 1 倍。 | 新增 `groups.display_rate_multiplier` 迁移与 ent/service/DTO 字段，管理员接口继续用 `rate_multiplier` 表示真实计费倍率，并额外返回 `display_rate_multiplier` 与 `billing_rate_multiplier`；普通用户分组 DTO、支付 checkout、可用渠道接口返回的 `rate_multiplier` 改为展示倍率。前端分组创建/编辑弹窗新增“用户显示倍率”输入框，默认 1；用户端 Payment、Keys、Available Channels 通过 `getGroupDisplayRateMultiplier()` 展示该倍率，Usage 历史日志仍显示请求实际倍率。 | `go test ./internal/handler/dto ./internal/handler ./internal/service -run 'TestGroupFromService_UsesDisplayRateMultiplierForUserDTO|Test.*Group|Test.*Available|Test.*Checkout'`；`pnpm --dir frontend exec vitest run src/utils/__tests__/groupDisplayRate.spec.ts`；`pnpm --dir frontend exec eslint src/views/admin/GroupsView.vue src/views/user/KeysView.vue src/views/user/PaymentView.vue src/components/channels/AvailableChannelsTable.vue src/utils/groupDisplayRate.ts src/utils/__tests__/groupDisplayRate.spec.ts src/types/index.ts src/types/payment.ts src/api/channels.ts`；`pnpm --dir frontend run typecheck`。 | 同步官方后搜索 `display_rate_multiplier`、`DisplayRateMultiplier`、`BillingRateMultiplier` 和 `getGroupDisplayRateMultiplier`。如果官方重构分组倍率或用户端分组展示，必须继续保持“真实计费倍率与用户展示倍率分离，展示倍率默认 1 且不参与扣费”。 |
 | 2026-06-05 | a2 灰度启用动态模型路由后，管理员用量记录需要同时看到用户请求模型和真实上游模型，并清楚区分；普通用户仍不能看到真实上游模型。 | 新增 `formatAdminUsageModel()`，管理员用量表格模型列显示为 `请求模型 (真实上游模型)`，仅当 `upstream_model` 存在且不同于 `model` 时追加括号；管理员导出 Excel 的模型列也使用同一格式，同时保留单独上游模型列便于分析。用户用量页面和用户 DTO 不改。 | `pnpm --dir frontend exec vitest run src/utils/__tests__/usageModelDisplay.spec.ts src/components/admin/usage/__tests__/UsageTable.spec.ts`；`pnpm --dir frontend exec eslint src/components/admin/usage/UsageTable.vue src/components/admin/usage/__tests__/UsageTable.spec.ts src/views/admin/UsageView.vue src/utils/usageModelDisplay.ts src/utils/__tests__/usageModelDisplay.spec.ts`；`pnpm --dir frontend run typecheck`。 | 同步官方后搜索 `formatAdminUsageModel`、`upstream_model`、`UsageTable` 和 `UsageView`。如果官方重构管理员用量记录，继续保持“管理员可见请求模型与真实上游模型，普通用户不可见真实上游模型”的边界。 |
+| 2026-06-05 | 管理员用户列表的用户名列看不到备注，运营需要在用户名后直接看到备注以便快速辨认用户。 | `frontend/src/views/admin/UsersView.vue` 新增 `formatUsernameWithNotes()`，用户名列在 `notes` 非空时显示为 `用户名(备注)`，空备注保持原用户名或 `-`；备注独立列继续保留。`frontend/src/views/admin/__tests__/UsersView.spec.ts` 增加回归测试覆盖备注拼接格式。 | `pnpm --dir frontend exec vitest run src/views/admin/__tests__/UsersView.spec.ts`；`pnpm --dir frontend exec eslint src/views/admin/UsersView.vue src/views/admin/__tests__/UsersView.spec.ts`；`pnpm --dir frontend run typecheck`。 | 同步官方后搜索 `formatUsernameWithNotes`、`cell-username` 和 `UsersView.spec.ts`。如果官方重构用户列表表格，继续保持“用户名列有备注时追加括号备注、无备注不显示括号”的展示规则。 |
 | 2026-06-02 | `ap2/a2` 灰度环境并不复用 `sub2api-standby`，而是单独运行 `sub2api-ap2` compose；如果沿用 `--deploy` 的双环境滚动脚本，会误更新 standby / primary，而不是只更新 ap2。 | 线上确认 `ap2` 目录为 `/opt/sub2api-ap2-deploy`，通过 `.env` 中的 `IMAGE_TAG=` 控制镜像；单独部署 ap2 时，先用 `deploy/local-gzip-binary-deploy.sh --apply` 完成本地构建、gzip 分块上传、远端解压和打镜像，再仅修改 `sub2api-ap2` 的 `.env` 并执行 `docker compose up -d sub2api-ap2`；2026-06-02 实际将 ap2 从 `sub2api:subapi-a5e4b0c6-ap2-oauth-adaptive-v2-202606021754` 升级到 `sub2api:subapi-9d75fb6b-ap2-redeploy-20260602232707`。 | `ssh new-api-vps 'grep ^IMAGE_TAG= /opt/sub2api-ap2-deploy/.env'`；`ssh new-api-vps 'docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" sub2api-ap2'`；`ssh new-api-vps 'curl -fsS http://127.0.0.1:8083/health'`；`ssh new-api-vps 'docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | grep sub2api-ap2'`。 | 同步官方或后续重构部署脚本后，优先确认 `ap2` 是否仍保持独立 compose 目录 `/opt/sub2api-ap2-deploy` 与 `IMAGE_TAG` 控制方式；如果未来把 ap2 并回 standby 或纳入统一脚本，先更新 `docs/VPS_DEPLOY_NOTES.md` 的单独部署步骤，再删除这条本地差异说明。 |
-
-### 2026-06-05: 自动记录本地改动
-
-**自动记录：**
-
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
-
-**涉及文件：**
-
-- `frontend/src/components/admin/usage/__tests__/UsageTable.spec.ts`
-- `frontend/src/utils/__tests__/usageModelDisplay.spec.ts`
-
-**验证：**
-
-```bash
-TODO: 填写验证命令
-```
-
-**同步官方后的复查：**
-
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
 
 ## 同步官方版本后的复查流程
 
