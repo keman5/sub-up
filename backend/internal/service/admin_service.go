@@ -33,6 +33,7 @@ type AdminService interface {
 	// User management
 	ListUsers(ctx context.Context, page, pageSize int, filters UserListFilters, sortBy, sortOrder string) ([]User, int64, error)
 	GetUser(ctx context.Context, id int64) (*User, error)
+	GetUserIncludeDeleted(ctx context.Context, id int64) (*User, error)
 	CreateUser(ctx context.Context, input *CreateUserInput) (*User, error)
 	UpdateUser(ctx context.Context, id int64, input *UpdateUserInput) (*User, error)
 	DeleteUser(ctx context.Context, id int64) error
@@ -128,7 +129,7 @@ type CreateUserInput struct {
 	Password      string
 	Username      string
 	Notes         string
-	Balance       float64
+	Balance       *float64
 	Concurrency   int
 	RPMLimit      int
 	AllowedGroups []int64
@@ -188,16 +189,15 @@ type AdminBoundAuthIdentityChannel struct {
 }
 
 type CreateGroupInput struct {
-	Name                  string
-	Description           string
-	Platform              string
-	RateMultiplier        float64
-	DisplayRateMultiplier float64
-	IsExclusive           bool
-	SubscriptionType      string   // standard/subscription
-	DailyLimitUSD         *float64 // 日限额 (USD)
-	WeeklyLimitUSD        *float64 // 周限额 (USD)
-	MonthlyLimitUSD       *float64 // 月限额 (USD)
+	Name             string
+	Description      string
+	Platform         string
+	RateMultiplier   float64
+	IsExclusive      bool
+	SubscriptionType string   // standard/subscription
+	DailyLimitUSD    *float64 // 日限额 (USD)
+	WeeklyLimitUSD   *float64 // 周限额 (USD)
+	MonthlyLimitUSD  *float64 // 月限额 (USD)
 	// 图片生成计费配置（仅 antigravity 平台使用）
 	AllowImageGeneration bool
 	ImageRateIndependent bool
@@ -229,17 +229,16 @@ type CreateGroupInput struct {
 }
 
 type UpdateGroupInput struct {
-	Name                  string
-	Description           string
-	Platform              string
-	RateMultiplier        *float64 // 使用指针以支持设置为0
-	DisplayRateMultiplier *float64
-	IsExclusive           *bool
-	Status                string
-	SubscriptionType      string   // standard/subscription
-	DailyLimitUSD         *float64 // 日限额 (USD)
-	WeeklyLimitUSD        *float64 // 周限额 (USD)
-	MonthlyLimitUSD       *float64 // 月限额 (USD)
+	Name             string
+	Description      *string
+	Platform         string
+	RateMultiplier   *float64 // 使用指针以支持设置为0
+	IsExclusive      *bool
+	Status           string
+	SubscriptionType string   // standard/subscription
+	DailyLimitUSD    *float64 // 日限额 (USD)
+	WeeklyLimitUSD   *float64 // 周限额 (USD)
+	MonthlyLimitUSD  *float64 // 月限额 (USD)
 	// 图片生成计费配置（仅 antigravity 平台使用）
 	AllowImageGeneration *bool
 	ImageRateIndependent *bool
@@ -676,13 +675,24 @@ func (s *adminServiceImpl) GetUser(ctx context.Context, id int64) (*User, error)
 	return user, nil
 }
 
+func (s *adminServiceImpl) GetUserIncludeDeleted(ctx context.Context, id int64) (*User, error) {
+	return s.userRepo.GetByIDIncludeDeleted(ctx, id)
+}
+
 func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInput) (*User, error) {
+	balance := 0.0
+	if input.Balance != nil {
+		balance = *input.Balance
+	} else if s.settingService != nil {
+		balance = s.settingService.GetDefaultBalance(ctx)
+	}
+
 	user := &User{
 		Email:         input.Email,
 		Username:      input.Username,
 		Notes:         input.Notes,
 		Role:          RoleUser, // Always create as regular user, never admin
-		Balance:       input.Balance,
+		Balance:       balance,
 		Concurrency:   input.Concurrency,
 		RPMLimit:      input.RPMLimit,
 		Status:        StatusActive,
@@ -824,12 +834,84 @@ func (s *adminServiceImpl) DeleteUser(ctx context.Context, id int64) error {
 	if user.Role == "admin" {
 		return errors.New("cannot delete admin user")
 	}
-	if err := s.userRepo.Delete(ctx, id); err != nil {
-		logger.LegacyPrintf("service.admin", "delete user failed: user_id=%d err=%v", id, err)
+
+	apiKeys, err := s.listUserAPIKeysForDeletion(ctx, id)
+	if err != nil {
 		return err
 	}
+
+	if s.entClient != nil {
+		tx, err := s.entClient.Tx(ctx)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		opCtx := dbent.NewTxContext(ctx, tx)
+		if err := s.deleteUserWithAPIKeys(opCtx, id, apiKeys); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	} else {
+		if err := s.deleteUserWithAPIKeys(ctx, id, apiKeys); err != nil {
+			return err
+		}
+	}
+
 	if s.authCacheInvalidator != nil {
+		for _, key := range apiKeys {
+			if keyValue := strings.TrimSpace(key.Key); keyValue != "" {
+				s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, keyValue)
+			}
+		}
 		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, id)
+	}
+	return nil
+}
+
+func (s *adminServiceImpl) listUserAPIKeysForDeletion(ctx context.Context, userID int64) ([]APIKey, error) {
+	if s.apiKeyRepo == nil {
+		return nil, nil
+	}
+
+	const pageSize = 1000
+	keys := make([]APIKey, 0)
+	for page := 1; ; page++ {
+		batch, result, err := s.apiKeyRepo.ListByUserID(ctx, userID, pagination.PaginationParams{
+			Page:      page,
+			PageSize:  pageSize,
+			SortBy:    "id",
+			SortOrder: pagination.SortOrderAsc,
+		}, APIKeyListFilters{})
+		if err != nil {
+			return nil, fmt.Errorf("list user api keys: %w", err)
+		}
+		keys = append(keys, batch...)
+		if len(batch) == 0 || len(batch) < pageSize || result == nil || int64(len(keys)) >= result.Total {
+			break
+		}
+	}
+	return keys, nil
+}
+
+func (s *adminServiceImpl) deleteUserWithAPIKeys(ctx context.Context, userID int64, apiKeys []APIKey) error {
+	if s.apiKeyRepo != nil {
+		for _, key := range apiKeys {
+			if key.ID <= 0 {
+				continue
+			}
+			if err := s.apiKeyRepo.DeleteWithAudit(ctx, key.ID); err != nil {
+				logger.LegacyPrintf("service.admin", "delete user api key failed: user_id=%d api_key_id=%d err=%v", userID, key.ID, err)
+				return fmt.Errorf("delete user api key %d: %w", key.ID, err)
+			}
+		}
+	}
+
+	if err := s.userRepo.Delete(ctx, userID); err != nil {
+		logger.LegacyPrintf("service.admin", "delete user failed: user_id=%d err=%v", userID, err)
+		return err
 	}
 	return nil
 }
@@ -1019,12 +1101,11 @@ func (s *adminServiceImpl) GetUserRPMStatus(ctx context.Context, userID int64) (
 func (s *adminServiceImpl) GetUserUsageStats(ctx context.Context, userID int64, period string) (any, error) {
 	// Return mock data for now
 	return map[string]any{
-		"period":             period,
-		"total_requests":     0,
-		"total_cost":         0.0,
-		"total_tokens":       0,
-		"avg_duration_ms":    0,
-		"avg_first_token_ms": 0,
+		"period":          period,
+		"total_requests":  0,
+		"total_cost":      0.0,
+		"total_tokens":    0,
+		"avg_duration_ms": 0,
 	}, nil
 }
 
@@ -1670,13 +1751,6 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	if input.RateMultiplier <= 0 {
 		return nil, errors.New("rate_multiplier must be > 0")
 	}
-	displayRateMultiplier := input.DisplayRateMultiplier
-	if displayRateMultiplier == 0 {
-		displayRateMultiplier = 1
-	}
-	if displayRateMultiplier < 0 {
-		return nil, errors.New("display_rate_multiplier must be >= 0")
-	}
 
 	platform := input.Platform
 	if platform == "" {
@@ -1765,7 +1839,6 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		Description:                     input.Description,
 		Platform:                        platform,
 		RateMultiplier:                  input.RateMultiplier,
-		DisplayRateMultiplier:           displayRateMultiplier,
 		IsExclusive:                     input.IsExclusive,
 		Status:                          StatusActive,
 		SubscriptionType:                subscriptionType,
@@ -1923,8 +1996,8 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.Name != "" {
 		group.Name = input.Name
 	}
-	if input.Description != "" {
-		group.Description = input.Description
+	if input.Description != nil {
+		group.Description = *input.Description
 	}
 	if input.Platform != "" {
 		group.Platform = input.Platform
@@ -1934,12 +2007,6 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 			return nil, errors.New("rate_multiplier must be > 0")
 		}
 		group.RateMultiplier = *input.RateMultiplier
-	}
-	if input.DisplayRateMultiplier != nil {
-		if *input.DisplayRateMultiplier < 0 {
-			return nil, errors.New("display_rate_multiplier must be >= 0")
-		}
-		group.DisplayRateMultiplier = *input.DisplayRateMultiplier
 	}
 	if input.IsExclusive != nil {
 		group.IsExclusive = *input.IsExclusive
@@ -2503,6 +2570,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 			return nil, err
 		}
 		ComputeQuotaResetAt(account.Extra)
+		NormalizeFixedQuotaWindows(account.Extra)
 	}
 	if input.ExpiresAt != nil && *input.ExpiresAt > 0 {
 		expiresAt := time.Unix(*input.ExpiresAt, 0)
@@ -2611,6 +2679,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			return nil, err
 		}
 		ComputeQuotaResetAt(account.Extra)
+		NormalizeFixedQuotaWindows(account.Extra)
 	}
 	if input.ProxyID != nil {
 		// 0 表示清除代理（前端发送 0 而不是 null 来表达清除意图）
@@ -3344,12 +3413,13 @@ func runProxyQualityTarget(ctx context.Context, client *http.Client, target prox
 	}
 
 	if _, ok := target.AllowedStatuses[resp.StatusCode]; ok {
+		// 白名单内的状态码均代表目标可达：2xx 表示接口直接可用，
+		// 401/405 等是无鉴权探测的预期结果，同样视为连通正常，不再扣分。
+		item.Status = "pass"
 		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-			item.Status = "pass"
 			item.Message = fmt.Sprintf("HTTP %d", resp.StatusCode)
 		} else {
-			item.Status = "warn"
-			item.Message = fmt.Sprintf("HTTP %d（目标可达，但鉴权或方法受限）", resp.StatusCode)
+			item.Message = fmt.Sprintf("HTTP %d（目标可达）", resp.StatusCode)
 		}
 		return item
 	}

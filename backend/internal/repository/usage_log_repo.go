@@ -17,6 +17,7 @@ import (
 	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	dbapikey "github.com/Wei-Shaw/sub2api/ent/apikey"
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
 	dbusersub "github.com/Wei-Shaw/sub2api/ent/usersubscription"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -26,6 +27,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 	gocache "github.com/patrickmn/go-cache"
+	"golang.org/x/sync/errgroup"
 )
 
 const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, service_tier, reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, created_at"
@@ -1607,12 +1609,10 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(SUM(account_cost), 0) as total_account_cost,
-			COALESCE(SUM(total_duration_ms), 0) as total_duration_ms,
-			COALESCE(SUM(total_first_token_ms), 0) as total_first_token_ms,
-			COALESCE(SUM(first_token_requests), 0) as first_token_requests
+			COALESCE(SUM(total_duration_ms), 0) as total_duration_ms
 		FROM usage_dashboard_daily
 	`
-	var totalDurationMs, totalFirstTokenMs, firstTokenRequests int64
+	var totalDurationMs int64
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -1627,17 +1627,12 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 		&stats.TotalActualCost,
 		&stats.TotalAccountCost,
 		&totalDurationMs,
-		&totalFirstTokenMs,
-		&firstTokenRequests,
 	); err != nil {
 		return err
 	}
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
 	if stats.TotalRequests > 0 {
 		stats.AverageDurationMs = float64(totalDurationMs) / float64(stats.TotalRequests)
-	}
-	if firstTokenRequests > 0 {
-		stats.AverageFirstTokenMs = float64(totalFirstTokenMs) / float64(firstTokenRequests)
 	}
 
 	todayStatsQuery := `
@@ -1703,8 +1698,7 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 				total_cost,
 				actual_cost,
 				COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) AS account_cost,
-				COALESCE(duration_ms, 0) AS duration_ms,
-				first_token_ms
+				COALESCE(duration_ms, 0) AS duration_ms
 			FROM usage_logs
 			WHERE created_at >= LEAST($1::timestamptz, $3::timestamptz)
 				AND created_at < GREATEST($2::timestamptz, $4::timestamptz)
@@ -1719,8 +1713,6 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_actual_cost,
 			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_account_cost,
 			COALESCE(SUM(duration_ms) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz), 0) AS total_duration_ms,
-			COALESCE(SUM(first_token_ms) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz AND first_token_ms IS NOT NULL), 0) AS total_first_token_ms,
-			COUNT(first_token_ms) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz) AS first_token_requests,
 			COUNT(*) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz) AS today_requests,
 			COALESCE(SUM(input_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_input_tokens,
 			COALESCE(SUM(output_tokens) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_output_tokens,
@@ -1731,7 +1723,7 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 			COALESCE(SUM(account_cost) FILTER (WHERE created_at >= $3::timestamptz AND created_at < $4::timestamptz), 0) AS today_account_cost
 		FROM scoped
 	`
-	var totalDurationMs, totalFirstTokenMs, firstTokenRequests int64
+	var totalDurationMs int64
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
@@ -1746,8 +1738,6 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 		&stats.TotalActualCost,
 		&stats.TotalAccountCost,
 		&totalDurationMs,
-		&totalFirstTokenMs,
-		&firstTokenRequests,
 		&stats.TodayRequests,
 		&stats.TodayInputTokens,
 		&stats.TodayOutputTokens,
@@ -1762,9 +1752,6 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
 	if stats.TotalRequests > 0 {
 		stats.AverageDurationMs = float64(totalDurationMs) / float64(stats.TotalRequests)
-	}
-	if firstTokenRequests > 0 {
-		stats.AverageFirstTokenMs = float64(totalFirstTokenMs) / float64(firstTokenRequests)
 	}
 
 	stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens
@@ -1810,8 +1797,7 @@ func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID 
 			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
-			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
 		FROM usage_logs
 		WHERE user_id = $1 AND created_at >= $2 AND created_at < $3
 	`
@@ -1829,7 +1815,6 @@ func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID 
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
-		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -1847,8 +1832,7 @@ func (r *usageLogRepository) GetAPIKeyStatsAggregated(ctx context.Context, apiKe
 			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
-			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
 		FROM usage_logs
 		WHERE api_key_id = $1 AND created_at >= $2 AND created_at < $3
 	`
@@ -1866,7 +1850,6 @@ func (r *usageLogRepository) GetAPIKeyStatsAggregated(ctx context.Context, apiKe
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
-		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -1894,8 +1877,7 @@ func (r *usageLogRepository) GetAccountStatsAggregated(ctx context.Context, acco
 			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
-			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
 		FROM usage_logs
 		WHERE account_id = $1 AND created_at >= $2 AND created_at < $3
 	`
@@ -1913,7 +1895,6 @@ func (r *usageLogRepository) GetAccountStatsAggregated(ctx context.Context, acco
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
-		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -1932,8 +1913,7 @@ func (r *usageLogRepository) GetModelStatsAggregated(ctx context.Context, modelN
 			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
-			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
 		FROM usage_logs
 		WHERE %s = $1 AND created_at >= $2 AND created_at < $3
 	`, rawUsageLogModelColumn)
@@ -1951,7 +1931,6 @@ func (r *usageLogRepository) GetModelStatsAggregated(ctx context.Context, modelN
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
-		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -1973,8 +1952,7 @@ func (r *usageLogRepository) GetDailyStatsAggregated(ctx context.Context, userID
 			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms,
-			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
+			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
 		FROM usage_logs
 		WHERE user_id = $1 AND created_at >= $2 AND created_at < $3
 		GROUP BY 1
@@ -2003,7 +1981,6 @@ func (r *usageLogRepository) GetDailyStatsAggregated(ctx context.Context, userID
 			totalCost         float64
 			totalActualCost   float64
 			avgDurationMs     float64
-			avgFirstTokenMs   float64
 		)
 		if err = rows.Scan(
 			&date,
@@ -2014,21 +1991,19 @@ func (r *usageLogRepository) GetDailyStatsAggregated(ctx context.Context, userID
 			&totalCost,
 			&totalActualCost,
 			&avgDurationMs,
-			&avgFirstTokenMs,
 		); err != nil {
 			return nil, err
 		}
 		result = append(result, map[string]any{
-			"date":                   date,
-			"total_requests":         totalRequests,
-			"total_input_tokens":     totalInputTokens,
-			"total_output_tokens":    totalOutputTokens,
-			"total_cache_tokens":     totalCacheTokens,
-			"total_tokens":           totalInputTokens + totalOutputTokens + totalCacheTokens,
-			"total_cost":             totalCost,
-			"total_actual_cost":      totalActualCost,
-			"average_duration_ms":    avgDurationMs,
-			"average_first_token_ms": avgFirstTokenMs,
+			"date":                date,
+			"total_requests":      totalRequests,
+			"total_input_tokens":  totalInputTokens,
+			"total_output_tokens": totalOutputTokens,
+			"total_cache_tokens":  totalCacheTokens,
+			"total_tokens":        totalInputTokens + totalOutputTokens + totalCacheTokens,
+			"total_cost":          totalCost,
+			"total_actual_cost":   totalActualCost,
+			"average_duration_ms": avgDurationMs,
 		})
 	}
 
@@ -2495,8 +2470,7 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
-			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
 		FROM usage_logs
 		WHERE user_id = $1
 	`
@@ -2513,7 +2487,6 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
-		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -2649,8 +2622,7 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
-			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
 		FROM usage_logs
 		WHERE api_key_id = $1
 	`
@@ -2667,7 +2639,6 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
-		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -3490,8 +3461,7 @@ func (r *usageLogRepository) GetGlobalStats(ctx context.Context, startTime, endT
 			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
-			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
 		FROM usage_logs
 		WHERE created_at >= $1 AND created_at < $2
 	`
@@ -3509,7 +3479,6 @@ func (r *usageLogRepository) GetGlobalStats(ctx context.Context, startTime, endT
 		&stats.TotalCost,
 		&stats.TotalActualCost,
 		&stats.AverageDurationMs,
-		&stats.AverageFirstTokenMs,
 	); err != nil {
 		return nil, err
 	}
@@ -3563,33 +3532,13 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as total_account_cost,
-			COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
-			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
 		FROM usage_logs
 		%s
 	`, buildWhere(conditions))
 
 	stats := &UsageStats{}
 	var totalAccountCost float64
-	if err := scanSingleRow(
-		ctx,
-		r.sql,
-		query,
-		args,
-		&stats.TotalRequests,
-		&stats.TotalInputTokens,
-		&stats.TotalOutputTokens,
-		&stats.TotalCacheTokens,
-		&stats.TotalCost,
-		&stats.TotalActualCost,
-		&totalAccountCost,
-		&stats.AverageDurationMs,
-		&stats.AverageFirstTokenMs,
-	); err != nil {
-		return nil, err
-	}
-	stats.TotalAccountCost = &totalAccountCost
-	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheTokens
 
 	start := time.Unix(0, 0).UTC()
 	if filters.StartTime != nil {
@@ -3600,21 +3549,76 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		end = *filters.EndTime
 	}
 
-	endpoints, endpointErr := r.GetEndpointStatsWithFilters(ctx, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
-	if endpointErr != nil {
-		logger.LegacyPrintf("repository.usage_log", "GetEndpointStatsWithFilters failed in GetStatsWithFilters: %v", endpointErr)
-		endpoints = []EndpointStat{}
+	var endpoints, upstreamEndpoints, endpointPaths []EndpointStat
+
+	// 汇总查询:失败即致命。
+	runSummary := func(c context.Context) error {
+		return scanSingleRow(
+			c, r.sql, query, args,
+			&stats.TotalRequests,
+			&stats.TotalInputTokens,
+			&stats.TotalOutputTokens,
+			&stats.TotalCacheTokens,
+			&stats.TotalCost,
+			&stats.TotalActualCost,
+			&totalAccountCost,
+			&stats.AverageDurationMs,
+		)
 	}
-	upstreamEndpoints, upstreamEndpointErr := r.GetUpstreamEndpointStatsWithFilters(ctx, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
-	if upstreamEndpointErr != nil {
-		logger.LegacyPrintf("repository.usage_log", "GetUpstreamEndpointStatsWithFilters failed in GetStatsWithFilters: %v", upstreamEndpointErr)
-		upstreamEndpoints = []EndpointStat{}
+	// endpoint 明细:best-effort(失败 log + 返空),不致命。
+	runEndpoints := func(c context.Context) {
+		res, err := r.GetEndpointStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				logger.LegacyPrintf("repository.usage_log", "GetEndpointStatsWithFilters failed in GetStatsWithFilters: %v", err)
+			}
+			res = []EndpointStat{}
+		}
+		endpoints = res
 	}
-	endpointPaths, endpointPathErr := r.getEndpointPathStatsWithFilters(ctx, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
-	if endpointPathErr != nil {
-		logger.LegacyPrintf("repository.usage_log", "getEndpointPathStatsWithFilters failed in GetStatsWithFilters: %v", endpointPathErr)
-		endpointPaths = []EndpointStat{}
+	runUpstream := func(c context.Context) {
+		res, err := r.GetUpstreamEndpointStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				logger.LegacyPrintf("repository.usage_log", "GetUpstreamEndpointStatsWithFilters failed in GetStatsWithFilters: %v", err)
+			}
+			res = []EndpointStat{}
+		}
+		upstreamEndpoints = res
 	}
+	runPaths := func(c context.Context) {
+		res, err := r.getEndpointPathStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				logger.LegacyPrintf("repository.usage_log", "getEndpointPathStatsWithFilters failed in GetStatsWithFilters: %v", err)
+			}
+			res = []EndpointStat{}
+		}
+		endpointPaths = res
+	}
+
+	if r.db != nil {
+		// 生产路径:r.sql 是 *sql.DB 连接池,可并发。4 条查询并行,延迟取最大值。
+		g, gctx := errgroup.WithContext(ctx)
+		g.Go(func() error { return runSummary(gctx) })
+		g.Go(func() error { runEndpoints(gctx); return nil })
+		g.Go(func() error { runUpstream(gctx); return nil })
+		g.Go(func() error { runPaths(gctx); return nil })
+		if err := g.Wait(); err != nil {
+			return nil, err
+		}
+	} else {
+		// 事务路径(ent.Tx 不能并发查询):顺序执行,行为与重构前一致。
+		if err := runSummary(ctx); err != nil {
+			return nil, err
+		}
+		runEndpoints(ctx)
+		runUpstream(ctx)
+		runPaths(ctx)
+	}
+
+	stats.TotalAccountCost = &totalAccountCost
+	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheTokens
 	stats.Endpoints = endpoints
 	stats.UpstreamEndpoints = upstreamEndpoints
 	stats.EndpointPaths = endpointPaths
@@ -3867,9 +3871,9 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		actualDaysUsed = 1
 	}
 
-	avgQuery := "SELECT COALESCE(AVG(duration_ms), 0) as avg_duration_ms, COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms FROM usage_logs WHERE account_id = $1 AND created_at >= $2 AND created_at < $3"
-	var avgDuration, avgFirstToken float64
-	if err := scanSingleRow(ctx, r.sql, avgQuery, []any{accountID, startTime, endTime}, &avgDuration, &avgFirstToken); err != nil {
+	avgQuery := "SELECT COALESCE(AVG(duration_ms), 0) as avg_duration_ms FROM usage_logs WHERE account_id = $1 AND created_at >= $2 AND created_at < $3"
+	var avgDuration float64
+	if err := scanSingleRow(ctx, r.sql, avgQuery, []any{accountID, startTime, endTime}, &avgDuration); err != nil {
 		return nil, err
 	}
 
@@ -3886,7 +3890,6 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		AvgDailyRequests:  float64(totalRequests) / float64(actualDaysUsed),
 		AvgDailyTokens:    float64(totalTokens) / float64(actualDaysUsed),
 		AvgDurationMs:     avgDuration,
-		AvgFirstTokenMs:   avgFirstToken,
 	}
 
 	todayStr := timezone.Now().Format("2006-01-02")
@@ -4157,7 +4160,8 @@ func (r *usageLogRepository) loadUsers(ctx context.Context, ids []int64) (map[in
 	if len(ids) == 0 {
 		return out, nil
 	}
-	models, err := r.client.User.Query().Where(dbuser.IDIn(ids...)).All(ctx)
+	// 无条件穿透软删除：ids 来自调用方已按 user_id 筛选的日志行；普通用户路径强制 UserID=本人（本人必为活跃用户），不会借此解析他人已删身份；仅 admin 路径可借此显示已删用户。
+	models, err := r.client.User.Query().Where(dbuser.IDIn(ids...)).All(mixins.SkipSoftDelete(ctx))
 	if err != nil {
 		return nil, err
 	}

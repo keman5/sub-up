@@ -19,7 +19,6 @@ export interface AdminUsageStatsResponse {
   total_actual_cost: number
   total_account_cost: number
   average_duration_ms: number
-  average_first_token_ms?: number
   endpoints?: EndpointStat[]
   upstream_endpoints?: EndpointStat[]
   endpoint_paths?: EndpointStat[]
@@ -28,8 +27,7 @@ export interface AdminUsageStatsResponse {
 export interface SimpleUser {
   id: number
   email: string
-  username?: string
-  notes?: string
+  deleted: boolean
 }
 
 export interface SimpleApiKey {
@@ -123,6 +121,7 @@ export async function getStats(params: {
   start_date?: string
   end_date?: string
   timezone?: string
+  nocache?: number
 }): Promise<AdminUsageStatsResponse> {
   const { data } = await apiClient.get<AdminUsageStatsResponse>('/admin/usage/stats', {
     params
