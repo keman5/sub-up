@@ -60,7 +60,10 @@ type openAIModelRouteEvalInput struct {
 }
 
 func (s *OpenAIGatewayService) isOpenAIModelRouterEnabled() bool {
-	return s != nil && s.cfg != nil && s.cfg.Gateway.ModelRouter.Enabled
+	if s == nil || s.cfg == nil || !s.cfg.Gateway.ModelRouter.Enabled {
+		return false
+	}
+	return s.isOpenAIAdvancedSchedulerEnabled(context.Background())
 }
 
 func (s *OpenAIGatewayService) decideOpenAIModelRoute(
@@ -134,6 +137,9 @@ func (s *OpenAIGatewayService) evaluateOpenAIModelRoute(
 		decision.Reason = "oauth_account_passthrough"
 		return decision
 	}
+	if explicitDecision, ok := decideExplicitSparkPreferredRoute(input.Account, strings.TrimSpace(input.RequestedModel), defaultModel); ok {
+		return explicitDecision
+	}
 
 	state := s.getOpenAIModelRouterState(ctx, input.SessionHash)
 	nowUnix := time.Now().Unix()
@@ -191,11 +197,84 @@ func (s *OpenAIGatewayService) evaluateOpenAIModelRoute(
 	}
 	decision.Tier = targetTier
 	decision.Reason = reason
-
-	state.Tier = targetTier
+	state.Tier = decision.Tier
 	state.UpdatedAtUnix = nowUnix
 	s.setOpenAIModelRouterState(ctx, input.SessionHash, state, time.Duration(cfg.SessionRouteTTLSeconds)*time.Second)
 	return decision
+}
+
+func decideExplicitSparkPreferredRoute(account *Account, requestedModel string, defaultModel string) (openAIModelRouterDecision, bool) {
+	requestedCanonical := normalizeCodexModel(requestedModel)
+	if requestedCanonical == "" {
+		return openAIModelRouterDecision{}, false
+	}
+	if normalizeCodexModel(defaultModel) != "gpt-5.3-codex-spark" {
+		return openAIModelRouterDecision{}, false
+	}
+	if requestedCanonical == "gpt-5.3-codex-spark" {
+		return openAIModelRouterDecision{
+			Enabled:       true,
+			Tier:          openAIModelRouterTierEconomy,
+			UpstreamModel: defaultModel,
+			Reason:        "explicit_spark_requested",
+		}, true
+	}
+	if !isExplicitGPT5MinorModel(requestedCanonical) {
+		return openAIModelRouterDecision{}, false
+	}
+
+	if openAIModelRouterSparkRemainingPercent(account) > 5 {
+		return openAIModelRouterDecision{
+			Enabled:       true,
+			Tier:          openAIModelRouterTierEconomy,
+			UpstreamModel: defaultModel,
+			Reason:        "spark_remaining_over_threshold",
+		}, true
+	}
+
+	return openAIModelRouterDecision{
+		Enabled:       true,
+		Tier:          openAIModelRouterTierBalanced,
+		UpstreamModel: requestedCanonical,
+		Reason:        "spark_remaining_below_threshold_use_requested",
+	}, true
+}
+
+func isExplicitGPT5MinorModel(model string) bool {
+	if !strings.HasPrefix(model, "gpt-5.") {
+		return false
+	}
+	suffix := strings.TrimPrefix(model, "gpt-5.")
+	if suffix == "" {
+		return false
+	}
+	for _, ch := range suffix {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func openAIModelRouterSparkRemainingPercent(account *Account) float64 {
+	if account == nil || len(account.Extra) == 0 {
+		return 0
+	}
+	remaining5h := 100.0 - readOpenAIQuotaUsedPercent(account.Extra, "5h")
+	remaining7d := 100.0 - readOpenAIQuotaUsedPercent(account.Extra, "7d")
+	if remaining5h <= 0 && remaining7d <= 0 {
+		return 0
+	}
+	if remaining5h <= 0 {
+		return remaining7d
+	}
+	if remaining7d <= 0 {
+		return remaining5h
+	}
+	if remaining5h < remaining7d {
+		return remaining5h
+	}
+	return remaining7d
 }
 
 func openAIModelRouterShouldPassthroughAccount(account *Account, cfg config.GatewayModelRouterConfig) bool {

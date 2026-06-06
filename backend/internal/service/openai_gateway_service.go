@@ -1316,6 +1316,75 @@ func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool)
 	return errors.New("no available OpenAI accounts")
 }
 
+type openAIAccountRequestOptions struct {
+	RequireCompact      bool
+	RequiredCapability  OpenAIEndpointCapability
+	ModelRouteEvalInput *openAIModelRouteEvalInput
+	RouterService       *OpenAIGatewayService
+}
+
+type openAIModelRouteEvalCtxKey struct{}
+
+func withOpenAIModelRouteEvalInput(ctx context.Context, input *openAIModelRouteEvalInput) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if input == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, openAIModelRouteEvalCtxKey{}, input)
+}
+
+func openAIModelRouteEvalInputFromContext(ctx context.Context) *openAIModelRouteEvalInput {
+	if ctx == nil {
+		return nil
+	}
+	input, _ := ctx.Value(openAIModelRouteEvalCtxKey{}).(*openAIModelRouteEvalInput)
+	return input
+}
+
+func (s *OpenAIGatewayService) WithModelRouteRequestContext(
+	ctx context.Context,
+	sessionHash string,
+	requestedModel string,
+	imageIntent bool,
+	reqBody map[string]any,
+	rawBody []byte,
+) context.Context {
+	if s == nil || s.cfg == nil {
+		return ctx
+	}
+	return withOpenAIModelRouteEvalInput(ctx, &openAIModelRouteEvalInput{
+		SessionHash:    sessionHash,
+		RequestedModel: requestedModel,
+		RequestMeta: openAIModelRouterRequestMeta{
+			RequestedModel: strings.TrimSpace(requestedModel),
+			ImageIntent:    imageIntent,
+			ComplexText: isOpenAIModelRouterComplexText(
+				reqBody,
+				rawBody,
+				s.cfg.Gateway.ModelRouter.ComplexInputMinChars,
+				s.cfg.Gateway.ModelRouter.ComplexInputMinItems,
+			),
+			PremiumText: isOpenAIModelRouterComplexText(
+				reqBody,
+				rawBody,
+				s.cfg.Gateway.ModelRouter.PremiumInputMinChars,
+				s.cfg.Gateway.ModelRouter.PremiumInputMinItems,
+			),
+		},
+	})
+}
+
+func (s *OpenAIGatewayService) buildOpenAIAccountRequestOptions(ctx context.Context, requireCompact bool, requiredCapability OpenAIEndpointCapability) openAIAccountRequestOptions {
+	return openAIAccountRequestOptions{
+		RequireCompact:      requireCompact,
+		RequiredCapability:  requiredCapability,
+		ModelRouteEvalInput: openAIModelRouteEvalInputFromContext(ctx),
+		RouterService:       s,
+	}
+}
+
 // openAICompactSupportTier classifies an OpenAI account by compact capability.
 // 0 = explicitly unsupported, 1 = unknown / not yet probed, 2 = explicitly supported.
 func openAICompactSupportTier(account *Account) int {
@@ -1335,12 +1404,17 @@ func openAICompactSupportTier(account *Account) int {
 // isOpenAIAccountEligibleForRequest centralises the schedulable / OpenAI / model /
 // compact-support checks used during account selection.
 func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
-	if account == nil || !account.IsOpenAI() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
+	return isOpenAIAccountEligibleForRequestWithOptions(ctx, account, requestedModel, openAIAccountRequestOptions{
+		RequireCompact:     requireCompact,
+		RequiredCapability: requiredCapability,
+	})
+}
+
+func isOpenAIAccountEligibleForRequestWithOptions(ctx context.Context, account *Account, requestedModel string, opts openAIAccountRequestOptions) bool {
+	if account == nil || !account.IsOpenAI() || !account.IsSchedulable() {
 		return false
 	}
 	if paused, reason := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
-		// Debug level: this fires per-candidate on the scheduling hot path, so Info
-		// would amplify into log spam once several accounts cross the threshold.
 		slog.Debug("account_auto_paused_by_quota",
 			"account_id", account.ID,
 			"window", reason.window,
@@ -1349,13 +1423,22 @@ func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, re
 		)
 		return false
 	}
+	effectiveModel := resolveOpenAIAccountUpstreamModelForRequestWithOptions(account, requestedModel, opts)
+	if effectiveModel != "" && account.GetRateLimitRemainingTimeWithContext(ctx, effectiveModel) > 0 {
+		return false
+	}
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
+		if effectiveModel == "" || !account.IsModelSupported(effectiveModel) {
+			return false
+		}
+	}
+	if effectiveModel != "" && effectiveModel != requestedModel && !account.IsModelSupported(effectiveModel) {
 		return false
 	}
-	if !account.SupportsOpenAIEndpointCapability(requiredCapability) {
+	if !account.SupportsOpenAIEndpointCapability(opts.RequiredCapability) {
 		return false
 	}
-	if requireCompact && openAICompactSupportTier(account) == 0 {
+	if opts.RequireCompact && openAICompactSupportTier(account) == 0 {
 		return false
 	}
 	return true
@@ -1614,11 +1697,30 @@ func prioritizeOpenAICompactAccounts(accounts []*Account) []*Account {
 // would be sent for a given request, honouring compact-only mappings when the
 // caller is on the /responses/compact path.
 func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedModel string, requireCompact bool) string {
+	return resolveOpenAIAccountUpstreamModelForRequestWithOptions(account, requestedModel, openAIAccountRequestOptions{
+		RequireCompact: requireCompact,
+	})
+}
+
+func resolveOpenAIAccountUpstreamModelForRequestWithOptions(account *Account, requestedModel string, opts openAIAccountRequestOptions) string {
 	upstreamModel := resolveOpenAIForwardModel(account, requestedModel, "")
 	if upstreamModel == "" {
 		return ""
 	}
-	if requireCompact {
+	if opts.ModelRouteEvalInput != nil {
+		routeInput := *opts.ModelRouteEvalInput
+		routeInput.Account = account
+		routeInput.RequestedModel = upstreamModel
+		if strings.TrimSpace(routeInput.RequestMeta.RequestedModel) == "" {
+			routeInput.RequestMeta.RequestedModel = upstreamModel
+		}
+		if opts.RouterService != nil {
+			if decision := opts.RouterService.evaluateOpenAIModelRoute(context.Background(), routeInput); decision.Enabled && strings.TrimSpace(decision.UpstreamModel) != "" {
+				upstreamModel = strings.TrimSpace(decision.UpstreamModel)
+			}
+		}
+	}
+	if opts.RequireCompact {
 		return resolveOpenAICompactForwardModel(account, upstreamModel)
 	}
 	return upstreamModel

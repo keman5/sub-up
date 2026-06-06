@@ -81,6 +81,7 @@ func provideCleanup(
 	schedulerSnapshot *service.SchedulerSnapshotService,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
+	openAIQuotaRefresh *service.OpenAIQuotaRefreshService,
 	subscriptionExpiry *service.SubscriptionExpiryService,
 	usageCleanup *service.UsageCleanupService,
 	idempotencyCleanup *service.IdempotencyCleanupService,
@@ -171,6 +172,12 @@ func provideCleanup(
 			}},
 			{"AccountExpiryService", func() error {
 				accountExpiry.Stop()
+				return nil
+			}},
+			{"OpenAIQuotaRefreshService", func() error {
+				if openAIQuotaRefresh != nil {
+					openAIQuotaRefresh.Stop()
+				}
 				return nil
 			}},
 			{"SubscriptionExpiryService", func() error {

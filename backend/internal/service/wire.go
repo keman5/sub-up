@@ -164,6 +164,13 @@ func ProvideAccountExpiryService(accountRepo AccountRepository) *AccountExpirySe
 	return svc
 }
 
+// ProvideOpenAIQuotaRefreshService creates and starts OpenAIQuotaRefreshService.
+func ProvideOpenAIQuotaRefreshService(accountRepo AccountRepository, accountUsageService *AccountUsageService) *OpenAIQuotaRefreshService {
+	svc := NewOpenAIQuotaRefreshService(accountRepo, accountUsageService, openAIQuotaRefreshInterval)
+	svc.Start()
+	return svc
+}
+
 // ProvideSubscriptionExpiryService creates and starts SubscriptionExpiryService.
 func ProvideSubscriptionExpiryService(userSubRepo UserSubscriptionRepository, settingRepo SettingRepository, notificationEmailService *NotificationEmailService, lockCache LeaderLockCache, db *sql.DB) *SubscriptionExpiryService {
 	svc := NewSubscriptionExpiryService(userSubRepo, time.Minute)
@@ -555,6 +562,7 @@ var ProviderSet = wire.NewSet(
 	ProvideUpdateService,
 	ProvideTokenRefreshService,
 	ProvideAccountExpiryService,
+	ProvideOpenAIQuotaRefreshService,
 	ProvideSubscriptionExpiryService,
 	ProvideTimingWheelService,
 	ProvideDashboardAggregationService,
