@@ -309,6 +309,7 @@ export default {
     optional: 'optional',
     selectOption: 'Select an option',
     searchPlaceholder: 'Search...',
+    clear: 'Clear',
     noOptionsFound: 'No options found',
     noGroupsAvailable: 'No groups available',
     unknownError: 'Unknown error occurred',

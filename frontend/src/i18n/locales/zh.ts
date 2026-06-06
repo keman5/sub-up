@@ -309,6 +309,7 @@ export default {
     optional: '可选',
     selectOption: '请选择',
     searchPlaceholder: '搜索...',
+    clear: '清除',
     noOptionsFound: '无匹配选项',
     noGroupsAvailable: '无可用分组',
     unknownError: '发生未知错误',

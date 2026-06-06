@@ -64,11 +64,9 @@
             >
               <!-- Time -->
               <td class="whitespace-nowrap px-4 py-2">
-                <el-tooltip :content="log.request_id || log.client_request_id" placement="top" :show-after="500">
-                  <span class="font-mono text-xs font-medium text-gray-900 dark:text-gray-200">
-                    {{ formatDateTime(log.created_at).split(' ')[1] }}
-                  </span>
-                </el-tooltip>
+                <span class="font-mono text-xs font-medium text-gray-900 dark:text-gray-200" :title="log.request_id || log.client_request_id || undefined">
+                  {{ formatDateTime(log.created_at).split(' ')[1] }}
+                </span>
               </td>
 
               <!-- Type -->
@@ -86,11 +84,9 @@
               <!-- Endpoint -->
               <td class="px-4 py-2">
                 <div class="max-w-[160px]">
-                  <el-tooltip v-if="log.inbound_endpoint" :content="formatEndpointTooltip(log)" placement="top" :show-after="500">
-                    <span class="truncate font-mono text-[11px] text-gray-700 dark:text-gray-300">
-                      {{ log.inbound_endpoint }}
-                    </span>
-                  </el-tooltip>
+                  <span v-if="log.inbound_endpoint" class="truncate font-mono text-[11px] text-gray-700 dark:text-gray-300" :title="formatEndpointTooltip(log)">
+                    {{ log.inbound_endpoint }}
+                  </span>
                   <span v-else class="text-xs text-gray-400">-</span>
                 </div>
               </td>
@@ -106,13 +102,11 @@
               <td class="px-4 py-2">
                 <div class="max-w-[160px]">
                   <template v-if="hasModelMapping(log)">
-                    <el-tooltip :content="modelMappingTooltip(log)" placement="top" :show-after="500">
-                      <span class="flex items-center gap-1 truncate font-mono text-[11px] text-gray-700 dark:text-gray-300">
-                        <span class="truncate">{{ log.requested_model }}</span>
-                        <span class="flex-shrink-0 text-gray-400">→</span>
-                        <span class="truncate text-primary-600 dark:text-primary-400">{{ log.upstream_model }}</span>
-                      </span>
-                    </el-tooltip>
+                    <span class="flex items-center gap-1 truncate font-mono text-[11px] text-gray-700 dark:text-gray-300" :title="modelMappingTooltip(log)">
+                      <span class="truncate">{{ log.requested_model }}</span>
+                      <span class="flex-shrink-0 text-gray-400">→</span>
+                      <span class="truncate text-primary-600 dark:text-primary-400">{{ log.upstream_model }}</span>
+                    </span>
                   </template>
                   <template v-else>
                     <span v-if="displayModel(log)" class="truncate font-mono text-[11px] text-gray-700 dark:text-gray-300" :title="displayModel(log)">
@@ -125,21 +119,17 @@
 
               <!-- Group -->
               <td class="px-4 py-2">
-                 <el-tooltip v-if="log.group_id" :content="t('admin.ops.errorLog.id') + ' ' + log.group_id" placement="top" :show-after="500">
-                  <span class="max-w-[100px] truncate text-xs font-medium text-gray-900 dark:text-gray-200">
-                    {{ log.group_name || '-' }}
-                  </span>
-                </el-tooltip>
+                <span v-if="log.group_id" class="max-w-[100px] truncate text-xs font-medium text-gray-900 dark:text-gray-200" :title="t('admin.ops.errorLog.id') + ' ' + log.group_id">
+                  {{ log.group_name || '-' }}
+                </span>
                 <span v-else class="text-xs text-gray-400">-</span>
               </td>
 
               <!-- User -->
               <td class="px-4 py-2">
-                <el-tooltip v-if="log.user_id" :content="t('admin.ops.errorLog.userId') + ' ' + log.user_id" placement="top" :show-after="500">
-                  <span class="block max-w-[140px] truncate text-xs font-medium text-gray-900 dark:text-gray-200">
-                    {{ log.user_email || '-' }}
-                  </span>
-                </el-tooltip>
+                <span v-if="log.user_id" class="block max-w-[140px] truncate text-xs font-medium text-gray-900 dark:text-gray-200" :title="t('admin.ops.errorLog.userId') + ' ' + log.user_id">
+                  {{ log.user_email || '-' }}
+                </span>
                 <span v-else class="text-xs text-gray-400">-</span>
               </td>
 
@@ -161,11 +151,9 @@
 
               <!-- Account -->
               <td class="px-4 py-2">
-                <el-tooltip v-if="log.account_id" :content="t('admin.ops.errorLog.accountId') + ' ' + log.account_id" placement="top" :show-after="500">
-                  <span class="block max-w-[120px] truncate text-xs font-medium text-gray-900 dark:text-gray-200">
-                    {{ log.account_name || '-' }}
-                  </span>
-                </el-tooltip>
+                <span v-if="log.account_id" class="block max-w-[120px] truncate text-xs font-medium text-gray-900 dark:text-gray-200" :title="t('admin.ops.errorLog.accountId') + ' ' + log.account_id">
+                  {{ log.account_name || '-' }}
+                </span>
                 <span v-else class="text-xs text-gray-400">-</span>
               </td>
 
