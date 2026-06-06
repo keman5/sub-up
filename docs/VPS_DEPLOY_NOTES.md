@@ -8,6 +8,16 @@
 
 ## 一、部署前检查
 
+### 0. 统一使用 SSH 别名，避免在仓库中暴露服务器地址
+
+推荐在本机 `~/.ssh/config` 中维护别名，例如：
+
+```bash
+ssh 51token-vps
+```
+
+后续文档里的 `ssh`、`scp` 和部署脚本示例统一使用 `51token-vps`，不要把真实 IP、私钥路径等敏感连接信息写进仓库。
+
 ### 1. 确认本地代码已经提交并推送
 
 如果要让 VPS 直接从 GitHub 拉代码构建，必须先确认本地提交已经推送到 `origin/main`：
@@ -172,7 +182,7 @@ ELF 64-bit LSB executable, x86-64, statically linked
 
 ```bash
 gzip -c /tmp/51token-new-api > /tmp/51token-new-api.gz
-scp -C /tmp/51token-new-api.gz new-api-vps:/opt/51token-build/new-api.gz
+scp -C /tmp/51token-new-api.gz 51token-vps:/opt/51token-build/new-api.gz
 ```
 
 在 VPS 解压：
@@ -217,7 +227,7 @@ deploy/local-gzip-binary-deploy.sh --apply --deploy
 可用环境变量或参数覆盖目标：
 
 ```bash
-HOST=new-api-vps \
+HOST=51token-vps \
 BASE_IMAGE=sub2api:subapi-6b800b77-logo-dbterms-20260530222347 \
 IMAGE_TAG=sub2api:subapi-$(git rev-parse --short HEAD)-gzip-$(date +%Y%m%d%H%M%S) \
 deploy/local-gzip-binary-deploy.sh --apply --deploy
@@ -240,7 +250,7 @@ deploy/local-gzip-binary-deploy.sh --apply --deploy
 生产 compose 需要保留以下环境变量：
 
 ```yaml
-- GATEWAY_MODEL_ROUTER_ENABLED=${GATEWAY_MODEL_ROUTER_ENABLED:-true}
+- GATEWAY_MODEL_ROUTER_ENABLED=${GATEWAY_MODEL_ROUTER_ENABLED:-false}
 - GATEWAY_MODEL_ROUTER_OAUTH_MODE=${GATEWAY_MODEL_ROUTER_OAUTH_MODE:-passthrough}
 - GATEWAY_MODEL_ROUTER_DEFAULT_MODEL=${GATEWAY_MODEL_ROUTER_DEFAULT_MODEL:-gpt-5.3-codex-spark}
 - GATEWAY_MODEL_ROUTER_BALANCED_MODEL=${GATEWAY_MODEL_ROUTER_BALANCED_MODEL:-gpt-5.4}
@@ -252,7 +262,7 @@ deploy/local-gzip-binary-deploy.sh --apply --deploy
 - GATEWAY_MODEL_ROUTER_IMAGE_OR_VISION_FORCE_PREMIUM=${GATEWAY_MODEL_ROUTER_IMAGE_OR_VISION_FORCE_PREMIUM:-true}
 ```
 
-`GATEWAY_MODEL_ROUTER_OAUTH_MODE` 默认 `passthrough`，OpenAI OAuth / Codex Pro 账号保持调用方原始模型。若要让 OAuth 账号参与 5.3 Spark / 5.4 / 5.5 自适应路由，先仅在 ap2/a2 灰度设置为 `adaptive_codex`；ap1 和主环境保持 `passthrough` 或关闭动态路由，等 a2 验证稳定后再推进。
+`GATEWAY_MODEL_ROUTER_OAUTH_MODE` 默认 `passthrough`，OpenAI OAuth / Codex Pro 账号保持调用方原始模型。动态模型路由建议默认关闭：除了环境变量 `GATEWAY_MODEL_ROUTER_ENABLED` 以外，实际放量还受后台全局设置里的 `OpenAI 实验调度策略` 开关控制；只有两者都开启时，自适应路由才真正生效。若要让 OAuth 账号参与 5.3 Spark / 5.4 / 5.5 自适应路由，先仅在 ap2/a2 灰度设置为 `adaptive_codex` 并在后台显式打开开关；ap1 和主环境保持 `passthrough` 或关闭动态路由，等 a2 验证稳定后再推进。
 
 路由分层规则：普通文本优先 `GATEWAY_MODEL_ROUTER_DEFAULT_MODEL`，中等复杂文本走 `GATEWAY_MODEL_ROUTER_BALANCED_MODEL`，超过 `GATEWAY_MODEL_ROUTER_PREMIUM_INPUT_*` 的大请求、图片/视觉或连续能力失败升级到 `GATEWAY_MODEL_ROUTER_PREMIUM_MODEL`。当账号 5h/7d 剩余额度进入压力区间时，会优先压回 economy/balanced 以节省额度。
 
@@ -261,8 +271,8 @@ deploy/local-gzip-binary-deploy.sh --apply --deploy
 上线后检查：
 
 ```bash
-ssh new-api-vps 'docker exec sub2api env | grep GATEWAY_MODEL_ROUTER'
-ssh new-api-vps 'docker exec sub2api-standby env | grep GATEWAY_MODEL_ROUTER'
+ssh 51token-vps 'docker exec sub2api env | grep GATEWAY_MODEL_ROUTER'
+ssh 51token-vps 'docker exec sub2api-standby env | grep GATEWAY_MODEL_ROUTER'
 curl -fsS https://ai.upit.top/health
 curl -fsS https://a1.upit.top/health
 ```
@@ -285,14 +295,15 @@ curl -fsS https://a1.upit.top/health
 
 ```bash
 IMAGE_TAG="sub2api:subapi-<git-sha>-ap2-redeploy-$(date +%Y%m%d%H%M%S)" \
-BASE_IMAGE="$(ssh new-api-vps \"grep '^IMAGE_TAG=' /opt/sub2api-ap2-deploy/.env | cut -d= -f2-\")" \
+HOST=51token-vps \
+BASE_IMAGE="$(ssh 51token-vps \"grep '^IMAGE_TAG=' /opt/sub2api-ap2-deploy/.env | cut -d= -f2-\")" \
 deploy/local-gzip-binary-deploy.sh --apply
 ```
 
 2. 然后仅修改 `ap2` 目录下的 `.env` 并重启 `sub2api-ap2`：
 
 ```bash
-ssh new-api-vps '
+ssh 51token-vps '
   set -eu
   cd /opt/sub2api-ap2-deploy
   TS=$(date +%Y%m%d%H%M%S)
@@ -306,7 +317,7 @@ ssh new-api-vps '
 3. 再确认容器与镜像：
 
 ```bash
-ssh new-api-vps '
+ssh 51token-vps '
   docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" sub2api-ap2
   docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | grep sub2api-ap2
 '
@@ -324,7 +335,7 @@ ssh new-api-vps '
 底层等价命令示例：
 
 ```bash
-gzip -c /tmp/sub2api-build-output/sub2api | ssh new-api-vps '
+gzip -c /tmp/sub2api-build-output/sub2api | ssh 51token-vps '
   set -eu
   mkdir -p /opt/sub2api-runtime-build
   gz=/opt/sub2api-runtime-build/sub2api.$(date +%Y%m%d%H%M%S).gz

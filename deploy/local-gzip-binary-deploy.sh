@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-HOST="${HOST:-new-api-vps}"
+HOST="${HOST:-51token-vps}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/sub2api-runtime-build}"
 PRIMARY_COMPOSE_DIR="${PRIMARY_COMPOSE_DIR:-/opt/sub2api-deploy}"
 STANDBY_COMPOSE_DIR="${STANDBY_COMPOSE_DIR:-/opt/sub2api-standby-deploy}"
@@ -37,7 +37,7 @@ roll it out to the standby and primary compose deployments.
 Options:
   --apply                 Execute commands. Default is dry-run.
   --deploy                After building the image, update compose files and restart standby then primary.
-  --host HOST             SSH host alias. Default: new-api-vps.
+  --host HOST             SSH host alias. Default: 51token-vps.
   --base-image IMAGE      Docker base image on the remote host. Default: current primary compose image.
   --image-tag TAG         New Docker image tag. Default: sub2api:subapi-<git-sha>-<suffix>-<timestamp>.
   --tag-suffix SUFFIX     Image tag suffix. Default: local-gzip.

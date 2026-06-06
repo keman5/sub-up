@@ -486,7 +486,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify.set_defaults(func=cmd_verify_after_upstream)
 
     restore = sub.add_parser("reapply-production-state", help="Reapply non-Git production state. Dry-run by default.")
-    restore.add_argument("--host", default="new-api-vps", help="SSH host alias.")
+    restore.add_argument("--host", default="51token-vps", help="SSH host alias.")
     restore.add_argument("--version", default="bg-20260531", help="Static asset cache-busting version.")
     restore.add_argument("--apply", action="store_true", help="Actually modify the remote host.")
     restore.set_defaults(func=cmd_reapply_production_state)
