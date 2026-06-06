@@ -30,7 +30,7 @@
 
         <!-- Client Tabs -->
         <div v-if="clientTabs.length" class="border-b border-gray-200 dark:border-dark-700">
-          <nav class="-mb-px flex space-x-6" aria-label="Client">
+          <nav class="-mb-px flex flex-wrap gap-x-6 gap-y-2" aria-label="Client">
             <button
               v-for="tab in clientTabs"
               :key="tab.id"
@@ -377,9 +377,9 @@ const comment = (value: string) => wrapToken('text-slate-500', value)
 function buildAnthropicBaseUrl(baseUrl: string): string {
   const normalized = baseUrl.trim().replace(/\/+$/, '')
   try {
-    return new URL(normalized).origin
+    return `${new URL(normalized).origin}/51Token`
   } catch {
-    return normalized.replace(/\/v1$/i, '')
+    return normalized.replace(/\/v1$/i, '').replace(/\/51Token$/i, '') + '/51Token'
   }
 }
 
@@ -451,7 +451,7 @@ function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
   switch (activeTab.value) {
     case 'unix':
       path = 'Terminal'
-      content = `export ANTHROPIC_BASE_URL="${baseUrl}"
+      content = `export ANTHROPIC_BASE_URL="${baseUrl}"  # 这里没有/v1
 export ANTHROPIC_AUTH_TOKEN="${apiKey}"
 export ANTHROPIC_MODEL="gpt-5.5"
 export ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5"
@@ -460,6 +460,7 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
     case 'cmd':
       path = 'Command Prompt'
       content = `set ANTHROPIC_BASE_URL=${baseUrl}
+REM 这里没有v1
 set ANTHROPIC_AUTH_TOKEN=${apiKey}
 set ANTHROPIC_MODEL=gpt-5.5
 set ANTHROPIC_DEFAULT_SONNET_MODEL=gpt-5.5
@@ -467,7 +468,7 @@ set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
       break
     case 'powershell':
       path = 'PowerShell'
-      content = `$env:ANTHROPIC_BASE_URL="${baseUrl}"
+      content = `$env:ANTHROPIC_BASE_URL="${baseUrl}"  # 这里没有/v1
 $env:ANTHROPIC_AUTH_TOKEN="${apiKey}"
 $env:ANTHROPIC_MODEL="gpt-5.5"
 $env:ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5"
@@ -484,10 +485,13 @@ $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
 
   const vscodeContent = `{
   "env": {
-    "ANTHROPIC_BASE_URL": "${baseUrl}",
     "ANTHROPIC_AUTH_TOKEN": "${apiKey}",
+    "ANTHROPIC_BASE_URL": "${baseUrl}",
     "ANTHROPIC_MODEL": "gpt-5.5",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.5",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.5",
+    "ANTHROPIC_REASONING_MODEL": "gpt-5.5",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
   }
@@ -495,7 +499,7 @@ $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
 
   return [
     { path, content },
-    { path: vscodeSettingsPath, content: vscodeContent, hint: 'VSCode Claude Code' }
+    { path: vscodeSettingsPath, content: vscodeContent, hint: 'VSCode Claude Code（ANTHROPIC_BASE_URL 这里没有 /v1）' }
   ]
 }
 
@@ -560,6 +564,7 @@ windows_wsl_setup_acknowledged = true
 [model_providers.OpenAI]
 name = "OpenAI"
 base_url = "${baseUrl}"
+sandbox_mode = "workspace-write" # 或 "danger-full-access"
 wire_api = "responses"
 requires_openai_auth = true
 
@@ -600,6 +605,7 @@ windows_wsl_setup_acknowledged = true
 [model_providers.OpenAI]
 name = "OpenAI"
 base_url = "${baseUrl}"
+sandbox_mode = "workspace-write" # 或 "danger-full-access"
 wire_api = "responses"
 supports_websockets = true
 requires_openai_auth = true

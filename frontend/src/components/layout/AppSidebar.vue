@@ -11,7 +11,7 @@
       <!-- Custom Logo or Default Logo -->
       <a
         href="/"
-        class="sidebar-logo flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl shadow-glow"
+        class="sidebar-logo flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-white shadow-glow ring-1 ring-black/5 dark:bg-white dark:ring-white/10"
         aria-label="返回首页"
         title="返回首页"
       >

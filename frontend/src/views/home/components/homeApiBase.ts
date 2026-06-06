@@ -26,9 +26,9 @@ export function resolveHomeApiBaseUrl(configuredBaseUrl?: string | null, origin 
 export function buildClaudeBaseUrl(apiBaseUrl: string): string {
   const normalized = trimTrailingSlashes(apiBaseUrl)
   try {
-    return new URL(normalized).origin
+    return `${new URL(normalized).origin}/51Token`
   } catch {
-    return normalized.replace(/\/v1$/i, '')
+    return normalized.replace(/\/v1$/i, '').replace(/\/51Token$/i, '') + '/51Token'
   }
 }
 
