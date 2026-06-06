@@ -7,61 +7,20 @@
           <!-- Left: Fuzzy user search + filters (wrap to multiple lines) -->
           <div class="flex flex-1 flex-wrap items-center gap-3">
             <!-- User Search -->
-            <div
-              class="relative w-full sm:w-64"
-              data-filter-user-search
-            >
-              <Icon
-                name="search"
-                size="md"
-                class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-              />
-              <input
+            <div class="w-full sm:w-64" data-filter-user-search>
+              <SearchSuggestInput
                 v-model="filterUserKeyword"
-                type="text"
                 :placeholder="t('admin.users.searchUsers')"
-                class="input pl-10 pr-8"
-                @input="debounceSearchFilterUsers"
-                @focus="showFilterUserDropdown = true"
+                :suggestions="filterUserSuggestions"
+                :open="showFilterUserDropdown"
+                :loading="filterUserLoading"
+                :empty-text="filterUserKeyword ? t('common.noOptionsFound') : ''"
+                @search="handleFilterUserSearch"
+                @focus="onFilterUserFocus"
+                @blur="onFilterUserBlur"
+                @select="selectFilterUserOption"
+                @clear="clearFilterUser"
               />
-              <button
-                v-if="selectedFilterUser"
-                @click="clearFilterUser"
-                type="button"
-                class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                :title="t('common.clear')"
-              >
-                <Icon name="x" size="sm" :stroke-width="2" />
-              </button>
-
-              <!-- User Dropdown -->
-              <div
-                v-if="showFilterUserDropdown && (filterUserResults.length > 0 || filterUserKeyword)"
-                class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800"
-              >
-                <div
-                  v-if="filterUserLoading"
-                  class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                >
-                  {{ t('common.loading') }}
-                </div>
-                <div
-                  v-else-if="filterUserResults.length === 0 && filterUserKeyword"
-                  class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                >
-                  {{ t('common.noOptionsFound') }}
-                </div>
-                <button
-                  v-for="user in filterUserResults"
-                  :key="user.id"
-                  type="button"
-                  @click="selectFilterUser(user)"
-                  class="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
-                >
-                  <span class="font-medium text-gray-900 dark:text-white">{{ user.email }}</span>
-                  <span class="ml-2 text-gray-500 dark:text-gray-400">#{{ user.id }}</span>
-                </button>
-              </div>
             </div>
 
             <!-- Filters -->
@@ -897,6 +856,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Select from '@/components/common/Select.vue'
+import SearchSuggestInput, { type SearchSuggestOption } from '@/components/common/SearchSuggestInput.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -1049,11 +1009,40 @@ const PROGRESS_REFRESH_CONCURRENCY = 3
 
 // Toolbar user filter (fuzzy search -> select user_id)
 const filterUserKeyword = ref('')
-const filterUserResults = ref<SimpleUser[]>([])
+const filterUserSuggestions = ref<SearchSuggestOption<SimpleUser>[]>([])
 const filterUserLoading = ref(false)
 const showFilterUserDropdown = ref(false)
 const selectedFilterUser = ref<SimpleUser | null>(null)
 let filterUserSearchTimeout: ReturnType<typeof setTimeout> | null = null
+
+const syncFilterUserSuggestions = (users: SimpleUser[]) => {
+  const existingSuggestions = filterUserSuggestions.value
+  const existingById = new Map(existingSuggestions.map((suggestion) => [suggestion.id, suggestion]))
+  const nextSuggestions = users.map((user) => {
+    const existing = existingById.get(user.id)
+    const secondaryText = formatSimpleUserMeta(user) || `#${user.id}`
+    if (existing) {
+      existing.primaryText = user.email
+      existing.secondaryText = secondaryText
+      existing.value = user
+      return existing
+    }
+    return {
+      id: user.id,
+      primaryText: user.email,
+      secondaryText,
+      value: user
+    }
+  })
+
+  const unchanged =
+    existingSuggestions.length === nextSuggestions.length &&
+    existingSuggestions.every((suggestion, index) => suggestion === nextSuggestions[index])
+
+  if (!unchanged) {
+    existingSuggestions.splice(0, existingSuggestions.length, ...nextSuggestions)
+  }
+}
 
 // User search state
 const userSearchKeyword = ref('')
@@ -1259,6 +1248,21 @@ const debounceSearchFilterUsers = () => {
   filterUserSearchTimeout = setTimeout(searchFilterUsers, 300)
 }
 
+const handleFilterUserSearch = (value: string) => {
+  filterUserKeyword.value = value
+  showFilterUserDropdown.value = true
+  debounceSearchFilterUsers()
+}
+
+const onFilterUserFocus = () => {
+  showFilterUserDropdown.value = true
+  debounceSearchFilterUsers()
+}
+
+const onFilterUserBlur = () => {
+  showFilterUserDropdown.value = false
+}
+
 const searchFilterUsers = async () => {
   const keyword = filterUserKeyword.value.trim()
 
@@ -1269,17 +1273,12 @@ const searchFilterUsers = async () => {
     applyFilters()
   }
 
-  if (!keyword) {
-    filterUserResults.value = []
-    return
-  }
-
   filterUserLoading.value = true
   try {
-    filterUserResults.value = await adminAPI.usage.searchUsers(keyword)
+    syncFilterUserSuggestions(await adminAPI.usage.searchUsers(keyword))
   } catch (error) {
     console.error('Failed to search users:', error)
-    filterUserResults.value = []
+    syncFilterUserSuggestions([])
   } finally {
     filterUserLoading.value = false
   }
@@ -1293,10 +1292,14 @@ const selectFilterUser = (user: SimpleUser) => {
   applyFilters()
 }
 
+const selectFilterUserOption = (option: SearchSuggestOption<SimpleUser>) => {
+  selectFilterUser(option.value)
+}
+
 const clearFilterUser = () => {
   selectedFilterUser.value = null
   filterUserKeyword.value = ''
-  filterUserResults.value = []
+  syncFilterUserSuggestions([])
   showFilterUserDropdown.value = false
   filters.user_id = null
   applyFilters()
@@ -1305,6 +1308,7 @@ const clearFilterUser = () => {
 const toSimpleUser = (user: Pick<AdminUser, 'id' | 'email' | 'username' | 'notes'>): SimpleUser => ({
   id: user.id,
   email: user.email,
+  deleted: false,
   username: user.username,
   notes: user.notes
 })

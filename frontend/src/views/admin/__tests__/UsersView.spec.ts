@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import type { AdminUser } from '@/types'
@@ -95,6 +95,7 @@ const DataTableStub = {
 
 describe('admin UsersView', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     localStorage.clear()
 
     listUsers.mockReset()
@@ -114,6 +115,10 @@ describe('admin UsersView', () => {
     getBatchUsersUsage.mockResolvedValue({ stats: {} })
     listEnabledDefinitions.mockResolvedValue([])
     getBatchUserAttributes.mockResolvedValue({ values: {} })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('shows active, used, and created activity columns in order and requests last_used_at sort', async () => {
@@ -206,5 +211,54 @@ describe('admin UsersView', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-test="username-cell"]').text()).toBe('scoped-user(重点客户)')
+  })
+
+  it('re-searches on focus and uses the current keyword, falling back to full results when empty', async () => {
+    const wrapper = mount(UsersView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: true,
+          EmptyState: true,
+          GroupBadge: true,
+          Select: true,
+          UserAttributesConfigModal: true,
+          UserConcurrencyCell: true,
+          UserCreateModal: true,
+          UserEditModal: true,
+          UserApiKeysModal: true,
+          UserAllowedGroupsModal: true,
+          UserBalanceModal: true,
+          UserBalanceHistoryModal: true,
+          GroupReplaceModal: true,
+          Icon: true,
+          Teleport: true
+        }
+      }
+    })
+
+    await flushPromises()
+    expect(listUsers).toHaveBeenCalledTimes(1)
+
+    const input = wrapper.get('input[type="text"]')
+    await input.trigger('focus')
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+
+    expect(listUsers).toHaveBeenCalledTimes(2)
+    expect(listUsers).toHaveBeenLastCalledWith(
+      1,
+      20,
+      expect.objectContaining({
+        search: undefined
+      }),
+      expect.any(Object)
+    )
+    expect(wrapper.text()).toContain('scoped@example.com')
   })
 })

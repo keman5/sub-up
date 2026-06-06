@@ -352,31 +352,43 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 // GET /api/v1/admin/usage/search-users
 func (h *UsageHandler) SearchUsers(c *gin.Context) {
 	keyword := c.Query("q")
-	if keyword == "" {
-		response.Success(c, []any{})
-		return
-	}
+	includeSubscriptions := false
 
 	// Limit to 30 results
-	users, _, err := h.adminService.ListUsers(c.Request.Context(), 1, 30, service.UserListFilters{Search: keyword, IncludeDeleted: true}, "email", "asc")
+	users, _, err := h.adminService.ListUsers(
+		c.Request.Context(),
+		1,
+		30,
+		service.UserListFilters{
+			Search:               keyword,
+			IncludeDeleted:       true,
+			IncludeSubscriptions: &includeSubscriptions,
+		},
+		"email",
+		"asc",
+	)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	// Return simplified user list (only id, email and deleted flag)
+	// Return simplified user list for admin search suggestions.
 	type SimpleUser struct {
-		ID      int64  `json:"id"`
-		Email   string `json:"email"`
-		Deleted bool   `json:"deleted"`
+		ID       int64  `json:"id"`
+		Email    string `json:"email"`
+		Username string `json:"username,omitempty"`
+		Notes    string `json:"notes,omitempty"`
+		Deleted  bool   `json:"deleted"`
 	}
 
 	result := make([]SimpleUser, len(users))
 	for i, u := range users {
 		result[i] = SimpleUser{
-			ID:      u.ID,
-			Email:   u.Email,
-			Deleted: u.DeletedAt != nil,
+			ID:       u.ID,
+			Email:    u.Email,
+			Username: u.Username,
+			Notes:    u.Notes,
+			Deleted:  u.DeletedAt != nil,
 		}
 	}
 

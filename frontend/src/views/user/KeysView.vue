@@ -4,12 +4,20 @@
       <template #filters>
         <div class="flex flex-col gap-3">
           <div class="flex flex-wrap items-center gap-3">
-            <SearchInput
-              v-model="filterSearch"
-              :placeholder="t('keys.searchPlaceholder')"
-              class="w-full sm:w-64"
-              @search="onFilterChange"
-            />
+            <div data-key-search-filter class="w-full sm:w-64">
+              <SearchSuggestInput
+                v-model="filterSearch"
+                :placeholder="t('keys.searchPlaceholder')"
+                :suggestions="keyNameSuggestions"
+                :open="showKeySearchDropdown"
+                :empty-text="filterSearch ? t('common.noOptionsFound') : ''"
+                @search="handleKeySearch"
+                @focus="onKeySearchFocus"
+                @blur="onKeySearchBlur"
+                @select="selectKeySearchOption"
+                @clear="clearKeySearch"
+              />
+            </div>
             <Select
               :model-value="filterGroupId"
               class="w-40"
@@ -41,7 +49,7 @@
         >
           <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
         </button>
-        <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
+        <button @click="openCreateModal" class="btn btn-primary" data-tour="keys-create-btn">
           <Icon name="plus" size="md" class="mr-2" />
           {{ t('keys.createKey') }}
         </button>
@@ -402,7 +410,7 @@
               :title="t('keys.noKeysYet')"
               :description="t('keys.createFirstKey')"
               :action-text="t('keys.createKey')"
-              @action="showCreateModal = true"
+              @action="openCreateModal"
             />
           </template>
         </DataTable>
@@ -1092,8 +1100,9 @@
 	import { useI18n } from 'vue-i18n'
 	import { useAppStore } from '@/stores/app'
 	import { useOnboardingStore } from '@/stores/onboarding'
+	import { useSubscriptionStore } from '@/stores/subscriptions'
 	import { useClipboard } from '@/composables/useClipboard'
-import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+	import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 
 const { t } = useI18n()
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
@@ -1105,7 +1114,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 	import EmptyState from '@/components/common/EmptyState.vue'
 	import Select from '@/components/common/Select.vue'
-	import SearchInput from '@/components/common/SearchInput.vue'
+	import SearchSuggestInput, { type SearchSuggestOption } from '@/components/common/SearchSuggestInput.vue'
 	import Icon from '@/components/icons/Icon.vue'
 	import UseKeyModal from '@/components/keys/UseKeyModal.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
@@ -1144,6 +1153,7 @@ type RateLimitWindow = '5h' | '1d' | '7d'
 
 const appStore = useAppStore()
 const onboardingStore = useOnboardingStore()
+const subscriptionStore = useSubscriptionStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
 
 const columns = computed<Column[]>(() => [
@@ -1183,6 +1193,21 @@ const sortState = ref({
 const filterSearch = ref('')
 const filterStatus = ref('')
 const filterGroupId = ref<string | number>('')
+const showKeySearchDropdown = ref(false)
+
+const keyNameSuggestions = computed<SearchSuggestOption<ApiKey>[]>(() => {
+  const keyword = filterSearch.value.trim().toLowerCase()
+  return apiKeys.value
+    .filter((key) => key.name?.trim())
+    .filter((key) => !keyword || key.name.toLowerCase().includes(keyword))
+    .slice(0, 20)
+    .map((key) => ({
+      id: key.id,
+      primaryText: key.name,
+      secondaryText: maskApiKey(key.key),
+      value: key
+    }))
+})
 
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
@@ -1277,6 +1302,39 @@ const statusFilterOptions = computed(() => [
 const onFilterChange = () => {
   pagination.value.page = 1
   loadApiKeys()
+}
+
+const handleKeySearch = (value: string) => {
+  filterSearch.value = value
+  showKeySearchDropdown.value = true
+  onFilterChange()
+}
+
+const onKeySearchFocus = () => {
+  showKeySearchDropdown.value = true
+}
+
+const onKeySearchBlur = () => {
+  showKeySearchDropdown.value = false
+}
+
+const selectKeySearchOption = (option: SearchSuggestOption<ApiKey>) => {
+  filterSearch.value = option.primaryText
+  showKeySearchDropdown.value = false
+  onFilterChange()
+}
+
+const clearKeySearch = () => {
+  filterSearch.value = ''
+  showKeySearchDropdown.value = false
+  onFilterChange()
+}
+
+const closeKeySearchDropdown = (event: MouseEvent) => {
+  const target = event.target as HTMLElement
+  if (!target.closest('[data-key-search-filter]')) {
+    showKeySearchDropdown.value = false
+  }
 }
 
 const onGroupFilterChange = (value: string | number | boolean | null) => {
@@ -1527,6 +1585,28 @@ const closeGroupSelector = (event: MouseEvent) => {
     groupSelectorKeyId.value = null
     dropdownPosition.value = null
   }
+}
+
+const resolveDefaultCreateGroupId = async (): Promise<number | null> => {
+  try {
+    const activeSubscriptions = await subscriptionStore.fetchActiveSubscriptions()
+    for (const subscription of activeSubscriptions) {
+      const matchedGroup = groups.value.find((group) => group.id === subscription.group_id)
+      if (matchedGroup) {
+        return matchedGroup.id
+      }
+    }
+  } catch (error) {
+    console.error('Failed to resolve default key group from active subscriptions:', error)
+  }
+
+  return null
+}
+
+const openCreateModal = async () => {
+  closeModals()
+  formData.value.group_id = await resolveDefaultCreateGroupId()
+  showCreateModal.value = true
 }
 
 const confirmDelete = (key: ApiKey) => {
@@ -1864,11 +1944,13 @@ onMounted(() => {
   loadGroups()
   loadUserGroupRates()
   loadPublicSettings()
+  document.addEventListener('click', closeKeySearchDropdown)
   document.addEventListener('click', closeGroupSelector)
   resetTimer = setInterval(() => { now.value = new Date() }, 60000)
 })
 
 onUnmounted(() => {
+  document.removeEventListener('click', closeKeySearchDropdown)
   document.removeEventListener('click', closeGroupSelector)
   if (resetTimer) clearInterval(resetTimer)
 })

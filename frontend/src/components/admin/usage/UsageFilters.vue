@@ -7,75 +7,34 @@
         <!-- User Search -->
         <div ref="userSearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
           <label class="input-label">{{ t('admin.usage.userFilter') }}</label>
-          <input
+          <SearchSuggestInput
             v-model="userKeyword"
-            type="text"
-            class="input pr-8"
             :placeholder="t('admin.usage.searchUserPlaceholder')"
-            @input="debounceUserSearch"
-            @focus="showUserDropdown = true"
+            :suggestions="userSuggestions"
+            :open="showUserDropdown"
+            :empty-text="userKeyword ? t('common.noOptionsFound') : ''"
+            @search="handleUserSearch"
+            @focus="onUserFocus"
+            @blur="onUserBlur"
+            @select="selectUserOption"
+            @clear="clearUser"
           />
-          <button
-            v-if="filters.user_id"
-            type="button"
-            @click="clearUser"
-            class="absolute right-2 top-9 text-gray-400"
-            aria-label="Clear user filter"
-          >
-            ✕
-          </button>
-          <div
-            v-if="showUserDropdown && (userResults.length > 0 || userKeyword)"
-            class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border bg-white shadow-lg dark:bg-gray-800"
-          >
-            <button
-              v-for="u in userResults"
-              :key="u.id"
-              type="button"
-              @click="selectUser(u)"
-              class="w-full px-4 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700"
-            >
-              <span>{{ u.email }}<span v-if="u.deleted" class="ml-1 text-xs text-gray-400">（{{ t('admin.usage.userDeletedBadge') }}）</span></span>
-              <span class="ml-2 text-xs text-gray-400">#{{ u.id }}</span>
-            </button>
-          </div>
         </div>
 
         <!-- API Key Search -->
         <div ref="apiKeySearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
           <label class="input-label">{{ t('usage.apiKeyFilter') }}</label>
-          <input
+          <SearchSuggestInput
             v-model="apiKeyKeyword"
-            type="text"
-            class="input pr-8"
             :placeholder="t('admin.usage.searchApiKeyPlaceholder')"
-            @input="debounceApiKeySearch"
+            :suggestions="apiKeySuggestions"
+            :open="showApiKeyDropdown"
+            @search="handleApiKeySearch"
             @focus="onApiKeyFocus"
+            @blur="onApiKeyBlur"
+            @select="selectApiKeyOption"
+            @clear="onClearApiKey"
           />
-          <button
-            v-if="filters.api_key_id"
-            type="button"
-            @click="onClearApiKey"
-            class="absolute right-2 top-9 text-gray-400"
-            aria-label="Clear API key filter"
-          >
-            ✕
-          </button>
-          <div
-            v-if="showApiKeyDropdown && apiKeyResults.length > 0"
-            class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border bg-white shadow-lg dark:bg-gray-800"
-          >
-            <button
-              v-for="k in apiKeyResults"
-              :key="k.id"
-              type="button"
-              @click="selectApiKey(k)"
-              class="w-full px-4 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700"
-            >
-              <span class="truncate">{{ k.name || `#${k.id}` }}</span>
-              <span class="ml-2 text-xs text-gray-400">#{{ k.id }}</span>
-            </button>
-          </div>
         </div>
 
         <!-- Model Filter -->
@@ -87,38 +46,18 @@
         <!-- Account Filter -->
         <div ref="accountSearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[220px]">
           <label class="input-label">{{ t('admin.usage.account') }}</label>
-          <input
+          <SearchSuggestInput
             v-model="accountKeyword"
-            type="text"
-            class="input pr-8"
             :placeholder="t('admin.usage.searchAccountPlaceholder')"
-            @input="debounceAccountSearch"
-            @focus="showAccountDropdown = true"
+            :suggestions="accountSuggestions"
+            :open="showAccountDropdown"
+            :empty-text="accountKeyword ? t('common.noOptionsFound') : ''"
+            @search="handleAccountSearch"
+            @focus="onAccountFocus"
+            @blur="onAccountBlur"
+            @select="selectAccountOption"
+            @clear="clearAccount"
           />
-          <button
-            v-if="filters.account_id"
-            type="button"
-            @click="clearAccount"
-            class="absolute right-2 top-9 text-gray-400"
-            aria-label="Clear account filter"
-          >
-            ✕
-          </button>
-          <div
-            v-if="showAccountDropdown && (accountResults.length > 0 || accountKeyword)"
-            class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border bg-white shadow-lg dark:bg-gray-800"
-          >
-            <button
-              v-for="a in accountResults"
-              :key="a.id"
-              type="button"
-              @click="selectAccount(a)"
-              class="w-full px-4 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700"
-            >
-              <span class="truncate">{{ a.name }}</span>
-              <span class="ml-2 text-xs text-gray-400">#{{ a.id }}</span>
-            </button>
-          </div>
         </div>
 
         <!-- Request Type Filter -->
@@ -172,6 +111,7 @@ import { ref, onMounted, onUnmounted, toRef, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
+import SearchSuggestInput, { type SearchSuggestOption } from '@/components/common/SearchSuggestInput.vue'
 import type { SimpleApiKey, SimpleUser } from '@/api/admin/usage'
 
 type ModelValue = Record<string, any>
@@ -205,12 +145,12 @@ const apiKeySearchRef = ref<HTMLElement | null>(null)
 const accountSearchRef = ref<HTMLElement | null>(null)
 
 const userKeyword = ref('')
-const userResults = ref<SimpleUser[]>([])
+const userSuggestions = ref<SearchSuggestOption<SimpleUser>[]>([])
 const showUserDropdown = ref(false)
 let userSearchTimeout: ReturnType<typeof setTimeout> | null = null
 
 const apiKeyKeyword = ref('')
-const apiKeyResults = ref<SimpleApiKey[]>([])
+const apiKeySuggestions = ref<SearchSuggestOption<SimpleApiKey>[]>([])
 const showApiKeyDropdown = ref(false)
 let apiKeySearchTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -219,9 +159,42 @@ interface SimpleAccount {
   name: string
 }
 const accountKeyword = ref('')
-const accountResults = ref<SimpleAccount[]>([])
+const accountSuggestions = ref<SearchSuggestOption<SimpleAccount>[]>([])
 const showAccountDropdown = ref(false)
 let accountSearchTimeout: ReturnType<typeof setTimeout> | null = null
+
+const syncSuggestionItems = <T extends { id: string | number }>(
+  target: typeof userSuggestions | typeof apiKeySuggestions | typeof accountSuggestions,
+  items: T[],
+  buildTexts: (item: T) => { primaryText: string; secondaryText?: string }
+) => {
+  const existingSuggestions = target.value as SearchSuggestOption<T>[]
+  const existingById = new Map(existingSuggestions.map((suggestion) => [suggestion.id, suggestion]))
+  const nextSuggestions = items.map((item) => {
+    const existing = existingById.get(item.id)
+    const texts = buildTexts(item)
+    if (existing) {
+      existing.primaryText = texts.primaryText
+      existing.secondaryText = texts.secondaryText
+      existing.value = item
+      return existing
+    }
+    return {
+      id: item.id,
+      primaryText: texts.primaryText,
+      secondaryText: texts.secondaryText,
+      value: item,
+    }
+  })
+
+  const unchanged =
+    existingSuggestions.length === nextSuggestions.length &&
+    existingSuggestions.every((suggestion, index) => suggestion === nextSuggestions[index])
+
+  if (!unchanged) {
+    existingSuggestions.splice(0, existingSuggestions.length, ...nextSuggestions)
+  }
+}
 
 const modelOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('admin.usage.allModels') },
@@ -254,31 +227,66 @@ const emitChange = () => emit('change')
 const debounceUserSearch = () => {
   if (userSearchTimeout) clearTimeout(userSearchTimeout)
   userSearchTimeout = setTimeout(async () => {
-    if (!userKeyword.value) {
-      userResults.value = []
-      return
-    }
     try {
       const results = await adminAPI.usage.searchUsers(userKeyword.value)
-      userResults.value = results.sort((a, b) => Number(a.deleted) - Number(b.deleted))
+      syncSuggestionItems(
+        userSuggestions,
+        results.sort((a, b) => Number(a.deleted) - Number(b.deleted)),
+        (user) => ({
+          primaryText: user.email,
+          secondaryText:
+            [
+              [user.notes, user.username].map((value) => value?.trim()).find(Boolean),
+              user.deleted ? t('admin.usage.userDeletedBadge') : '',
+            ].filter(Boolean).join(' · ') || `#${user.id}`,
+        })
+      )
     } catch {
-      userResults.value = []
+      syncSuggestionItems(userSuggestions, [], () => ({ primaryText: '' }))
     }
   }, 300)
+}
+
+const handleUserSearch = (value: string) => {
+  userKeyword.value = value
+  showUserDropdown.value = true
+  debounceUserSearch()
+}
+
+const onUserFocus = () => {
+  showUserDropdown.value = true
+  debounceUserSearch()
+}
+
+const onUserBlur = () => {
+  showUserDropdown.value = false
 }
 
 const debounceApiKeySearch = () => {
   if (apiKeySearchTimeout) clearTimeout(apiKeySearchTimeout)
   apiKeySearchTimeout = setTimeout(async () => {
     try {
-      apiKeyResults.value = await adminAPI.usage.searchApiKeys(
-        filters.value.user_id,
-        apiKeyKeyword.value || ''
+      syncSuggestionItems(
+        apiKeySuggestions,
+        await adminAPI.usage.searchApiKeys(
+          filters.value.user_id,
+          apiKeyKeyword.value || ''
+        ),
+        (key) => ({
+          primaryText: key.name || String(key.id),
+          secondaryText: `#${key.id}`,
+        })
       )
     } catch {
-      apiKeyResults.value = []
+      syncSuggestionItems(apiKeySuggestions, [], () => ({ primaryText: '' }))
     }
   }, 300)
+}
+
+const handleApiKeySearch = (value: string) => {
+  apiKeyKeyword.value = value
+  showApiKeyDropdown.value = true
+  debounceApiKeySearch()
 }
 
 const selectUser = async (u: SimpleUser) => {
@@ -289,17 +297,28 @@ const selectUser = async (u: SimpleUser) => {
 
   // Auto-load API keys for this user
   try {
-    apiKeyResults.value = await adminAPI.usage.searchApiKeys(u.id, '')
+    syncSuggestionItems(
+      apiKeySuggestions,
+      await adminAPI.usage.searchApiKeys(u.id, ''),
+      (key) => ({
+        primaryText: key.name || String(key.id),
+        secondaryText: `#${key.id}`,
+      })
+    )
   } catch {
-    apiKeyResults.value = []
+    syncSuggestionItems(apiKeySuggestions, [], () => ({ primaryText: '' }))
   }
 
   emitChange()
 }
 
+const selectUserOption = (option: SearchSuggestOption<SimpleUser>) => {
+  void selectUser(option.value)
+}
+
 const clearUser = () => {
   userKeyword.value = ''
-  userResults.value = []
+  syncSuggestionItems(userSuggestions, [], () => ({ primaryText: '' }))
   showUserDropdown.value = false
   filters.value.user_id = undefined
   clearApiKey()
@@ -313,9 +332,13 @@ const selectApiKey = (k: SimpleApiKey) => {
   emitChange()
 }
 
+const selectApiKeyOption = (option: SearchSuggestOption<SimpleApiKey>) => {
+  selectApiKey(option.value)
+}
+
 const clearApiKey = () => {
   apiKeyKeyword.value = ''
-  apiKeyResults.value = []
+  syncSuggestionItems(apiKeySuggestions, [], () => ({ primaryText: '' }))
   showApiKeyDropdown.value = false
   filters.value.api_key_id = undefined
 }
@@ -328,17 +351,35 @@ const onClearApiKey = () => {
 const debounceAccountSearch = () => {
   if (accountSearchTimeout) clearTimeout(accountSearchTimeout)
   accountSearchTimeout = setTimeout(async () => {
-    if (!accountKeyword.value) {
-      accountResults.value = []
-      return
-    }
     try {
       const res = await adminAPI.accounts.list(1, 20, { search: accountKeyword.value })
-      accountResults.value = res.items.map((a) => ({ id: a.id, name: a.name }))
+      syncSuggestionItems(
+        accountSuggestions,
+        res.items.map((a) => ({ id: a.id, name: a.name })),
+        (account) => ({
+          primaryText: account.name,
+          secondaryText: `#${account.id}`,
+        })
+      )
     } catch {
-      accountResults.value = []
+      syncSuggestionItems(accountSuggestions, [], () => ({ primaryText: '' }))
     }
   }, 300)
+}
+
+const handleAccountSearch = (value: string) => {
+  accountKeyword.value = value
+  showAccountDropdown.value = true
+  debounceAccountSearch()
+}
+
+const onAccountFocus = () => {
+  showAccountDropdown.value = true
+  debounceAccountSearch()
+}
+
+const onAccountBlur = () => {
+  showAccountDropdown.value = false
 }
 
 const selectAccount = (a: SimpleAccount) => {
@@ -348,9 +389,13 @@ const selectAccount = (a: SimpleAccount) => {
   emitChange()
 }
 
+const selectAccountOption = (option: SearchSuggestOption<SimpleAccount>) => {
+  selectAccount(option.value)
+}
+
 const clearAccount = () => {
   accountKeyword.value = ''
-  accountResults.value = []
+  syncSuggestionItems(accountSuggestions, [], () => ({ primaryText: '' }))
   showAccountDropdown.value = false
   filters.value.account_id = undefined
   emitChange()
@@ -359,9 +404,13 @@ const clearAccount = () => {
 const onApiKeyFocus = () => {
   showApiKeyDropdown.value = true
   // Trigger search if no results yet
-  if (apiKeyResults.value.length === 0) {
+  if (apiKeySuggestions.value.length === 0) {
     debounceApiKeySearch()
   }
+}
+
+const onApiKeyBlur = () => {
+  showApiKeyDropdown.value = false
 }
 
 const onDocumentClick = (e: MouseEvent) => {
@@ -398,7 +447,7 @@ watch(
   (userId) => {
     if (!userId) {
       userKeyword.value = ''
-      userResults.value = []
+      syncSuggestionItems(userSuggestions, [], () => ({ primaryText: '' }))
     }
   }
 )
@@ -408,7 +457,7 @@ watch(
   (apiKeyId) => {
     if (!apiKeyId) {
       apiKeyKeyword.value = ''
-      apiKeyResults.value = []
+      syncSuggestionItems(apiKeySuggestions, [], () => ({ primaryText: '' }))
     }
   }
 )
@@ -418,7 +467,7 @@ watch(
   (accountId) => {
     if (!accountId) {
       accountKeyword.value = ''
-      accountResults.value = []
+      syncSuggestionItems(accountSuggestions, [], () => ({ primaryText: '' }))
     }
   }
 )
@@ -435,5 +484,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener('click', onDocumentClick)
+  if (userSearchTimeout) clearTimeout(userSearchTimeout)
+  if (apiKeySearchTimeout) clearTimeout(apiKeySearchTimeout)
+  if (accountSearchTimeout) clearTimeout(accountSearchTimeout)
 })
 </script>

@@ -8,17 +8,17 @@
           <div class="flex flex-1 flex-wrap items-center gap-3">
             <!-- Search Box -->
             <div class="relative w-full md:w-64">
-              <Icon
-                name="search"
-                size="md"
-                class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-              />
-              <input
+              <SearchSuggestInput
                 v-model="searchQuery"
-                type="text"
                 :placeholder="t('admin.users.searchUsers')"
-                class="input pl-10"
-                @input="handleSearch"
+                :suggestions="userSearchSuggestions"
+                :open="showUserSearchDropdown"
+                :empty-text="searchQuery ? t('common.noOptionsFound') : ''"
+                @search="handleSearch"
+                @focus="onUserSearchFocus"
+                @blur="onUserSearchBlur"
+                @select="selectUserSearchOption"
+                @clear="clearUserSearch"
               />
             </div>
 
@@ -759,6 +759,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import Select from '@/components/common/Select.vue'
+import SearchSuggestInput, { type SearchSuggestOption } from '@/components/common/SearchSuggestInput.vue'
 import UserAttributesConfigModal from '@/components/user/UserAttributesConfigModal.vue'
 import UserConcurrencyCell from '@/components/user/UserConcurrencyCell.vue'
 import PlatformUsageBreakdown from '@/components/user/PlatformUsageBreakdown.vue'
@@ -990,6 +991,8 @@ const columns = computed<Column[]>(() =>
 const users = ref<AdminUser[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
+const userSearchSuggestions = ref<SearchSuggestOption<AdminUser>[]>([])
+const showUserSearchDropdown = ref(false)
 const USER_SORT_STORAGE_KEY = 'admin-users-table-sort'
 const loadInitialSortState = (): { sort_by: string; sort_order: 'asc' | 'desc' } => {
   const fallback = { sort_by: 'created_at', sort_order: 'desc' as 'asc' | 'desc' }
@@ -1510,6 +1513,7 @@ const loadUsers = async () => {
       return
     }
     users.value = response.items
+    syncUserSearchSuggestions(response.items)
     pagination.total = response.total
     pagination.pages = response.pages
     usageStats.value = {}
@@ -1541,12 +1545,68 @@ const loadUsers = async () => {
 }
 
 let searchTimeout: ReturnType<typeof setTimeout>
-const handleSearch = () => {
+const debounceSearchSuggestions = () => {
   clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => {
     pagination.page = 1
     loadUsers()
   }, 300)
+}
+
+const syncUserSearchSuggestions = (items: AdminUser[]) => {
+  const existingSuggestions = userSearchSuggestions.value
+  const existingById = new Map(existingSuggestions.map((suggestion) => [suggestion.id, suggestion]))
+  const nextSuggestions = items.map((user) => {
+    const existing = existingById.get(user.id)
+    const secondaryText = [user.username?.trim(), user.notes?.trim()].filter(Boolean).join(' / ') || `#${user.id}`
+    if (existing) {
+      existing.primaryText = user.email
+      existing.secondaryText = secondaryText
+      existing.value = user
+      return existing
+    }
+    return {
+      id: user.id,
+      primaryText: user.email,
+      secondaryText,
+      value: user
+    }
+  })
+
+  const unchanged =
+    existingSuggestions.length === nextSuggestions.length &&
+    existingSuggestions.every((suggestion, index) => suggestion === nextSuggestions[index])
+
+  if (!unchanged) {
+    existingSuggestions.splice(0, existingSuggestions.length, ...nextSuggestions)
+  }
+}
+
+const handleSearch = () => {
+  debounceSearchSuggestions()
+}
+
+const onUserSearchFocus = () => {
+  showUserSearchDropdown.value = true
+  debounceSearchSuggestions()
+}
+
+const onUserSearchBlur = () => {
+  showUserSearchDropdown.value = false
+}
+
+const selectUserSearchOption = (option: SearchSuggestOption<AdminUser>) => {
+  searchQuery.value = option.primaryText
+  showUserSearchDropdown.value = false
+  clearTimeout(searchTimeout)
+  pagination.page = 1
+  loadUsers()
+}
+
+const clearUserSearch = () => {
+  searchQuery.value = ''
+  showUserSearchDropdown.value = false
+  debounceSearchSuggestions()
 }
 
 const handlePageChange = (page: number) => {
