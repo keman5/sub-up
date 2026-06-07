@@ -1769,7 +1769,7 @@ func setDefaults() {
 	// JWT
 	viper.SetDefault("jwt.secret", "")
 	viper.SetDefault("jwt.expire_hour", 24)
-	viper.SetDefault("jwt.access_token_expire_minutes", 0) // 0 表示回退到 expire_hour
+	viper.SetDefault("jwt.access_token_expire_minutes", 43200) // 30 days
 	viper.SetDefault("jwt.refresh_token_expire_days", 30)  // 30天Refresh Token有效期
 	viper.SetDefault("jwt.refresh_window_minutes", 2)      // 过期前2分钟开始允许刷新
 
@@ -1876,7 +1876,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.model_router.premium_input_min_items", 20)
 	viper.SetDefault("gateway.model_router.pressure_low_remaining_percent", 40.0)
 	viper.SetDefault("gateway.model_router.pressure_medium_remaining_percent", 70.0)
-	viper.SetDefault("gateway.model_router.image_or_vision_force_premium", true)
+	viper.SetDefault("gateway.model_router.image_or_vision_force_premium", false)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)
 	viper.SetDefault("gateway.openai_ws.mode_router_v2_enabled", false)
@@ -2128,7 +2128,7 @@ func (c *Config) Validate() error {
 	if c.JWT.AccessTokenExpireMinutes < 0 {
 		return fmt.Errorf("jwt.access_token_expire_minutes must be non-negative")
 	}
-	if c.JWT.AccessTokenExpireMinutes > 720 {
+	if c.JWT.AccessTokenExpireMinutes > 43200 {
 		slog.Warn("jwt.access_token_expire_minutes is high; consider shorter expiration for security", "access_token_expire_minutes", c.JWT.AccessTokenExpireMinutes)
 	}
 	if c.JWT.RefreshTokenExpireDays <= 0 {

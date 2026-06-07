@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -178,11 +179,25 @@ type AICredit struct {
 
 // UsageInfo 账号使用量信息
 type UsageInfo struct {
-	Source             string         `json:"source,omitempty"`               // "passive" or "active"
-	UpdatedAt          *time.Time     `json:"updated_at,omitempty"`           // 更新时间
-	FiveHour           *UsageProgress `json:"five_hour"`                      // 5小时窗口
-	SevenDay           *UsageProgress `json:"seven_day,omitempty"`            // 7天窗口
-	SevenDaySonnet     *UsageProgress `json:"seven_day_sonnet,omitempty"`     // 7天Sonnet窗口
+	Source         string         `json:"source,omitempty"`           // "passive" or "active"
+	UpdatedAt      *time.Time     `json:"updated_at,omitempty"`       // 更新时间
+	FiveHour       *UsageProgress `json:"five_hour"`                  // 5小时窗口
+	SevenDay       *UsageProgress `json:"seven_day,omitempty"`        // 7天窗口
+	SevenDaySonnet *UsageProgress `json:"seven_day_sonnet,omitempty"` // 7天Sonnet窗口
+	CodexPrimary   *UsageProgress `json:"codex_primary,omitempty"`    // OpenAI Codex primary snapshot
+	CodexSecondary *UsageProgress `json:"codex_secondary,omitempty"`  // OpenAI Codex secondary snapshot
+
+	// OpenAI Codex canonical snapshot fields（用于后台响应）
+	Codex5hUsedPercent       *float64 `json:"codex_5h_used_percent,omitempty"`
+	Codex5hResetAfterSeconds *int     `json:"codex_5h_reset_after_seconds,omitempty"`
+	Codex5hResetAt           *string  `json:"codex_5h_reset_at,omitempty"`
+	Codex5hWindowMinutes     *int     `json:"codex_5h_window_minutes,omitempty"`
+	Codex7dUsedPercent       *float64 `json:"codex_7d_used_percent,omitempty"`
+	Codex7dResetAfterSeconds *int     `json:"codex_7d_reset_after_seconds,omitempty"`
+	Codex7dResetAt           *string  `json:"codex_7d_reset_at,omitempty"`
+	Codex7dWindowMinutes     *int     `json:"codex_7d_window_minutes,omitempty"`
+	CodexUsageUpdatedAt      *string  `json:"codex_usage_updated_at,omitempty"`
+
 	GeminiSharedDaily  *UsageProgress `json:"gemini_shared_daily,omitempty"`  // Gemini shared pool RPD (Google One / Code Assist)
 	GeminiProDaily     *UsageProgress `json:"gemini_pro_daily,omitempty"`     // Gemini Pro 日配额
 	GeminiFlashDaily   *UsageProgress `json:"gemini_flash_daily,omitempty"`   // Gemini Flash 日配额
@@ -502,11 +517,35 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		return usage, nil
 	}
 
+	if os.Getenv("SUB2API_DEBUG_OPENAI_USAGE") == "1" {
+		extraKeys := make([]string, 0, len(account.Extra))
+		for k := range account.Extra {
+			extraKeys = append(extraKeys, k)
+		}
+		slog.Info(
+			"[usage] openai account usage input",
+			"account_id", account.ID,
+			"usage_extra_keys", extraKeys,
+			"codex_5h_exists", account.Extra["codex_5h_used_percent"] != nil,
+			"codex_7d_exists", account.Extra["codex_7d_used_percent"] != nil,
+			"codex_secondary_exists", account.Extra["codex_secondary_used_percent"] != nil,
+			"codex_primary_exists", account.Extra["codex_primary_used_percent"] != nil,
+			"codex_secondary_window", account.Extra["codex_secondary_window_minutes"],
+			"codex_primary_window", account.Extra["codex_primary_window_minutes"],
+		)
+	}
+
 	if progress := buildCodexUsageProgressFromExtra(account.Extra, "5h", now); progress != nil {
 		usage.FiveHour = progress
 	}
 	if progress := buildCodexUsageProgressFromExtra(account.Extra, "7d", now); progress != nil {
 		usage.SevenDay = progress
+	}
+	if progress := buildCodexUsageProgressFromExtraKeys(account.Extra, "codex_primary_used_percent", "codex_primary_reset_after_seconds", "codex_primary_reset_at", now); progress != nil {
+		usage.CodexPrimary = progress
+	}
+	if progress := buildCodexUsageProgressFromExtraKeys(account.Extra, "codex_secondary_used_percent", "codex_secondary_reset_after_seconds", "codex_secondary_reset_at", now); progress != nil {
+		usage.CodexSecondary = progress
 	}
 
 	if (force || shouldRefreshOpenAICodexSnapshot(account, usage, now)) && s.shouldProbeOpenAICodexSnapshot(account.ID, now, force) {
@@ -521,10 +560,27 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 			if progress := buildCodexUsageProgressFromExtra(account.Extra, "7d", now); progress != nil {
 				usage.SevenDay = progress
 			}
+			if progress := buildCodexUsageProgressFromExtraKeys(account.Extra, "codex_primary_used_percent", "codex_primary_reset_after_seconds", "codex_primary_reset_at", now); progress != nil {
+				usage.CodexPrimary = progress
+			}
+			if progress := buildCodexUsageProgressFromExtraKeys(account.Extra, "codex_secondary_used_percent", "codex_secondary_reset_after_seconds", "codex_secondary_reset_at", now); progress != nil {
+				usage.CodexSecondary = progress
+			}
 		}
 	}
 
 	if s.usageLogRepo == nil {
+		setCodexUsageSnapshotFields(usage, account.Extra)
+		if os.Getenv("SUB2API_DEBUG_OPENAI_USAGE") == "1" {
+			slog.Info(
+				"[usage] openai account usage output (no usage log)",
+				"account_id", account.ID,
+				"usage_5h", usage.Codex5hUsedPercent,
+				"usage_7d", usage.Codex7dUsedPercent,
+				"usage_secondary", usage.CodexSecondary,
+				"usage_primary", usage.CodexPrimary,
+			)
+		}
 		return usage, nil
 	}
 
@@ -542,7 +598,118 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
 	}
 
+	setCodexUsageSnapshotFields(usage, account.Extra)
+	if os.Getenv("SUB2API_DEBUG_OPENAI_USAGE") == "1" {
+		slog.Info(
+			"[usage] openai account usage output",
+			"account_id", account.ID,
+			"usage_5h", usage.Codex5hUsedPercent,
+			"usage_7d", usage.Codex7dUsedPercent,
+			"usage_secondary", usage.CodexSecondary,
+			"usage_primary", usage.CodexPrimary,
+		)
+	}
 	return usage, nil
+}
+
+func setCodexUsageSnapshotFields(usage *UsageInfo, extra map[string]any) {
+	if usage == nil || len(extra) == 0 {
+		return
+	}
+
+	if v, ok := extra["codex_5h_used_percent"]; ok {
+		parsed := parseExtraFloat64(v)
+		usage.Codex5hUsedPercent = &parsed
+	}
+	if v, ok := extra["codex_5h_reset_after_seconds"]; ok {
+		parsed := parseExtraInt(v)
+		usage.Codex5hResetAfterSeconds = &parsed
+	}
+	if v, ok := extra["codex_5h_reset_at"]; ok {
+		s := fmt.Sprint(v)
+		usage.Codex5hResetAt = &s
+	}
+	if v, ok := extra["codex_5h_window_minutes"]; ok {
+		parsed := parseExtraInt(v)
+		usage.Codex5hWindowMinutes = &parsed
+	}
+	if v, ok := extra["codex_7d_used_percent"]; ok {
+		parsed := parseExtraFloat64(v)
+		usage.Codex7dUsedPercent = &parsed
+	}
+	if v, ok := extra["codex_7d_reset_after_seconds"]; ok {
+		parsed := parseExtraInt(v)
+		usage.Codex7dResetAfterSeconds = &parsed
+	}
+	if v, ok := extra["codex_7d_reset_at"]; ok {
+		s := fmt.Sprint(v)
+		usage.Codex7dResetAt = &s
+	}
+	if v, ok := extra["codex_7d_window_minutes"]; ok {
+		parsed := parseExtraInt(v)
+		usage.Codex7dWindowMinutes = &parsed
+	}
+	if v, ok := extra["codex_usage_updated_at"]; ok {
+		s := fmt.Sprint(v)
+		usage.CodexUsageUpdatedAt = &s
+	}
+
+	primaryWindowMinutesRaw, hasPrimaryWindowMinutesRaw := extra["codex_primary_window_minutes"]
+	secondaryWindowMinutesRaw, hasSecondaryWindowMinutesRaw := extra["codex_secondary_window_minutes"]
+	var primaryWindowMinutes, secondaryWindowMinutes int
+	hasPrimaryWindowMinutes := false
+	hasSecondaryWindowMinutes := false
+
+	if hasPrimaryWindowMinutesRaw {
+		primaryWindowMinutes = parseExtraInt(primaryWindowMinutesRaw)
+		hasPrimaryWindowMinutes = true
+	}
+	if hasSecondaryWindowMinutesRaw {
+		secondaryWindowMinutes = parseExtraInt(secondaryWindowMinutesRaw)
+		hasSecondaryWindowMinutes = true
+	}
+
+	if usage.Codex5hUsedPercent == nil {
+		if hasSecondaryWindowMinutes && int(secondaryWindowMinutes) == 300 {
+			if v, ok := extra["codex_secondary_used_percent"]; ok {
+				parsed := parseExtraFloat64(v)
+				usage.Codex5hUsedPercent = &parsed
+			}
+			if v, ok := extra["codex_secondary_reset_after_seconds"]; ok {
+				parsed := parseExtraInt(v)
+				usage.Codex5hResetAfterSeconds = &parsed
+			}
+			if v, ok := extra["codex_secondary_window_minutes"]; ok {
+				parsed := parseExtraInt(v)
+				usage.Codex5hWindowMinutes = &parsed
+			}
+			if v, ok := extra["codex_secondary_reset_at"]; ok {
+				s := fmt.Sprint(v)
+				usage.Codex5hResetAt = &s
+			}
+		}
+	}
+
+	if usage.Codex7dUsedPercent == nil {
+		if hasPrimaryWindowMinutes && int(primaryWindowMinutes) == 10080 {
+			if v, ok := extra["codex_primary_used_percent"]; ok {
+				parsed := parseExtraFloat64(v)
+				usage.Codex7dUsedPercent = &parsed
+			}
+			if v, ok := extra["codex_primary_reset_after_seconds"]; ok {
+				parsed := parseExtraInt(v)
+				usage.Codex7dResetAfterSeconds = &parsed
+			}
+			if v, ok := extra["codex_primary_window_minutes"]; ok {
+				parsed := parseExtraInt(v)
+				usage.Codex7dWindowMinutes = &parsed
+			}
+			if v, ok := extra["codex_primary_reset_at"]; ok {
+				s := fmt.Sprint(v)
+				usage.Codex7dResetAt = &s
+			}
+		}
+	}
 }
 
 func shouldRefreshOpenAICodexSnapshot(account *Account, usage *UsageInfo, now time.Time) bool {
@@ -656,6 +823,23 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 		return nil, err
 	}
 	if len(updates) > 0 {
+		if os.Getenv("SUB2API_DEBUG_OPENAI_USAGE") == "1" {
+			slog.Info(
+				"[usage] openai codex probe updates",
+				"account_id", account.ID,
+				"status", resp.Status,
+				"headers", map[string]string{
+					"x-codex-primary-used-percent":                 resp.Header.Get("x-codex-primary-used-percent"),
+					"x-codex-primary-reset-after-seconds":          resp.Header.Get("x-codex-primary-reset-after-seconds"),
+					"x-codex-primary-window-minutes":               resp.Header.Get("x-codex-primary-window-minutes"),
+					"x-codex-secondary-used-percent":               resp.Header.Get("x-codex-secondary-used-percent"),
+					"x-codex-secondary-reset-after-seconds":        resp.Header.Get("x-codex-secondary-reset-after-seconds"),
+					"x-codex-secondary-window-minutes":             resp.Header.Get("x-codex-secondary-window-minutes"),
+					"x-codex-primary-over-secondary-limit-percent": resp.Header.Get("x-codex-primary-over-secondary-limit-percent"),
+				},
+				"updates", updates,
+			)
+		}
 		s.persistOpenAICodexProbeSnapshot(account.ID, updates)
 		return updates, nil
 	}
@@ -1057,10 +1241,6 @@ func windowStatsFromAccountStats(stats *usagestats.AccountStats) *WindowStats {
 }
 
 func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now time.Time) *UsageProgress {
-	if len(extra) == 0 {
-		return nil
-	}
-
 	var (
 		usedPercentKey string
 		resetAfterKey  string
@@ -1077,6 +1257,14 @@ func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now t
 		resetAfterKey = "codex_7d_reset_after_seconds"
 		resetAtKey = "codex_7d_reset_at"
 	default:
+		return nil
+	}
+
+	return buildCodexUsageProgressFromExtraKeys(extra, usedPercentKey, resetAfterKey, resetAtKey, now)
+}
+
+func buildCodexUsageProgressFromExtraKeys(extra map[string]any, usedPercentKey, resetAfterKey, resetAtKey string, now time.Time) *UsageProgress {
+	if len(extra) == 0 {
 		return nil
 	}
 

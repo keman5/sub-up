@@ -128,6 +128,12 @@ func (s *OpenAIGatewayService) evaluateOpenAIModelRoute(
 	if strings.TrimSpace(meta.RequestedModel) == "" {
 		meta.RequestedModel = strings.TrimSpace(input.RequestedModel)
 	}
+	requestedCanonical := normalizeCodexModel(meta.RequestedModel)
+	if requestedCanonical == "gpt-5.3-codex-spark" {
+		if explicitDecision, ok := decideExplicitSparkPreferredRoute(input.Account, requestedCanonical, defaultModel); ok {
+			return explicitDecision
+		}
+	}
 	if openAIModelRouterShouldPassthroughAccount(input.Account, cfg) && !(meta.ImageIntent && cfg.ImageOrVisionForcePremium) {
 		decision.Tier = openAIModelRouterTierPremium
 		decision.UpstreamModel = strings.TrimSpace(input.RequestedModel)
@@ -137,8 +143,10 @@ func (s *OpenAIGatewayService) evaluateOpenAIModelRoute(
 		decision.Reason = "oauth_account_passthrough"
 		return decision
 	}
-	if explicitDecision, ok := decideExplicitSparkPreferredRoute(input.Account, strings.TrimSpace(input.RequestedModel), defaultModel); ok {
-		return explicitDecision
+	if !meta.ImageIntent {
+		if explicitDecision, ok := decideExplicitSparkPreferredRoute(input.Account, strings.TrimSpace(input.RequestedModel), defaultModel); ok {
+			return explicitDecision
+		}
 	}
 
 	state := s.getOpenAIModelRouterState(ctx, input.SessionHash)
@@ -154,9 +162,14 @@ func (s *OpenAIGatewayService) evaluateOpenAIModelRoute(
 	targetTier := openAIModelRouterTierEconomy
 	reason := "economy_default"
 
-	if meta.ImageIntent && cfg.ImageOrVisionForcePremium {
-		targetTier = openAIModelRouterTierPremium
-		reason = "image_or_vision_force_premium"
+	if meta.ImageIntent {
+		if cfg.ImageOrVisionForcePremium {
+			targetTier = openAIModelRouterTierPremium
+			reason = "image_or_vision_force_premium"
+		} else {
+			targetTier = openAIModelRouterPromoteOneTier(targetTier)
+			reason = "image_intent_promotion"
+		}
 	} else if meta.PremiumText {
 		targetTier = openAIModelRouterTierPremium
 		reason = "premium_text_promote_premium"
@@ -184,6 +197,14 @@ func (s *OpenAIGatewayService) evaluateOpenAIModelRoute(
 		state.LastEscalatedAtUnix = nowUnix
 		state.CapabilityFailureConsecutive = 0
 		reason = "capability_failure_escalation"
+	}
+
+	if meta.ImageIntent {
+		cappedTier := openAIModelRouterCapImageIntentTier(targetTier, requestedCanonical, defaultModel, balancedModel, premiumModel)
+		if cappedTier != targetTier {
+			reason = "image_intent_capped_to_selected_model"
+		}
+		targetTier = cappedTier
 	}
 
 	switch targetTier {
@@ -238,6 +259,92 @@ func decideExplicitSparkPreferredRoute(account *Account, requestedModel string, 
 		UpstreamModel: requestedCanonical,
 		Reason:        "spark_remaining_below_threshold_use_requested",
 	}, true
+}
+
+func openAIModelRouterTierRank(t openAIModelRouterTier) int {
+	switch t {
+	case openAIModelRouterTierPremium:
+		return 3
+	case openAIModelRouterTierBalanced:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func openAIModelRouterCapImageIntentTier(
+	targetTier openAIModelRouterTier,
+	requestedCanonical string,
+	defaultModel string,
+	balancedModel string,
+	premiumModel string,
+) openAIModelRouterTier {
+	capVersion, ok := openAIGPT5MinorVersion(requestedCanonical)
+	if !ok {
+		return targetTier
+	}
+
+	bestTier := openAIModelRouterTierEconomy
+	bestVersion := -1
+	bestRank := openAIModelRouterTierRank(bestTier)
+
+	candidates := []struct {
+		tier  openAIModelRouterTier
+		model string
+	}{
+		{openAIModelRouterTierEconomy, defaultModel},
+		{openAIModelRouterTierBalanced, balancedModel},
+		{openAIModelRouterTierPremium, premiumModel},
+	}
+
+	for _, candidate := range candidates {
+		version, ok := openAIGPT5MinorVersion(candidate.model)
+		if !ok || version > capVersion {
+			continue
+		}
+		rank := openAIModelRouterTierRank(candidate.tier)
+		if version > bestVersion || (version == bestVersion && rank > bestRank) {
+			bestVersion = version
+			bestRank = rank
+			bestTier = candidate.tier
+		}
+	}
+
+	if bestVersion < 0 {
+		return targetTier
+	}
+	if openAIModelRouterTierRank(targetTier) <= bestRank {
+		return targetTier
+	}
+	return bestTier
+}
+
+func openAIGPT5MinorVersion(model string) (int, bool) {
+	normalized := normalizeCodexModel(strings.TrimSpace(model))
+	if normalized == "" {
+		return 0, false
+	}
+	if !strings.HasPrefix(normalized, "gpt-5.") {
+		return 0, false
+	}
+	suffix := strings.TrimPrefix(normalized, "gpt-5.")
+	if suffix == "" {
+		return 0, false
+	}
+
+	version := 0
+	found := false
+	for _, ch := range suffix {
+		if ch < '0' || ch > '9' {
+			break
+		}
+		found = true
+		version = version*10 + int(ch-'0')
+	}
+	if !found {
+		return 0, false
+	}
+	return version, true
 }
 
 func isExplicitGPT5MinorModel(model string) bool {

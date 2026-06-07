@@ -107,7 +107,7 @@
 
     <!-- OpenAI OAuth accounts: single source from /usage API -->
     <template v-else-if="account.platform === 'openai' && account.type === 'oauth'">
-      <div v-if="hasOpenAIUsageFallback" class="space-y-1">
+      <div v-if="hasOpenAIUsageFallback || hasOpenAICodexSparkUsage" class="space-y-1">
         <UsageProgressBar
           v-if="usageInfo?.five_hour"
           label="5h"
@@ -126,6 +126,45 @@
           :show-now-when-idle="true"
           color="emerald"
         />
+        <div
+          v-if="hasOpenAICodexSparkUsage"
+          class="flex items-center justify-end"
+        >
+          <button
+            type="button"
+            class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors"
+            :aria-expanded="isOpenAICodexSparkExpanded ? 'true' : 'false'"
+            @click="toggleOpenAICodexSparkExpanded"
+          >
+            <svg
+              class="h-2.5 w-2.5 transition-transform"
+              :class="{ 'rotate-180': isOpenAICodexSparkExpanded }"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
+            {{ isOpenAICodexSparkExpanded ? t('admin.accounts.usageWindow.openaiCodexSparkHide') : t('admin.accounts.usageWindow.openaiCodexSparkShow') }}
+          </button>
+        </div>
+        <div v-if="isOpenAICodexSparkExpanded && hasOpenAICodexSparkUsage" class="space-y-1">
+          <UsageProgressBar
+            v-for="sparkWindow in openAICodexSparkWindows"
+            :key="sparkWindow.label"
+            :label="sparkWindow.label"
+            :utilization="sparkWindow.progress.utilization"
+            :resets-at="sparkWindow.progress.resets_at"
+            :window-stats="sparkWindow.progress.window_stats"
+            :show-now-when-idle="true"
+            :color="sparkWindow.label === '5h' ? 'purple' : 'amber'"
+          />
+        </div>
         <div class="flex items-center gap-1.5 mt-0.5">
           <button
             type="button"
@@ -497,7 +536,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
-import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '@/types'
+import type { Account, AccountUsageInfo, GeminiCredentials, UsageProgress, WindowStats } from '@/types'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import { formatCompactNumber } from '@/utils/format'
@@ -532,6 +571,7 @@ const loading = ref(false)
 const activeQueryLoading = ref(false)
 const error = ref<string | null>(null)
 const usageInfo = ref<AccountUsageInfo | null>(null)
+const isOpenAICodexSparkExpanded = ref(false)
 const rootRef = ref<HTMLElement | null>(null)
 const isDesktopViewport = ref(
   typeof window === 'undefined' ? true : window.matchMedia(desktopViewportQuery).matches
@@ -584,10 +624,156 @@ const geminiUsageAvailable = computed(() => {
 
 const hasOpenAIUsageFallback = computed(() => {
   if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return false
-  return !!usageInfo.value?.five_hour || !!usageInfo.value?.seven_day
+  return (
+    !!usageInfo.value?.five_hour ||
+    !!usageInfo.value?.seven_day ||
+    !!usageInfo.value?.codex_primary ||
+    !!usageInfo.value?.codex_secondary
+  )
+})
+
+const toNumber = (value: unknown): number | null => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+const toInt = (value: unknown): number | null => {
+  const num = toNumber(value)
+  if (num == null || !Number.isInteger(num)) return null
+  return num
+}
+
+const toResetAt = (resetAt: unknown, resetAfterSeconds: unknown): string | undefined => {
+  if (typeof resetAt === 'string' && resetAt.trim()) return resetAt
+  const resetAfter = toNumber(resetAfterSeconds)
+  if (resetAfter == null || resetAfter < 0) return undefined
+  return new Date(Date.now() + resetAfter * 1000).toISOString()
+}
+
+const getOpenAICodexSparkSnapshot = (usage: AccountUsageInfo | null) => {
+  if (!usage) return null
+
+  const secondaryWindowMinutes = toInt(usage.codex_secondary_window_minutes)
+  const primaryWindowMinutes = toInt(usage.codex_primary_window_minutes)
+
+  const buildFromProgress = (progress: UsageProgress | null | undefined) => {
+    if (!progress) return null
+    return {
+      utilized: toNumber(progress.utilization),
+      resetAfterSeconds: progress.remaining_seconds,
+      resetAt: progress.resets_at ?? undefined
+    }
+  }
+
+  const spark5h = {
+    utilized: toNumber(usage.codex_5h_used_percent),
+    resetAfterSeconds: usage.codex_5h_reset_after_seconds,
+    resetAt: usage.codex_5h_reset_at
+  }
+  if (spark5h.utilized == null) {
+    const spark5hProgress = buildFromProgress(usage.codex_secondary)
+    if (spark5hProgress) {
+      spark5h.utilized = spark5hProgress.utilized
+      spark5h.resetAfterSeconds = spark5hProgress.resetAfterSeconds
+      spark5h.resetAt = spark5hProgress.resetAt ?? undefined
+    }
+  }
+  if (spark5h.utilized == null && secondaryWindowMinutes != null) {
+    if (secondaryWindowMinutes === 300) {
+      spark5h.utilized = toNumber(usage.codex_secondary_used_percent)
+      spark5h.resetAfterSeconds = usage.codex_secondary_reset_after_seconds
+      spark5h.resetAt = usage.codex_secondary_reset_at
+    }
+  }
+  const spark7d = {
+    utilized: toNumber(usage.codex_7d_used_percent),
+    resetAfterSeconds: usage.codex_7d_reset_after_seconds,
+    resetAt: usage.codex_7d_reset_at
+  }
+  if (spark7d.utilized == null) {
+    const spark7dProgress = buildFromProgress(usage.codex_primary)
+    if (spark7dProgress) {
+      spark7d.utilized = spark7dProgress.utilized
+      spark7d.resetAfterSeconds = spark7dProgress.resetAfterSeconds
+      spark7d.resetAt = spark7dProgress.resetAt ?? undefined
+    }
+  }
+  if (spark7d.utilized == null && primaryWindowMinutes != null) {
+    if (primaryWindowMinutes === 10080) {
+      spark7d.utilized = toNumber(usage.codex_primary_used_percent)
+      spark7d.resetAfterSeconds = usage.codex_primary_reset_after_seconds
+      spark7d.resetAt = usage.codex_primary_reset_at
+    }
+  }
+
+  if (spark5h.utilized == null && spark7d.utilized == null) {
+    return null
+  }
+
+  return {
+    spark5h,
+    spark7d
+  }
+}
+
+const hasOpenAICodexSparkUsage = computed(() => {
+  if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return false
+  return !!getOpenAICodexSparkSnapshot(usageInfo.value)
+})
+
+const openAICodexSparkWindows = computed(() => {
+  console.log('usageInfo.value', usageInfo.value)
+  const snapshot = getOpenAICodexSparkSnapshot(usageInfo.value)
+  if (!snapshot) return []
+  const buildProgress = (util: number | null, resetAfterSeconds: unknown, resetAt: unknown): {
+    utilization: number
+    resets_at: string | undefined
+    remaining_seconds: number
+    window_stats: null
+  } => ({
+    utilization: util ?? 0,
+    resets_at: toResetAt(resetAt, resetAfterSeconds),
+    remaining_seconds: toNumber(resetAfterSeconds) ?? 0,
+    window_stats: null
+  })
+
+  if (snapshot.spark5h.utilized != null || snapshot.spark7d.utilized != null) {
+    const bars: Array<{ label: '5h' | '7d'; progress: ReturnType<typeof buildProgress> }> = []
+    if (snapshot.spark5h.utilized != null) {
+      bars.push({
+        label: '5h',
+        progress: buildProgress(
+          snapshot.spark5h.utilized,
+          snapshot.spark5h.resetAfterSeconds,
+          snapshot.spark5h.resetAt
+        )
+      })
+    }
+    if (snapshot.spark7d.utilized != null) {
+      bars.push({
+        label: '7d',
+        progress: buildProgress(
+          snapshot.spark7d.utilized,
+          snapshot.spark7d.resetAfterSeconds,
+          snapshot.spark7d.resetAt
+        )
+      })
+    }
+    return bars
+  }
+  return []
 })
 
 const openAIUsageRefreshKey = computed(() => buildOpenAIUsageRefreshKey(props.account))
+
+const toggleOpenAICodexSparkExpanded = () => {
+  if (!hasOpenAICodexSparkUsage.value) return
+  isOpenAICodexSparkExpanded.value = !isOpenAICodexSparkExpanded.value
+}
 
 const shouldAutoLoadUsageOnMount = computed(() => {
   return shouldFetchUsage.value
@@ -1028,6 +1214,25 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
   try {
     const fetchFn = () => adminAPI.accounts.getUsage(props.account.id, options?.source)
     const result = await enqueueUsageRequest(props.account, fetchFn)
+    if (import.meta.env.DEV) {
+      const payload = result as unknown as Record<string, unknown>
+      console.info('[AccountUsageCell] usage response raw', payload)
+      console.info('[AccountUsageCell] usage response', {
+        accountId: props.account.id,
+        source: options?.source,
+        keys: Object.keys(payload),
+        codex5hUsed: payload.codex_5h_used_percent,
+        codex7dUsed: payload.codex_7d_used_percent,
+        codex5hReset: payload.codex_5h_reset_after_seconds,
+        codex7dReset: payload.codex_7d_reset_after_seconds,
+        codexSecondaryUsed: payload.codex_secondary_used_percent,
+        codexPrimaryUsed: payload.codex_primary_used_percent,
+        codexSecondaryWindow: payload.codex_secondary_window_minutes,
+        codexPrimaryWindow: payload.codex_primary_window_minutes,
+        codexSecondaryReset: payload.codex_secondary_reset_after_seconds,
+        codexPrimaryReset: payload.codex_primary_reset_after_seconds
+      })
+    }
     if (!unmounted.value) {
       usageInfo.value = result
       _usageCache.set(props.account.id, { data: result, ts: Date.now() })
@@ -1095,7 +1300,23 @@ const attachVisibilityObserver = () => {
 const loadActiveUsage = async () => {
   activeQueryLoading.value = true
   try {
-    usageInfo.value = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
+    const result = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
+    if (import.meta.env.DEV) {
+      const payload = result as unknown as Record<string, unknown>
+      console.info('[AccountUsageCell] active usage response raw', payload)
+      console.info('[AccountUsageCell] active usage response', {
+        accountId: props.account.id,
+        keys: Object.keys(payload),
+        codex5hUsed: payload.codex_5h_used_percent,
+        codex7dUsed: payload.codex_7d_used_percent,
+        codexSecondaryUsed: payload.codex_secondary_used_percent,
+        codexPrimaryUsed: payload.codex_primary_used_percent,
+        codexSecondaryWindow: payload.codex_secondary_window_minutes,
+        codexPrimaryWindow: payload.codex_primary_window_minutes
+      })
+    }
+    usageInfo.value = result
+    _usageCache.set(props.account.id, { data: result, ts: Date.now() })
   } catch (e: any) {
     console.error('Failed to load active usage:', e)
   } finally {
@@ -1213,8 +1434,16 @@ watch(openAIUsageRefreshKey, (nextKey, prevKey) => {
   if (!prevKey || nextKey === prevKey) return
   if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return
 
+  _usageCache.delete(props.account.id)
   requestAutoLoad()
 })
+
+watch(
+  () => props.account.id,
+  () => {
+    isOpenAICodexSparkExpanded.value = false
+  }
+)
 
 watch(
   () => props.manualRefreshToken,

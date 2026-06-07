@@ -41,3 +41,40 @@ func TestOpenAIGatewayService_EvaluateOpenAIModelRoute_RequiresGlobalSettingEnab
 	require.Equal(t, "router_disabled", decision.Reason)
 }
 
+func TestOpenAIModelRouterCapImageIntentTier(t *testing.T) {
+	require.Equal(
+		t,
+		openAIModelRouterTierEconomy,
+		openAIModelRouterCapImageIntentTier(
+			openAIModelRouterTierPremium,
+			"gpt-5.3-codex-spark",
+			"gpt-5.3-codex-spark",
+			"gpt-5.4",
+			"gpt-5.5",
+		),
+	)
+
+	require.Equal(
+		t,
+		openAIModelRouterTierBalanced,
+		openAIModelRouterCapImageIntentTier(
+			openAIModelRouterTierPremium,
+			"gpt-5.4",
+			"gpt-5.3-codex-spark",
+			"gpt-5.4",
+			"gpt-5.5",
+		),
+	)
+
+	require.Equal(
+		t,
+		openAIModelRouterTierPremium,
+		openAIModelRouterCapImageIntentTier(
+			openAIModelRouterTierPremium,
+			"gpt-5.5",
+			"gpt-5.3-codex-spark",
+			"gpt-5.4",
+			"gpt-5.5",
+		),
+	)
+}

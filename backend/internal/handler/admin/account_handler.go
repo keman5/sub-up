@@ -11,6 +11,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -1747,6 +1748,7 @@ func (h *AccountHandler) GetUsage(c *gin.Context) {
 
 	source := c.DefaultQuery("source", "active")
 	force := c.Query("force") == "true"
+	debugUsage := c.Query("debug_usage") == "1" || os.Getenv("SUB2API_DEBUG_OPENAI_USAGE") == "1"
 
 	var usage *service.UsageInfo
 	if source == "passive" {
@@ -1757,6 +1759,20 @@ func (h *AccountHandler) GetUsage(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+
+	if debugUsage {
+		if usageBytes, marshalErr := json.Marshal(usage); marshalErr == nil {
+			slog.Info(
+				"[usage] openai account usage response",
+				"account_id", accountID,
+				"source", source,
+				"force", force,
+				"payload", string(usageBytes),
+			)
+		} else {
+			slog.Warn("[usage] failed to marshal openai usage response for debug", "account_id", accountID, "error", marshalErr)
+		}
 	}
 
 	response.Success(c, usage)

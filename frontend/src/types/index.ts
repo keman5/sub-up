@@ -943,12 +943,14 @@ export interface AntigravityModelQuota {
   reset_time: string  // 重置时间 ISO8601
 }
 
-export interface AccountUsageInfo {
+export interface AccountUsageInfo extends CodexUsageSnapshot {
   source?: 'passive' | 'active'
   updated_at: string | null
   five_hour: UsageProgress | null
   seven_day: UsageProgress | null
   seven_day_sonnet: UsageProgress | null
+  codex_primary?: UsageProgress | null
+  codex_secondary?: UsageProgress | null
   gemini_shared_daily?: UsageProgress | null
   gemini_pro_daily?: UsageProgress | null
   gemini_flash_daily?: UsageProgress | null
@@ -988,6 +990,7 @@ export interface CodexUsageSnapshot {
   codex_secondary_used_percent?: number // Usage percentage (check window_minutes for actual window type)
   codex_secondary_reset_after_seconds?: number // Seconds until reset
   codex_secondary_window_minutes?: number // Window in minutes
+  codex_secondary_reset_at?: string // Secondary window absolute reset time (RFC3339)
   codex_primary_over_secondary_percent?: number // Overflow ratio
 
   // Canonical fields (normalized by backend, use these preferentially)
@@ -999,6 +1002,7 @@ export interface CodexUsageSnapshot {
   codex_7d_reset_after_seconds?: number // Seconds until 7d window reset
   codex_7d_reset_at?: string // 7-day window absolute reset time (RFC3339)
   codex_7d_window_minutes?: number // 7d window in minutes (should be ~10080)
+  codex_primary_reset_at?: string // Primary window absolute reset time (RFC3339)
 
   codex_usage_updated_at?: string // Last update timestamp
 }

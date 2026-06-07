@@ -211,7 +211,7 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('7d|77|300')
   })
 
-  it('OpenAI OAuth 有 codex 快照时仍然使用 /usage API 数据渲染', async () => {
+  it('OpenAI OAuth 有 codex 快照时会按窗口分钟数展示 Spark 额度', async () => {
     getUsage.mockResolvedValue({
       five_hour: {
         utilization: 18,
@@ -236,6 +236,11 @@ describe('AccountUsageCell', () => {
           standard_cost: 0.09,
           user_cost: 0.09
         }
+      },
+      codex_5h_used_percent: 5,
+      codex_5h_reset_at: '2099-03-07T13:00:00Z',
+      codex_7d_used_percent: 95,
+      codex_7d_reset_at: '2099-03-14T13:00:00Z'
       }
     })
 
@@ -249,6 +254,8 @@ describe('AccountUsageCell', () => {
             codex_usage_updated_at: '2099-03-07T10:00:00Z',
             codex_5h_used_percent: 12,
             codex_5h_reset_at: '2099-03-07T12:00:00Z',
+            codex_primary_window_minutes: 10080,
+            codex_secondary_window_minutes: 300,
             codex_7d_used_percent: 34,
             codex_7d_reset_at: '2099-03-13T12:00:00Z'
           }
@@ -268,9 +275,14 @@ describe('AccountUsageCell', () => {
     await flushPromises()
 
     expect(getUsage).toHaveBeenCalledWith(2001)
-    // 单一数据源：始终使用 /usage API 返回值，忽略 codex 快照
+    expect(wrapper.text()).toContain('admin.accounts.usageWindow.openaiCodexSparkShow')
+    expect(wrapper.get('button[aria-expanded="false"]')).toBeTruthy()
+    await wrapper.get('button[aria-expanded="false"]').trigger('click')
+    await flushPromises()
     expect(wrapper.text()).toContain('5h|18|900')
     expect(wrapper.text()).toContain('7d|36|900')
+    expect(wrapper.text()).toContain('5h|5')
+    expect(wrapper.text()).toContain('7d|95')
   })
 
   it('OpenAI OAuth 有现成快照时，手动刷新信号会触发 usage 重拉', async () => {
@@ -341,6 +353,114 @@ describe('AccountUsageCell', () => {
     expect(getUsage).toHaveBeenCalledWith(2010)
     // 单一数据源：始终使用 /usage API 值
     expect(wrapper.text()).toContain('5h|18|900')
+  })
+
+  it('OpenAI OAuth 的 Spark 使用量随 usage 重刷更新，不再跟 account.extra 绑定', async () => {
+    getUsage
+      .mockResolvedValueOnce({
+        five_hour: {
+          utilization: 10,
+          resets_at: '2099-03-07T12:00:00Z',
+          remaining_seconds: 3600,
+          window_stats: {
+            requests: 1,
+            tokens: 100,
+            cost: 0.01,
+            standard_cost: 0.01,
+            user_cost: 0.01
+          }
+        },
+        seven_day: {
+          utilization: 20,
+          resets_at: '2099-03-13T12:00:00Z',
+          remaining_seconds: 3600,
+          window_stats: {
+            requests: 2,
+            tokens: 200,
+            cost: 0.02,
+            standard_cost: 0.02,
+            user_cost: 0.02
+          }
+        },
+        codex_5h_used_percent: 10,
+        codex_5h_reset_at: '2099-03-07T13:00:00Z',
+        codex_7d_used_percent: 20,
+        codex_7d_reset_at: '2099-03-14T13:00:00Z'
+      })
+      .mockResolvedValueOnce({
+        five_hour: {
+          utilization: 30,
+          resets_at: '2099-03-07T12:00:00Z',
+          remaining_seconds: 3600,
+          window_stats: {
+            requests: 3,
+            tokens: 300,
+            cost: 0.03,
+            standard_cost: 0.03,
+            user_cost: 0.03
+          }
+        },
+        seven_day: {
+          utilization: 40,
+          resets_at: '2099-03-13T12:00:00Z',
+          remaining_seconds: 3600,
+          window_stats: {
+            requests: 4,
+            tokens: 400,
+            cost: 0.04,
+            standard_cost: 0.04,
+            user_cost: 0.04
+          }
+        },
+        codex_5h_used_percent: 99,
+        codex_5h_reset_at: '2099-03-07T14:00:00Z',
+        codex_7d_used_percent: 88,
+        codex_7d_reset_at: '2099-03-14T14:00:00Z'
+      })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 2011,
+          platform: 'openai',
+          type: 'oauth',
+          extra: {
+            codex_usage_updated_at: '2099-03-07T10:00:00Z',
+            codex_5h_used_percent: 12,
+            codex_5h_reset_at: '2099-03-07T11:00:00Z',
+            codex_7d_used_percent: 34,
+            codex_7d_reset_at: '2099-03-13T12:00:00Z'
+          },
+          rate_limit_reset_at: null
+        }),
+        manualRefreshToken: 0
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'resetsAt', 'windowStats', 'color'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ windowStats?.tokens }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+    expect(wrapper.text()).toContain('5h|10')
+    expect(wrapper.text()).toContain('7d|20')
+
+    await wrapper.get('button[aria-expanded="false"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('5h|10')
+    expect(wrapper.text()).toContain('7d|20')
+
+    await wrapper.setProps({ manualRefreshToken: 1 })
+    await flushPromises()
+    expect(wrapper.text()).toContain('5h|30')
+    expect(wrapper.text()).toContain('7d|40')
+    expect(wrapper.text()).toContain('5h|99')
+    expect(wrapper.text()).toContain('7d|88')
   })
 
   it('OpenAI OAuth 在无 codex 快照时会回退显示 usage 接口窗口', async () => {

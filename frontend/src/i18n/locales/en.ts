@@ -4099,6 +4099,8 @@ export default {
       usageWindow: {
         statsTitle: '5-Hour Window Usage Statistics',
         statsTitleDaily: 'Daily Usage Statistics',
+        openaiCodexSparkShow: 'Spark usage',
+        openaiCodexSparkHide: 'Spark usage',
         geminiProDaily: 'Pro',
         geminiFlashDaily: 'Flash',
         gemini3Pro: 'G3P',

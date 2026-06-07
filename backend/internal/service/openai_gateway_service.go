@@ -6210,9 +6210,15 @@ func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 	snapshot := &OpenAICodexUsageSnapshot{}
 	hasData := false
 
+	normalizeHeaderValue := func(v string) string {
+		v = strings.TrimSpace(v)
+		v = strings.TrimSuffix(v, "%")
+		return strings.TrimSpace(v)
+	}
+
 	// Helper to parse float64 from header
 	parseFloat := func(key string) *float64 {
-		if v := headers.Get(key); v != "" {
+		if v := normalizeHeaderValue(headers.Get(key)); v != "" {
 			if f, err := strconv.ParseFloat(v, 64); err == nil {
 				return &f
 			}
@@ -6222,8 +6228,9 @@ func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 
 	// Helper to parse int from header
 	parseInt := func(key string) *int {
-		if v := headers.Get(key); v != "" {
-			if i, err := strconv.Atoi(v); err == nil {
+		if v := normalizeHeaderValue(headers.Get(key)); v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				i := int(f)
 				return &i
 			}
 		}

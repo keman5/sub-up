@@ -39,7 +39,54 @@ func IsImageGenerationIntent(endpoint string, requestedModel string, body []byte
 	if openAIJSONToolsContainImageGeneration(gjson.GetBytes(body, "tools")) {
 		return true
 	}
+	if openAIRequestBodyContainsImageInput(body) {
+		return true
+	}
 	return openAIJSONToolChoiceSelectsImageGeneration(gjson.GetBytes(body, "tool_choice"))
+}
+
+func openAIRequestBodyContainsImageInput(body []byte) bool {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return false
+	}
+	return openAIJSONValueContainsImageInput(gjson.GetBytes(body, "input")) ||
+		openAIJSONValueContainsImageInput(gjson.GetBytes(body, "messages"))
+}
+
+func openAIJSONValueContainsImageInput(value gjson.Result) bool {
+	if !value.Exists() {
+		return false
+	}
+	if value.IsArray() {
+		found := false
+		value.ForEach(func(_, item gjson.Result) bool {
+			if openAIJSONValueContainsImageInput(item) {
+				found = true
+				return false
+			}
+			return true
+		})
+		return found
+	}
+	if value.IsObject() {
+		typ := strings.TrimSpace(value.Get("type").String())
+		switch typ {
+		case "input_image", "image", "image_url":
+			return true
+		}
+		if value.Get("image_url").Exists() {
+			return true
+		}
+		if value.Get("image").Exists() {
+			return true
+		}
+		inlineData := value.Get("inline_data")
+		if inlineData.Exists() && strings.HasPrefix(strings.ToLower(strings.TrimSpace(inlineData.Get("mime_type").String())), "image/") {
+			return true
+		}
+		return openAIJSONValueContainsImageInput(value.Get("content")) || openAIJSONValueContainsImageInput(value.Get("input"))
+	}
+	return false
 }
 
 // IsImageGenerationIntentMap is the map-backed variant used after service-side request mutation.
