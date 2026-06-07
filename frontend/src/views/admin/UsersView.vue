@@ -267,7 +267,11 @@
           </template>
 
           <template #cell-username="{ row }">
-            <span class="text-sm text-gray-700 dark:text-gray-300">{{ formatUsernameWithNotes(row) }}</span>
+            <span
+              class="block max-w-full whitespace-normal break-all text-sm text-gray-700 dark:text-gray-300"
+            >
+              {{ formatUsernameWithNotes(row) }}
+            </span>
           </template>
 
           <template #cell-notes="{ value }">
