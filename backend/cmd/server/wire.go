@@ -82,6 +82,7 @@ func provideCleanup(
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
 	openAIQuotaRefresh *service.OpenAIQuotaRefreshService,
+	proxyExpiry *service.ProxyExpiryService,
 	subscriptionExpiry *service.SubscriptionExpiryService,
 	usageCleanup *service.UsageCleanupService,
 	idempotencyCleanup *service.IdempotencyCleanupService,
@@ -177,6 +178,12 @@ func provideCleanup(
 			{"OpenAIQuotaRefreshService", func() error {
 				if openAIQuotaRefresh != nil {
 					openAIQuotaRefresh.Stop()
+				}
+				return nil
+			}},
+			{"ProxyExpiryService", func() error {
+				if proxyExpiry != nil {
+					proxyExpiry.Stop()
 				}
 				return nil
 			}},
