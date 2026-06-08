@@ -204,7 +204,7 @@ chmod +x new-api
 5. 远端按文件名顺序拼接为临时 `.gz`，执行 `gzip -t` 校验。
 6. 远端解压到临时可执行文件。
 7. `chmod +x` 后原子 `mv` 为 `/opt/sub2api-runtime-build/sub2api`。
-8. 基于上一版运行镜像只替换 `/app/sub2api`，再按 standby、primary 顺序滚动。
+8. 基于上一版运行镜像只替换 `/app/sub2api`，再按 ap1、primary 顺序滚动。
 
 说明：2026-06-01 线上重部署时，单条 gzip 管道和单文件 scp 在当前 VPS SSH 链路上都出现过中途停住；脚本已改为小块短连接上传，并带 5 次退避重试。
 
@@ -220,7 +220,7 @@ deploy/local-gzip-binary-deploy.sh --skip-frontend-build --skip-backend-build
 # 构建、gzip 上传、远端解压、打镜像，但不重启服务
 deploy/local-gzip-binary-deploy.sh --apply
 
-# 构建、gzip 上传、远端解压、打镜像，并滚动部署 standby + primary
+# 构建、gzip 上传、远端解压、打镜像，并滚动部署 ap1 + primary
 deploy/local-gzip-binary-deploy.sh --apply --deploy
 ```
 
@@ -240,8 +240,8 @@ deploy/local-gzip-binary-deploy.sh --apply --deploy
 - 默认分块大小为 `UPLOAD_CHUNK_SIZE=1m`，可按链路情况覆盖。
 - 解压到 `sub2api.<timestamp>.tmp`，校验权限后再 `mv` 覆盖正式二进制。
 - compose 更新前会备份为 `docker-compose.yml.bak-gzip-<timestamp>`。
-- `--deploy` 会先更新 `sub2api-standby`，确认 healthy 后再更新 `sub2api`。
-- 最后验证 standby、primary 和公开 `/health`。
+- `--deploy` 会先更新 `sub2api-ap1`，确认 healthy 后再更新 `sub2api`。
+- 最后验证 ap1、primary 和公开 `/health`。
 
 ### 3.2 动态模型路由上线核对
 
@@ -272,7 +272,7 @@ deploy/local-gzip-binary-deploy.sh --apply --deploy
 
 ```bash
 ssh 51token-vps 'docker exec sub2api env | grep GATEWAY_MODEL_ROUTER'
-ssh 51token-vps 'docker exec sub2api-standby env | grep GATEWAY_MODEL_ROUTER'
+ssh 51token-vps 'docker exec sub2api-ap1 env | grep GATEWAY_MODEL_ROUTER'
 curl -fsS https://ai.upit.top/health
 curl -fsS https://a1.upit.top/health
 ```
@@ -281,7 +281,7 @@ curl -fsS https://a1.upit.top/health
 
 ### 3.3 ap2 / a2 灰度环境单独重部署
 
-`ap2` 不是 `sub2api-standby`。当前线上单独存在一套灰度环境：
+`ap2` 不是 `sub2api-ap1`。当前线上单独存在一套灰度环境：
 
 - compose 目录：`/opt/sub2api-ap2-deploy`
 - compose project：`sub2api-ap2-deploy`
@@ -289,7 +289,7 @@ curl -fsS https://a1.upit.top/health
 - 本地健康检查：`http://127.0.0.1:8083/health`
 - 镜像来源：`/opt/sub2api-ap2-deploy/.env` 中的 `IMAGE_TAG=...`
 
-因此，如果只是重新部署 `ap2/a2`，不要使用 `deploy/local-gzip-binary-deploy.sh --apply --deploy`，因为那个流程会更新 `sub2api-standby` 和 `sub2api`。正确做法是：
+因此，如果只是重新部署 `ap2/a2`，不要使用 `deploy/local-gzip-binary-deploy.sh --apply --deploy`，因为那个流程会更新 `sub2api-ap1` 和 `sub2api`。正确做法是：
 
 1. 先用脚本仅完成“本地构建 + gzip 上传 + 远端替换 `/opt/sub2api-runtime-build/sub2api` + 打新镜像”，不要滚动主环境：
 
@@ -330,7 +330,7 @@ ssh 51token-vps '
 - `sub2api-ap2` 更新后状态为 `healthy`
 - `http://127.0.0.1:8083/health` 返回 `{"status":"ok"}`
 
-如果只想验证灰度 OAuth/Codex 自适应路由，不要动 `sub2api-standby` 或 `sub2api`，保持 `ap2` 独立切换即可。
+如果只想验证灰度 OAuth/Codex 自适应路由，不要动 `sub2api-ap1` 或 `sub2api`，保持 `ap2` 独立切换即可。
 
 底层等价命令示例：
 

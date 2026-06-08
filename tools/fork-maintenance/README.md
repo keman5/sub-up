@@ -10,6 +10,7 @@ The scripts do not silently rewrite upstream merges. They inventory fork-only ch
 tools/fork-maintenance/fork-maintenance.sh inventory --base upstream/main
 tools/fork-maintenance/fork-maintenance.sh check-doc
 tools/fork-maintenance/fork-maintenance.sh record --title "Describe the fork-only change"
+tools/fork-maintenance/fork-maintenance.sh sort-doc
 tools/fork-maintenance/fork-maintenance.sh snapshot --base upstream/main
 tools/fork-maintenance/fork-maintenance.sh verify-after-upstream
 tools/fork-maintenance/fork-maintenance.sh reapply-production-state
@@ -30,6 +31,8 @@ make fork-restore-dry-run
 It regenerates `favicon.ico` from the current `frontend/public/logo.png` before upload, so the fallback icon follows the logo.
 
 `record` appends a TODO maintenance record template to `docs/FORK_MAINTENANCE_CN.md` for current record-candidate changes. Fill in the TODOs before committing.
+
+`check-doc` and `record` keep the local patch table sorted by ascending date. Use `sort-doc` to normalize the order manually after editing old records.
 
 For binary deployment over slow links, use the gzip transfer/decompress helper:
 

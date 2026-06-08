@@ -828,7 +828,7 @@ type GatewayModelRouterConfig struct {
 	CapabilityErrorEscalateConsecutiveFailures int `mapstructure:"capability_error_escalate_consecutive_failures"`
 	// ComplexInputMinChars is a low-cost complexity heuristic for text requests.
 	ComplexInputMinChars int `mapstructure:"complex_input_min_chars"`
-	// ComplexInputMinItems is another complexity heuristic based on input item count.
+	// ComplexInputMinItems is retained for config compatibility; balanced routing uses text size.
 	ComplexInputMinItems int `mapstructure:"complex_input_min_items"`
 	// PremiumInputMinChars promotes very large text requests to premium tier.
 	PremiumInputMinChars int `mapstructure:"premium_input_min_chars"`

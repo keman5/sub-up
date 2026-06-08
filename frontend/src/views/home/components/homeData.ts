@@ -71,12 +71,13 @@ function buildClaudeConfigJson(claudeBaseUrl: string): string {
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "不带sk-开头",
     "ANTHROPIC_BASE_URL": "${claudeBaseUrl}",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.4",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.5",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.5",
     "ANTHROPIC_MODEL": "gpt-5.5",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "gpt-5.5",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "gpt-5.5"
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.5",
+    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.5",
+    "ANTHROPIC_REASONING_MODEL": "gpt-5.5"
   }
 }`
 }
@@ -104,7 +105,7 @@ export function buildHeroSnippetBlocks(urls: HomeSnippetUrls): Record<HeroCodeTa
     {
       id: 'claude-config',
       title: 'Claude 配置',
-      description: '将环境变量配置为以下内容',
+      description: '将环境变量配置为以下内容。ANTHROPIC_BASE_URL 包含 /51Token，这里不带 /v1',
       language: 'json',
       code: claudeConfigJson
     }
@@ -127,7 +128,7 @@ export function buildHeroSnippetBlocks(urls: HomeSnippetUrls): Record<HeroCodeTa
     {
       id: 'claude-config',
       title: 'Claude 配置',
-      description: '将环境变量配置为以下内容',
+      description: '将环境变量配置为以下内容。ANTHROPIC_BASE_URL 包含 /51Token，这里不带 /v1',
       language: 'json',
       code: claudeConfigJson
     }

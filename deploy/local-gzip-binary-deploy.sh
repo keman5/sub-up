@@ -6,12 +6,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST="${HOST:-51token-vps}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/sub2api-runtime-build}"
 PRIMARY_COMPOSE_DIR="${PRIMARY_COMPOSE_DIR:-/opt/sub2api-deploy}"
-STANDBY_COMPOSE_DIR="${STANDBY_COMPOSE_DIR:-/opt/sub2api-standby-deploy}"
+AP1_COMPOSE_DIR="${AP1_COMPOSE_DIR:-${STANDBY_COMPOSE_DIR:-/opt/sub2api-ap1-deploy}}"
 SERVICE_NAME="${SERVICE_NAME:-sub2api}"
 PRIMARY_CONTAINER="${PRIMARY_CONTAINER:-sub2api}"
-STANDBY_CONTAINER="${STANDBY_CONTAINER:-sub2api-standby}"
+AP1_CONTAINER="${AP1_CONTAINER:-${STANDBY_CONTAINER:-sub2api-ap1}}"
 PRIMARY_HEALTH_URL="${PRIMARY_HEALTH_URL:-http://127.0.0.1:8081/health}"
-STANDBY_HEALTH_URL="${STANDBY_HEALTH_URL:-http://127.0.0.1:8082/health}"
+AP1_HEALTH_URL="${AP1_HEALTH_URL:-${STANDBY_HEALTH_URL:-http://127.0.0.1:8082/health}}"
 PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-https://ai.upit.top/health}"
 OUTPUT="${OUTPUT:-/tmp/sub2api-build-output/sub2api}"
 BASE_IMAGE="${BASE_IMAGE:-}"
@@ -32,11 +32,11 @@ Usage:
 
 Build a Linux amd64 embedded sub2api binary locally, gzip it, upload it to the VPS,
 atomically decompress it on the remote host, build a Docker image, and optionally
-roll it out to the standby and primary compose deployments.
+roll it out to the ap1 and primary compose deployments.
 
 Options:
   --apply                 Execute commands. Default is dry-run.
-  --deploy                After building the image, update compose files and restart standby then primary.
+  --deploy                After building the image, update compose files and restart ap1 then primary.
   --host HOST             SSH host alias. Default: 51token-vps.
   --base-image IMAGE      Docker base image on the remote host. Default: current primary compose image.
   --image-tag TAG         New Docker image tag. Default: sub2api:subapi-<git-sha>-<suffix>-<timestamp>.
@@ -48,10 +48,14 @@ Options:
   -h, --help              Show this help.
 
 Environment overrides:
-  HOST, REMOTE_DIR, PRIMARY_COMPOSE_DIR, STANDBY_COMPOSE_DIR, SERVICE_NAME,
-  PRIMARY_CONTAINER, STANDBY_CONTAINER, PRIMARY_HEALTH_URL, STANDBY_HEALTH_URL,
+  HOST, REMOTE_DIR, PRIMARY_COMPOSE_DIR, AP1_COMPOSE_DIR, SERVICE_NAME,
+  PRIMARY_CONTAINER, AP1_CONTAINER, PRIMARY_HEALTH_URL, AP1_HEALTH_URL,
   PUBLIC_HEALTH_URL, BASE_IMAGE, IMAGE_TAG, VERSION, TAG_SUFFIX, OUTPUT,
   UPLOAD_CHUNK_SIZE
+
+Compatibility:
+  STANDBY_COMPOSE_DIR, STANDBY_CONTAINER, and STANDBY_HEALTH_URL are still
+  accepted as aliases for the ap1 deployment.
 EOF
 }
 
@@ -274,11 +278,11 @@ update_compose_image() {
   [[ "$SKIP_IMAGE" -eq 0 ]] || die "--deploy cannot be used with --skip-image-build"
   ssh_run "set -eu
 TS=\$(date +%Y%m%d%H%M%S)
-for f in '$PRIMARY_COMPOSE_DIR/docker-compose.yml' '$STANDBY_COMPOSE_DIR/docker-compose.yml'; do
+for f in '$PRIMARY_COMPOSE_DIR/docker-compose.yml' '$AP1_COMPOSE_DIR/docker-compose.yml'; do
   cp \"\$f\" \"\$f.bak-gzip-\$TS\"
   sed -i -E '0,/image: sub2api:subapi-/s#image: sub2api:subapi-[^[:space:]]+#image: $IMAGE_TAG#' \"\$f\"
 done
-grep -R '^ *image:' '$PRIMARY_COMPOSE_DIR/docker-compose.yml' '$STANDBY_COMPOSE_DIR/docker-compose.yml'"
+grep -R '^ *image:' '$PRIMARY_COMPOSE_DIR/docker-compose.yml' '$AP1_COMPOSE_DIR/docker-compose.yml'"
 }
 
 rollout() {
@@ -294,10 +298,10 @@ wait_healthy() {
   done
   return 1
 }
-cd '$STANDBY_COMPOSE_DIR'
+cd '$AP1_COMPOSE_DIR'
 docker compose up -d '$SERVICE_NAME'
-wait_healthy '$STANDBY_CONTAINER'
-curl -fsS '$STANDBY_HEALTH_URL'
+wait_healthy '$AP1_CONTAINER'
+curl -fsS '$AP1_HEALTH_URL'
 cd '$PRIMARY_COMPOSE_DIR'
 docker compose up -d '$SERVICE_NAME'
 wait_healthy '$PRIMARY_CONTAINER'

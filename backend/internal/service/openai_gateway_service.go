@@ -1364,7 +1364,7 @@ func (s *OpenAIGatewayService) WithModelRouteRequestContext(
 				reqBody,
 				rawBody,
 				s.cfg.Gateway.ModelRouter.ComplexInputMinChars,
-				s.cfg.Gateway.ModelRouter.ComplexInputMinItems,
+				0,
 			),
 			PremiumText: isOpenAIModelRouterComplexText(
 				reqBody,

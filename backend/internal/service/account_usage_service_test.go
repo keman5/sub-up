@@ -92,6 +92,19 @@ func TestExtractOpenAICodexProbeUpdatesAccepts429WithCodexHeaders(t *testing.T) 
 	}
 }
 
+func TestBuildOpenAICodexProbePayloadUsesSparkModel(t *testing.T) {
+	t.Parallel()
+
+	payload := buildOpenAICodexProbePayload()
+
+	if got := payload["model"]; got != "gpt-5.3-codex-spark" {
+		t.Fatalf("model = %v, want gpt-5.3-codex-spark", got)
+	}
+	if got := payload["store"]; got != false {
+		t.Fatalf("store = %v, want false", got)
+	}
+}
+
 func TestAccountUsageService_PersistOpenAICodexProbeSnapshotOnlyUpdatesExtra(t *testing.T) {
 	t.Parallel()
 

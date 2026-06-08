@@ -15,7 +15,6 @@ import (
 	"time"
 
 	httppool "github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
-	openaipkg "github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -112,6 +111,7 @@ const (
 	windowStatsCacheTTL     = 1 * time.Minute
 	openAIProbeCacheTTL     = 10 * time.Minute
 	openAICodexProbeVersion = "0.125.0"
+	openAICodexProbeModel   = "gpt-5.3-codex-spark"
 )
 
 // UsageCache 封装账户使用量相关的缓存
@@ -770,8 +770,7 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	if accessToken == "" {
 		return nil, fmt.Errorf("no access token available")
 	}
-	modelID := openaipkg.DefaultTestModel
-	payload := createOpenAITestPayload(modelID, true)
+	payload := buildOpenAICodexProbePayload()
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal openai probe payload: %w", err)
@@ -844,6 +843,10 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 		return updates, nil
 	}
 	return nil, nil
+}
+
+func buildOpenAICodexProbePayload() map[string]any {
+	return createOpenAITestPayload(openAICodexProbeModel, true)
 }
 
 func (s *AccountUsageService) persistOpenAICodexProbeSnapshot(accountID int64, updates map[string]any) {

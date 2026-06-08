@@ -86,7 +86,7 @@ func (s *OpenAIGatewayService) decideOpenAIModelRoute(
 	meta := openAIModelRouterRequestMeta{
 		RequestedModel: strings.TrimSpace(requestedModel),
 		ImageIntent:    imageIntent,
-		ComplexText:    isOpenAIModelRouterComplexText(reqBody, rawBody, s.cfg.Gateway.ModelRouter.ComplexInputMinChars, s.cfg.Gateway.ModelRouter.ComplexInputMinItems),
+		ComplexText:    isOpenAIModelRouterComplexText(reqBody, rawBody, s.cfg.Gateway.ModelRouter.ComplexInputMinChars, 0),
 		PremiumText:    isOpenAIModelRouterComplexText(reqBody, rawBody, s.cfg.Gateway.ModelRouter.PremiumInputMinChars, s.cfg.Gateway.ModelRouter.PremiumInputMinItems),
 	}
 	return s.evaluateOpenAIModelRoute(ctx, openAIModelRouteEvalInput{
@@ -481,8 +481,11 @@ func isOpenAIModelRouterComplexText(reqBody map[string]any, rawBody []byte, minC
 	}
 	itemCount := 0
 	charCount := 0
+	rawHadInput := false
+	rawHadInstructions := false
 	if len(rawBody) > 0 && gjson.ValidBytes(rawBody) {
 		if input := gjson.GetBytes(rawBody, "input"); input.Exists() {
+			rawHadInput = true
 			if input.IsArray() {
 				arr := input.Array()
 				itemCount += len(arr)
@@ -497,17 +500,18 @@ func isOpenAIModelRouterComplexText(reqBody map[string]any, rawBody []byte, minC
 			}
 		}
 		if instructions := strings.TrimSpace(gjson.GetBytes(rawBody, "instructions").String()); instructions != "" {
+			rawHadInstructions = true
 			charCount += len(instructions)
 		}
 	}
 	if reqBody != nil {
-		if input, ok := reqBody["input"].([]any); ok {
+		if input, ok := reqBody["input"].([]any); ok && !rawHadInput {
 			itemCount += len(input)
 			for _, v := range input {
 				charCount += len(openAIModelRouterJSONString(v))
 			}
 		}
-		if instructions, ok := reqBody["instructions"].(string); ok {
+		if instructions, ok := reqBody["instructions"].(string); ok && !rawHadInstructions {
 			charCount += len(strings.TrimSpace(instructions))
 		}
 	}

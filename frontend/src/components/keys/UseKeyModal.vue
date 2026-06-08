@@ -376,10 +376,20 @@ const comment = (value: string) => wrapToken('text-slate-500', value)
 // Syntax highlighting helpers
 function buildAnthropicBaseUrl(baseUrl: string): string {
   const normalized = baseUrl.trim().replace(/\/+$/, '')
+  if (!normalized) return '/51Token'
+
   try {
-    return `${new URL(normalized).origin}/51Token`
+    const parsed = new URL(normalized)
+    const withoutV1 = parsed.pathname.replace(/\/v1$/i, '').replace(/\/+$/, '')
+    parsed.pathname = withoutV1 || '/51Token'
+    parsed.search = ''
+    parsed.hash = ''
+    return parsed.toString().replace(/\/+$/, '')
   } catch {
-    return normalized.replace(/\/v1$/i, '').replace(/\/51Token$/i, '') + '/51Token'
+    const withoutV1 = normalized.replace(/\/v1$/i, '')
+    return withoutV1 === normalized && !/\/51Token$/i.test(withoutV1)
+      ? `${withoutV1}/51Token`
+      : withoutV1
   }
 }
 
@@ -451,27 +461,41 @@ function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
   switch (activeTab.value) {
     case 'unix':
       path = 'Terminal'
-      content = `export ANTHROPIC_BASE_URL="${baseUrl}"  # 这里没有/v1
+      content = `# Claude Code 的 ANTHROPIC_BASE_URL 需要包含 /51Token，但这里不带 /v1。
+export ANTHROPIC_BASE_URL="${baseUrl}"
 export ANTHROPIC_AUTH_TOKEN="${apiKey}"
 export ANTHROPIC_MODEL="gpt-5.5"
 export ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.5"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.5"
+export ANTHROPIC_REASONING_MODEL="gpt-5.5"
+export CLAUDE_CODE_ATTRIBUTION_HEADER=0
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
       break
     case 'cmd':
       path = 'Command Prompt'
-      content = `set ANTHROPIC_BASE_URL=${baseUrl}
-REM 这里没有v1
+      content = `REM Claude Code 的 ANTHROPIC_BASE_URL 需要包含 /51Token，但这里不带 /v1。
+set ANTHROPIC_BASE_URL=${baseUrl}
 set ANTHROPIC_AUTH_TOKEN=${apiKey}
 set ANTHROPIC_MODEL=gpt-5.5
 set ANTHROPIC_DEFAULT_SONNET_MODEL=gpt-5.5
+set ANTHROPIC_DEFAULT_HAIKU_MODEL=gpt-5.5
+set ANTHROPIC_DEFAULT_OPUS_MODEL=gpt-5.5
+set ANTHROPIC_REASONING_MODEL=gpt-5.5
+set CLAUDE_CODE_ATTRIBUTION_HEADER=0
 set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
       break
     case 'powershell':
       path = 'PowerShell'
-      content = `$env:ANTHROPIC_BASE_URL="${baseUrl}"  # 这里没有/v1
+      content = `# Claude Code 的 ANTHROPIC_BASE_URL 需要包含 /51Token，但这里不带 /v1。
+$env:ANTHROPIC_BASE_URL="${baseUrl}"
 $env:ANTHROPIC_AUTH_TOKEN="${apiKey}"
 $env:ANTHROPIC_MODEL="gpt-5.5"
 $env:ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5"
+$env:ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.5"
+$env:ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.5"
+$env:ANTHROPIC_REASONING_MODEL="gpt-5.5"
+$env:CLAUDE_CODE_ATTRIBUTION_HEADER="0"
 $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
       break
     default:

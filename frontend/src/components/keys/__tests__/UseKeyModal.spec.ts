@@ -122,4 +122,46 @@ describe('UseKeyModal', () => {
     expect(codeBlock.text()).toContain('"name": "GPT-5.4 Mini"')
     expect(codeBlock.text()).not.toContain('"name": "GPT-5.4 Nano"')
   })
+
+  it('renders Claude Code config with 51Token base path but without v1', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.upit.top/51Token/v1',
+        platform: 'openai',
+        allowMessagesDispatch: true
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    const claudeTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.claudeCode')
+    )
+
+    expect(claudeTab).toBeDefined()
+    await claudeTab!.trigger('click')
+    await nextTick()
+
+    const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+    const settingsJson = codeBlocks.find((content) => content.includes('"env"'))
+
+    expect(settingsJson).toBeDefined()
+    expect(settingsJson).toContain('"ANTHROPIC_BASE_URL": "https://api.upit.top/51Token"')
+    expect(settingsJson).not.toContain('https://api.upit.top/51Token/v1')
+    expect(settingsJson).toContain('"ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.5"')
+    expect(settingsJson).toContain('"ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.5"')
+    expect(settingsJson).toContain('"ANTHROPIC_REASONING_MODEL": "gpt-5.5"')
+    expect(settingsJson).toContain('"CLAUDE_CODE_ATTRIBUTION_HEADER": "0"')
+    expect(settingsJson).toContain('"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"')
+  })
 })

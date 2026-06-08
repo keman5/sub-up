@@ -4,6 +4,7 @@ export type HomeSnippetUrls = {
 }
 
 const DEFAULT_API_PREFIX = '/51Token/v1'
+const CLAUDE_API_PREFIX = '/51Token'
 
 function getRuntimeOrigin(): string {
   if (typeof window === 'undefined') return ''
@@ -25,10 +26,20 @@ export function resolveHomeApiBaseUrl(configuredBaseUrl?: string | null, origin 
 
 export function buildClaudeBaseUrl(apiBaseUrl: string): string {
   const normalized = trimTrailingSlashes(apiBaseUrl)
+  if (!normalized) return CLAUDE_API_PREFIX
+
   try {
-    return `${new URL(normalized).origin}/51Token`
+    const parsed = new URL(normalized)
+    const withoutV1 = parsed.pathname.replace(/\/v1$/i, '').replace(/\/+$/, '')
+    parsed.pathname = withoutV1 || CLAUDE_API_PREFIX
+    parsed.search = ''
+    parsed.hash = ''
+    return trimTrailingSlashes(parsed.toString())
   } catch {
-    return normalized.replace(/\/v1$/i, '').replace(/\/51Token$/i, '') + '/51Token'
+    const withoutV1 = normalized.replace(/\/v1$/i, '')
+    return withoutV1 === normalized && !/\/51Token$/i.test(withoutV1)
+      ? `${withoutV1}${CLAUDE_API_PREFIX}`
+      : withoutV1
   }
 }
 

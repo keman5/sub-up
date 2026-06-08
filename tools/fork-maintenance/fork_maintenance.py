@@ -32,6 +32,11 @@ VERIFY_SEARCHES = (
     ("fork record", "2026-05-31 线上 OAuth|favicon-20260531210858|bg-20260531", "docs/FORK_MAINTENANCE_CN.md"),
 )
 
+LOCAL_PATCH_RECORD_HEADING = "## 本地补丁记录"
+POST_LOCAL_PATCH_RECORD_HEADING = "## 同步官方版本后的复查流程"
+LOCAL_PATCH_TABLE_HEADER = "| 日期 | 问题 | 本地修复 | 验证 | 后续同步复查 |"
+LOCAL_PATCH_TABLE_SEPARATOR = "| --- | --- | --- | --- | --- |"
+
 
 class CommandError(RuntimeError):
     pass
@@ -205,13 +210,61 @@ def build_record_text(files: list[str], title: str, *, auto: bool) -> str:
     return "\n".join(lines)
 
 
+def sort_local_patch_table(text: str) -> str:
+    start_marker = f"\n{LOCAL_PATCH_RECORD_HEADING}\n"
+    end_marker = f"\n{POST_LOCAL_PATCH_RECORD_HEADING}"
+    start = text.find(start_marker)
+    end = text.find(end_marker, start + len(start_marker)) if start != -1 else -1
+    if start == -1 or end == -1:
+        return text
+
+    section = text[start:end]
+    lines = section.splitlines()
+    header_idx = -1
+    separator_idx = -1
+    for idx, line in enumerate(lines):
+        if line.strip() == LOCAL_PATCH_TABLE_HEADER:
+            header_idx = idx
+            if idx + 1 < len(lines) and lines[idx + 1].strip() == LOCAL_PATCH_TABLE_SEPARATOR:
+                separator_idx = idx + 1
+            break
+    if header_idx == -1 or separator_idx == -1:
+        return text
+
+    row_pattern = re.compile(r"^\| (?P<date>\d{4}-\d{2}-\d{2}) \|")
+    rows: list[tuple[str, int, str]] = []
+    row_indexes: list[int] = []
+    for idx in range(separator_idx + 1, len(lines)):
+        match = row_pattern.match(lines[idx])
+        if match:
+            rows.append((match.group("date"), len(rows), lines[idx]))
+            row_indexes.append(idx)
+
+    if len(rows) < 2:
+        return text
+
+    sorted_rows = [row for _, _, row in sorted(rows, key=lambda item: (item[0], item[1]))]
+    for idx, row in zip(row_indexes, sorted_rows):
+        lines[idx] = row
+
+    sorted_section = "\n".join(lines)
+    return text[:start] + sorted_section + "\n" + text[end:]
+
+
+def sort_fork_doc() -> None:
+    text = FORK_DOC.read_text(encoding="utf-8")
+    sorted_text = sort_local_patch_table(text)
+    if sorted_text != text:
+        FORK_DOC.write_text(sorted_text, encoding="utf-8")
+
+
 def append_record(files: list[str], title: str, *, auto: bool) -> None:
     text = FORK_DOC.read_text(encoding="utf-8")
-    marker = "\n## 同步官方版本后的复查流程"
+    marker = f"\n{POST_LOCAL_PATCH_RECORD_HEADING}"
     insert = build_record_text(files, title, auto=auto)
     if marker not in text:
         raise CommandError(f"cannot find insertion marker in {FORK_DOC}: {marker.strip()}")
-    FORK_DOC.write_text(text.replace(marker, insert + marker, 1), encoding="utf-8")
+    FORK_DOC.write_text(sort_local_patch_table(text.replace(marker, insert + marker, 1)), encoding="utf-8")
 
 
 def cmd_check_doc(args: argparse.Namespace) -> int:
@@ -246,6 +299,12 @@ def cmd_record(args: argparse.Namespace) -> int:
         return 0
     append_record(files, title, auto=False)
     print(f"Appended fork maintenance record template to {FORK_DOC}")
+    return 0
+
+
+def cmd_sort_doc(args: argparse.Namespace) -> int:
+    sort_fork_doc()
+    print(f"Sorted local patch records in {FORK_DOC}")
     return 0
 
 
@@ -438,7 +497,7 @@ docker exec cf-origin-ssl sh -lc "grep -o '<link rel=\\"[^\\"]*\\"[^>]*>' /srv/5
     sql_path.write_text(sql, encoding="utf-8")
     scp_to_remote(host, sql_path, "/tmp/fork-maintenance/login-agreement.sql", apply=apply)
     db_cmd = """set -eu
-for c in sub2api-postgres sub2api-standby-postgres; do
+for c in sub2api-postgres sub2api-ap1-postgres; do
   docker cp /tmp/fork-maintenance/login-agreement.sql "$c":/tmp/login-agreement.sql
   docker exec "$c" sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /tmp/login-agreement.sql'
 done
@@ -454,7 +513,7 @@ if grep -q 'favicon.ico\\|alternate icon' /tmp/fork-maintenance/home.html; then
 fi
 grep -o '<link rel="[^"]*"[^>]*>' /tmp/fork-maintenance/home.html | grep -E 'icon|apple-touch'
 curl -fsS http://127.0.0.1:8081/api/v1/settings/public | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print("primary_docs", len(d.get("login_agreement_documents") or []), d.get("login_agreement_enabled"), d.get("login_agreement_mode"))'
-curl -fsS http://127.0.0.1:8082/api/v1/settings/public | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print("standby_docs", len(d.get("login_agreement_documents") or []), d.get("login_agreement_enabled"), d.get("login_agreement_mode"))'
+curl -fsS http://127.0.0.1:8082/api/v1/settings/public | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print("ap1_docs", len(d.get("login_agreement_documents") or []), d.get("login_agreement_enabled"), d.get("login_agreement_mode"))'
 """
     remote(host, verify_cmd, apply=apply)
     return 0
@@ -475,6 +534,9 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--title", help="Record title.")
     record.add_argument("--dry-run", action="store_true", help="Print the generated record without editing the doc.")
     record.set_defaults(func=cmd_record)
+
+    sort_doc = sub.add_parser("sort-doc", help="Sort local patch records in the maintenance doc by date.")
+    sort_doc.set_defaults(func=cmd_sort_doc)
 
     snapshot = sub.add_parser("snapshot", help="Export fork diff and file list for review or manual reapplication.")
     snapshot.add_argument("--base", help="Base ref, defaults to upstream/main when available.")
