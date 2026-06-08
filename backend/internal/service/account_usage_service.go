@@ -104,14 +104,15 @@ type antigravityUsageCache struct {
 }
 
 const (
-	apiCacheTTL             = 3 * time.Minute
-	apiErrorCacheTTL        = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
-	antigravityErrorTTL     = 1 * time.Minute        // Antigravity 错误缓存 TTL（可恢复错误）
-	apiQueryMaxJitter       = 800 * time.Millisecond // 用量查询最大随机延迟
-	windowStatsCacheTTL     = 1 * time.Minute
-	openAIProbeCacheTTL     = 10 * time.Minute
-	openAICodexProbeVersion = "0.125.0"
-	openAICodexProbeModel   = "gpt-5.3-codex-spark"
+	apiCacheTTL               = 3 * time.Minute
+	apiErrorCacheTTL          = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
+	antigravityErrorTTL       = 1 * time.Minute        // Antigravity 错误缓存 TTL（可恢复错误）
+	apiQueryMaxJitter         = 800 * time.Millisecond // 用量查询最大随机延迟
+	windowStatsCacheTTL       = 1 * time.Minute
+	openAIProbeCacheTTL       = 10 * time.Minute
+	openAICodexProbeVersion   = "0.125.0"
+	openAICodexProbeModel     = "gpt-5.3-codex-spark"
+	openAICodexMainProbeModel = "gpt-5.3-codex"
 )
 
 // UsageCache 封装账户使用量相关的缓存
@@ -197,6 +198,17 @@ type UsageInfo struct {
 	Codex7dResetAt           *string  `json:"codex_7d_reset_at,omitempty"`
 	Codex7dWindowMinutes     *int     `json:"codex_7d_window_minutes,omitempty"`
 	CodexUsageUpdatedAt      *string  `json:"codex_usage_updated_at,omitempty"`
+
+	// OpenAI Codex main model canonical snapshot fields（非 Spark 主套餐）
+	CodexMain5hUsedPercent       *float64 `json:"codex_main_5h_used_percent,omitempty"`
+	CodexMain5hResetAfterSeconds *int     `json:"codex_main_5h_reset_after_seconds,omitempty"`
+	CodexMain5hResetAt           *string  `json:"codex_main_5h_reset_at,omitempty"`
+	CodexMain5hWindowMinutes     *int     `json:"codex_main_5h_window_minutes,omitempty"`
+	CodexMain7dUsedPercent       *float64 `json:"codex_main_7d_used_percent,omitempty"`
+	CodexMain7dResetAfterSeconds *int     `json:"codex_main_7d_reset_after_seconds,omitempty"`
+	CodexMain7dResetAt           *string  `json:"codex_main_7d_reset_at,omitempty"`
+	CodexMain7dWindowMinutes     *int     `json:"codex_main_7d_window_minutes,omitempty"`
+	CodexMainUsageUpdatedAt      *string  `json:"codex_main_usage_updated_at,omitempty"`
 
 	GeminiSharedDaily  *UsageProgress `json:"gemini_shared_daily,omitempty"`  // Gemini shared pool RPD (Google One / Code Assist)
 	GeminiProDaily     *UsageProgress `json:"gemini_pro_daily,omitempty"`     // Gemini Pro 日配额
@@ -543,10 +555,10 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		)
 	}
 
-	if progress := buildCodexUsageProgressFromExtra(account.Extra, "5h", now); progress != nil {
+	if progress := buildCodexMainUsageProgressFromExtra(account.Extra, "5h", now); progress != nil {
 		usage.FiveHour = progress
 	}
-	if progress := buildCodexUsageProgressFromExtra(account.Extra, "7d", now); progress != nil {
+	if progress := buildCodexMainUsageProgressFromExtra(account.Extra, "7d", now); progress != nil {
 		usage.SevenDay = progress
 	}
 	if progress := buildCodexUsageProgressFromExtraKeys(account.Extra, "codex_primary_used_percent", "codex_primary_reset_after_seconds", "codex_primary_reset_at", now); progress != nil {
@@ -562,10 +574,10 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 			if usage.UpdatedAt == nil {
 				usage.UpdatedAt = &now
 			}
-			if progress := buildCodexUsageProgressFromExtra(account.Extra, "5h", now); progress != nil {
+			if progress := buildCodexMainUsageProgressFromExtra(account.Extra, "5h", now); progress != nil {
 				usage.FiveHour = progress
 			}
-			if progress := buildCodexUsageProgressFromExtra(account.Extra, "7d", now); progress != nil {
+			if progress := buildCodexMainUsageProgressFromExtra(account.Extra, "7d", now); progress != nil {
 				usage.SevenDay = progress
 			}
 			if progress := buildCodexUsageProgressFromExtraKeys(account.Extra, "codex_primary_used_percent", "codex_primary_reset_after_seconds", "codex_primary_reset_at", now); progress != nil {
@@ -661,6 +673,42 @@ func setCodexUsageSnapshotFields(usage *UsageInfo, extra map[string]any) {
 		s := fmt.Sprint(v)
 		usage.CodexUsageUpdatedAt = &s
 	}
+	if v, ok := extra["codex_main_5h_used_percent"]; ok {
+		parsed := parseExtraFloat64(v)
+		usage.CodexMain5hUsedPercent = &parsed
+	}
+	if v, ok := extra["codex_main_5h_reset_after_seconds"]; ok {
+		parsed := parseExtraInt(v)
+		usage.CodexMain5hResetAfterSeconds = &parsed
+	}
+	if v, ok := extra["codex_main_5h_reset_at"]; ok {
+		s := fmt.Sprint(v)
+		usage.CodexMain5hResetAt = &s
+	}
+	if v, ok := extra["codex_main_5h_window_minutes"]; ok {
+		parsed := parseExtraInt(v)
+		usage.CodexMain5hWindowMinutes = &parsed
+	}
+	if v, ok := extra["codex_main_7d_used_percent"]; ok {
+		parsed := parseExtraFloat64(v)
+		usage.CodexMain7dUsedPercent = &parsed
+	}
+	if v, ok := extra["codex_main_7d_reset_after_seconds"]; ok {
+		parsed := parseExtraInt(v)
+		usage.CodexMain7dResetAfterSeconds = &parsed
+	}
+	if v, ok := extra["codex_main_7d_reset_at"]; ok {
+		s := fmt.Sprint(v)
+		usage.CodexMain7dResetAt = &s
+	}
+	if v, ok := extra["codex_main_7d_window_minutes"]; ok {
+		parsed := parseExtraInt(v)
+		usage.CodexMain7dWindowMinutes = &parsed
+	}
+	if v, ok := extra["codex_main_usage_updated_at"]; ok {
+		s := fmt.Sprint(v)
+		usage.CodexMainUsageUpdatedAt = &s
+	}
 
 	primaryWindowMinutesRaw, hasPrimaryWindowMinutesRaw := extra["codex_primary_window_minutes"]
 	secondaryWindowMinutesRaw, hasSecondaryWindowMinutesRaw := extra["codex_secondary_window_minutes"]
@@ -720,6 +768,17 @@ func setCodexUsageSnapshotFields(usage *UsageInfo, extra map[string]any) {
 	}
 }
 
+func buildCodexMainUsageProgressFromExtra(extra map[string]any, window string, now time.Time) *UsageProgress {
+	switch window {
+	case "5h":
+		return buildCodexUsageProgressFromExtraKeys(extra, "codex_main_5h_used_percent", "codex_main_5h_reset_after_seconds", "codex_main_5h_reset_at", now)
+	case "7d":
+		return buildCodexUsageProgressFromExtraKeys(extra, "codex_main_7d_used_percent", "codex_main_7d_reset_after_seconds", "codex_main_7d_reset_at", now)
+	default:
+		return nil
+	}
+}
+
 func shouldRefreshOpenAICodexSnapshot(account *Account, usage *UsageInfo, now time.Time) bool {
 	if account == nil {
 		return false
@@ -774,11 +833,38 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	if account == nil || !account.IsOAuth() {
 		return nil, nil
 	}
+	updates, err := s.probeOpenAICodexSnapshotForModel(ctx, account, openAICodexProbeModel)
+	if err != nil {
+		return nil, err
+	}
+	mainUpdates, mainErr := s.probeOpenAICodexSnapshotForModel(ctx, account, openAICodexMainProbeModel)
+	if mainErr != nil && len(updates) == 0 {
+		return nil, mainErr
+	}
+	if len(mainUpdates) > 0 {
+		if updates == nil {
+			updates = make(map[string]any, len(mainUpdates))
+		}
+		for k, v := range mainUpdates {
+			updates[k] = v
+		}
+	}
+	if len(updates) > 0 {
+		s.persistOpenAICodexProbeSnapshot(account.ID, updates)
+		return updates, nil
+	}
+	return nil, nil
+}
+
+func (s *AccountUsageService) probeOpenAICodexSnapshotForModel(ctx context.Context, account *Account, model string) (map[string]any, error) {
+	if account == nil || !account.IsOAuth() {
+		return nil, nil
+	}
 	accessToken := account.GetOpenAIAccessToken()
 	if accessToken == "" {
 		return nil, fmt.Errorf("no access token available")
 	}
-	payload := buildOpenAICodexProbePayload()
+	payload := buildOpenAICodexProbePayloadForModel(model)
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal openai probe payload: %w", err)
@@ -825,7 +911,7 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	updates, err := extractOpenAICodexProbeUpdates(resp)
+	updates, err := extractOpenAICodexProbeUpdatesForModel(resp, model)
 	if err != nil {
 		return nil, err
 	}
@@ -834,6 +920,7 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 			slog.Info(
 				"[usage] openai codex probe updates",
 				"account_id", account.ID,
+				"model", model,
 				"status", resp.Status,
 				"headers", map[string]string{
 					"x-codex-primary-used-percent":                 resp.Header.Get("x-codex-primary-used-percent"),
@@ -847,14 +934,17 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 				"updates", updates,
 			)
 		}
-		s.persistOpenAICodexProbeSnapshot(account.ID, updates)
 		return updates, nil
 	}
 	return nil, nil
 }
 
 func buildOpenAICodexProbePayload() map[string]any {
-	return createOpenAITestPayload(openAICodexProbeModel, true)
+	return buildOpenAICodexProbePayloadForModel(openAICodexProbeModel)
+}
+
+func buildOpenAICodexProbePayloadForModel(model string) map[string]any {
+	return createOpenAITestPayload(model, true)
 }
 
 func (s *AccountUsageService) persistOpenAICodexProbeSnapshot(accountID int64, updates map[string]any) {
@@ -873,11 +963,15 @@ func (s *AccountUsageService) persistOpenAICodexProbeSnapshot(accountID int64, u
 }
 
 func extractOpenAICodexProbeUpdates(resp *http.Response) (map[string]any, error) {
+	return extractOpenAICodexProbeUpdatesForModel(resp, openAICodexProbeModel)
+}
+
+func extractOpenAICodexProbeUpdatesForModel(resp *http.Response, model string) (map[string]any, error) {
 	if resp == nil {
 		return nil, nil
 	}
 	if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
-		return buildCodexUsageExtraUpdates(snapshot, time.Now()), nil
+		return buildCodexUsageExtraUpdatesForFamily(snapshot, time.Now(), model), nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("openai codex probe returned status %d", resp.StatusCode)

@@ -3184,7 +3184,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		// Extract and save Codex usage snapshot from response headers (for OAuth accounts)
 		if account.Type == AccountTypeOAuth {
 			if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
-				s.updateCodexUsageSnapshot(ctx, account.ID, snapshot)
+				s.updateCodexUsageSnapshot(ctx, account.ID, snapshot, upstreamModel)
 			}
 		}
 
@@ -3419,7 +3419,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	s.bindHTTPResponseAccount(ctx, c, account, responseID)
 
 	if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
-		s.updateCodexUsageSnapshot(ctx, account.ID, snapshot)
+		s.updateCodexUsageSnapshot(ctx, account.ID, snapshot, upstreamPassthroughModel)
 	}
 
 	if usage == nil {
@@ -6280,8 +6280,35 @@ func codexResetAtRFC3339(base time.Time, resetAfterSeconds *int) *string {
 }
 
 func buildCodexUsageExtraUpdates(snapshot *OpenAICodexUsageSnapshot, fallbackNow time.Time) map[string]any {
+	return buildCodexUsageExtraUpdatesForFamily(snapshot, fallbackNow, openAICodexUsageFamilySpark)
+}
+
+const (
+	openAICodexUsageFamilySpark = "spark"
+	openAICodexUsageFamilyMain  = "main"
+)
+
+func openAICodexUsageFamilyForModel(model string) string {
+	if isCodexSparkModel(model) {
+		return openAICodexUsageFamilySpark
+	}
+	return openAICodexUsageFamilyMain
+}
+
+func codexUsageKeyForFamily(family, suffix string) string {
+	if family == openAICodexUsageFamilyMain {
+		return "codex_main_" + suffix
+	}
+	return "codex_" + suffix
+}
+
+func buildCodexUsageExtraUpdatesForFamily(snapshot *OpenAICodexUsageSnapshot, fallbackNow time.Time, modelOrFamily string) map[string]any {
 	if snapshot == nil {
 		return nil
+	}
+	family := modelOrFamily
+	if family != openAICodexUsageFamilyMain && family != openAICodexUsageFamilySpark {
+		family = openAICodexUsageFamilyForModel(modelOrFamily)
 	}
 
 	baseTime := codexSnapshotBaseTime(snapshot, fallbackNow)
@@ -6309,33 +6336,37 @@ func buildCodexUsageExtraUpdates(snapshot *OpenAICodexUsageSnapshot, fallbackNow
 	if snapshot.PrimaryOverSecondaryPercent != nil {
 		updates["codex_primary_over_secondary_percent"] = *snapshot.PrimaryOverSecondaryPercent
 	}
-	updates["codex_usage_updated_at"] = baseTime.Format(time.RFC3339)
+	updatedAtKey := "codex_usage_updated_at"
+	if family == openAICodexUsageFamilyMain {
+		updatedAtKey = "codex_main_usage_updated_at"
+	}
+	updates[updatedAtKey] = baseTime.Format(time.RFC3339)
 
 	// 归一化到 5h/7d 规范字段
 	if normalized := snapshot.Normalize(); normalized != nil {
 		if normalized.Used5hPercent != nil {
-			updates["codex_5h_used_percent"] = *normalized.Used5hPercent
+			updates[codexUsageKeyForFamily(family, "5h_used_percent")] = *normalized.Used5hPercent
 		}
 		if normalized.Reset5hSeconds != nil {
-			updates["codex_5h_reset_after_seconds"] = *normalized.Reset5hSeconds
+			updates[codexUsageKeyForFamily(family, "5h_reset_after_seconds")] = *normalized.Reset5hSeconds
 		}
 		if normalized.Window5hMinutes != nil {
-			updates["codex_5h_window_minutes"] = *normalized.Window5hMinutes
+			updates[codexUsageKeyForFamily(family, "5h_window_minutes")] = *normalized.Window5hMinutes
 		}
 		if normalized.Used7dPercent != nil {
-			updates["codex_7d_used_percent"] = *normalized.Used7dPercent
+			updates[codexUsageKeyForFamily(family, "7d_used_percent")] = *normalized.Used7dPercent
 		}
 		if normalized.Reset7dSeconds != nil {
-			updates["codex_7d_reset_after_seconds"] = *normalized.Reset7dSeconds
+			updates[codexUsageKeyForFamily(family, "7d_reset_after_seconds")] = *normalized.Reset7dSeconds
 		}
 		if normalized.Window7dMinutes != nil {
-			updates["codex_7d_window_minutes"] = *normalized.Window7dMinutes
+			updates[codexUsageKeyForFamily(family, "7d_window_minutes")] = *normalized.Window7dMinutes
 		}
 		if reset5hAt := codexResetAtRFC3339(baseTime, normalized.Reset5hSeconds); reset5hAt != nil {
-			updates["codex_5h_reset_at"] = *reset5hAt
+			updates[codexUsageKeyForFamily(family, "5h_reset_at")] = *reset5hAt
 		}
 		if reset7dAt := codexResetAtRFC3339(baseTime, normalized.Reset7dSeconds); reset7dAt != nil {
-			updates["codex_7d_reset_at"] = *reset7dAt
+			updates[codexUsageKeyForFamily(family, "7d_reset_at")] = *reset7dAt
 		}
 	}
 
@@ -6343,7 +6374,7 @@ func buildCodexUsageExtraUpdates(snapshot *OpenAICodexUsageSnapshot, fallbackNow
 }
 
 // updateCodexUsageSnapshot saves the Codex usage snapshot to account's Extra field
-func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, accountID int64, snapshot *OpenAICodexUsageSnapshot) {
+func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, accountID int64, snapshot *OpenAICodexUsageSnapshot, model ...string) {
 	if snapshot == nil {
 		return
 	}
@@ -6352,7 +6383,11 @@ func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, acc
 	}
 
 	now := time.Now()
-	updates := buildCodexUsageExtraUpdates(snapshot, now)
+	modelOrFamily := openAICodexUsageFamilySpark
+	if len(model) > 0 && strings.TrimSpace(model[0]) != "" {
+		modelOrFamily = model[0]
+	}
+	updates := buildCodexUsageExtraUpdatesForFamily(snapshot, now, modelOrFamily)
 	if len(updates) == 0 {
 		return
 	}

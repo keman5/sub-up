@@ -137,6 +137,45 @@ func TestBuildCodexUsageExtraUpdates_FreshAccountUsedPercentNotInverted_Issue299
 	}
 }
 
+func TestBuildCodexUsageExtraUpdatesForFamily_SeparatesMainFromSpark(t *testing.T) {
+	primaryUsed := 73.0
+	primaryWindow := 10080
+	secondaryUsed := 11.0
+	secondaryWindow := 300
+	snapshot := &OpenAICodexUsageSnapshot{
+		PrimaryUsedPercent:     &primaryUsed,
+		PrimaryWindowMinutes:   &primaryWindow,
+		SecondaryUsedPercent:   &secondaryUsed,
+		SecondaryWindowMinutes: &secondaryWindow,
+		UpdatedAt:              "2026-02-16T10:00:00Z",
+	}
+
+	mainUpdates := buildCodexUsageExtraUpdatesForFamily(snapshot, time.Date(2026, 2, 16, 10, 0, 0, 0, time.UTC), "gpt-5.3-codex")
+	if mainUpdates == nil {
+		t.Fatal("expected non-nil main updates")
+	}
+	if _, ok := mainUpdates["codex_5h_used_percent"]; ok {
+		t.Fatalf("main model updates must not overwrite spark codex_5h_used_percent: %v", mainUpdates)
+	}
+	if got := mainUpdates["codex_main_5h_used_percent"]; got != 11.0 {
+		t.Fatalf("codex_main_5h_used_percent = %v, want 11", got)
+	}
+	if got := mainUpdates["codex_main_7d_used_percent"]; got != 73.0 {
+		t.Fatalf("codex_main_7d_used_percent = %v, want 73", got)
+	}
+
+	sparkUpdates := buildCodexUsageExtraUpdatesForFamily(snapshot, time.Date(2026, 2, 16, 10, 0, 0, 0, time.UTC), "gpt-5.3-codex-spark")
+	if sparkUpdates == nil {
+		t.Fatal("expected non-nil spark updates")
+	}
+	if got := sparkUpdates["codex_5h_used_percent"]; got != 11.0 {
+		t.Fatalf("spark codex_5h_used_percent = %v, want 11", got)
+	}
+	if _, ok := sparkUpdates["codex_main_5h_used_percent"]; ok {
+		t.Fatalf("spark updates must not write main fields: %v", sparkUpdates)
+	}
+}
+
 func TestBuildCodexUsageExtraUpdates_FallbackToNowWhenUpdatedAtInvalid(t *testing.T) {
 	primaryUsed := 15.0
 	primaryReset := 30

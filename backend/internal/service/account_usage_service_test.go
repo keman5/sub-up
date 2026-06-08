@@ -170,6 +170,53 @@ func TestAccountUsageService_GetOpenAIUsage_DoesNotPromoteCodexExtraToRateLimit(
 	}
 }
 
+func TestAccountUsageService_GetOpenAIUsageSeparatesMainAndSparkSnapshots(t *testing.T) {
+	t.Parallel()
+
+	mainResetAt := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second).Format(time.RFC3339)
+	sparkResetAt := time.Now().Add(90 * time.Minute).UTC().Truncate(time.Second).Format(time.RFC3339)
+	svc := &AccountUsageService{}
+	account := &Account{
+		ID:       901,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_main_5h_used_percent": 17.0,
+			"codex_main_5h_reset_at":     mainResetAt,
+			"codex_main_7d_used_percent": 41.0,
+			"codex_main_7d_reset_at":     mainResetAt,
+			"codex_5h_used_percent":      3.0,
+			"codex_5h_reset_at":          sparkResetAt,
+			"codex_7d_used_percent":      82.0,
+			"codex_7d_reset_at":          sparkResetAt,
+			"codex_usage_updated_at":     time.Now().Format(time.RFC3339),
+		},
+	}
+
+	usage, err := svc.getOpenAIUsage(context.Background(), account, false)
+	if err != nil {
+		t.Fatalf("getOpenAIUsage() error = %v", err)
+	}
+	if usage.FiveHour == nil || usage.FiveHour.Utilization != 17.0 {
+		t.Fatalf("main five_hour = %#v, want 17", usage.FiveHour)
+	}
+	if usage.CodexMain5hUsedPercent == nil || *usage.CodexMain5hUsedPercent != 17.0 {
+		t.Fatalf("codex_main_5h_used_percent = %v, want 17", usage.CodexMain5hUsedPercent)
+	}
+	if usage.SevenDay == nil || usage.SevenDay.Utilization != 41.0 {
+		t.Fatalf("main seven_day = %#v, want 41", usage.SevenDay)
+	}
+	if usage.CodexMain7dUsedPercent == nil || *usage.CodexMain7dUsedPercent != 41.0 {
+		t.Fatalf("codex_main_7d_used_percent = %v, want 41", usage.CodexMain7dUsedPercent)
+	}
+	if usage.Codex5hUsedPercent == nil || *usage.Codex5hUsedPercent != 3.0 {
+		t.Fatalf("spark codex_5h_used_percent = %v, want 3", usage.Codex5hUsedPercent)
+	}
+	if usage.Codex7dUsedPercent == nil || *usage.Codex7dUsedPercent != 82.0 {
+		t.Fatalf("spark codex_7d_used_percent = %v, want 82", usage.Codex7dUsedPercent)
+	}
+}
+
 func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)

@@ -206,12 +206,12 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(2000)
+    expect(getUsage.mock.calls.some(([accountId]) => accountId === 2000)).toBe(true)
     expect(wrapper.text()).toContain('5h|15|300')
     expect(wrapper.text()).toContain('7d|77|300')
   })
 
-  it('OpenAI OAuth 有 codex 快照时会按窗口分钟数展示 Spark 额度', async () => {
+  it('OpenAI OAuth 主套餐和 Spark 套餐分开展示', async () => {
     getUsage.mockResolvedValue({
       five_hour: {
         utilization: 18,
@@ -237,11 +237,14 @@ describe('AccountUsageCell', () => {
           user_cost: 0.09
         }
       },
+      codex_main_5h_used_percent: 18,
+      codex_main_5h_reset_at: '2099-03-07T12:00:00Z',
+      codex_main_7d_used_percent: 36,
+      codex_main_7d_reset_at: '2099-03-13T12:00:00Z',
       codex_5h_used_percent: 5,
       codex_5h_reset_at: '2099-03-07T13:00:00Z',
       codex_7d_used_percent: 95,
       codex_7d_reset_at: '2099-03-14T13:00:00Z'
-      }
     })
 
     const wrapper = mount(AccountUsageCell, {
@@ -274,7 +277,7 @@ describe('AccountUsageCell', () => {
 
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledWith(2001)
+    expect(getUsage.mock.calls.some(([accountId]) => accountId === 2001)).toBe(true)
     expect(wrapper.text()).toContain('admin.accounts.usageWindow.openaiCodexSparkShow')
     expect(wrapper.get('button[aria-expanded="false"]')).toBeTruthy()
     await wrapper.get('button[aria-expanded="false"]').trigger('click')
@@ -350,7 +353,7 @@ describe('AccountUsageCell', () => {
 
     // 手动刷新再拉一次
     expect(getUsage).toHaveBeenCalledTimes(2)
-    expect(getUsage).toHaveBeenCalledWith(2010)
+    expect(getUsage.mock.calls.some(([accountId]) => accountId === 2010)).toBe(true)
     // 单一数据源：始终使用 /usage API 值
     expect(wrapper.text()).toContain('5h|18|900')
   })
@@ -513,7 +516,7 @@ describe('AccountUsageCell', () => {
 
 	await flushPromises()
 
-	expect(getUsage).toHaveBeenCalledWith(2002)
+	expect(getUsage.mock.calls.some(([accountId]) => accountId === 2002)).toBe(true)
 	expect(wrapper.text()).toContain('5h|0|27700')
 	expect(wrapper.text()).toContain('7d|0|27700')
   })
@@ -645,7 +648,7 @@ describe('AccountUsageCell', () => {
 
 	await flushPromises()
 
-  expect(getUsage).toHaveBeenCalledWith(2004)
+  expect(getUsage.mock.calls.some(([accountId]) => accountId === 2004)).toBe(true)
   expect(wrapper.text()).toContain('5h|100|106540000')
   expect(wrapper.text()).toContain('7d|100|106540000')
   })

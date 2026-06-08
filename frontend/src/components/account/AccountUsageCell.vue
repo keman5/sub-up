@@ -109,20 +109,20 @@
     <template v-else-if="account.platform === 'openai' && account.type === 'oauth'">
       <div v-if="hasOpenAIUsageFallback || hasOpenAICodexSparkUsage" class="space-y-1">
         <UsageProgressBar
-          v-if="usageInfo?.five_hour"
+          v-if="openAIMainFiveHour"
           label="5h"
-          :utilization="usageInfo.five_hour.utilization"
-          :resets-at="usageInfo.five_hour.resets_at"
-          :window-stats="usageInfo.five_hour.window_stats"
+          :utilization="openAIMainFiveHour.utilization"
+          :resets-at="openAIMainFiveHour.resets_at"
+          :window-stats="openAIMainFiveHour.window_stats"
           :show-now-when-idle="true"
           color="indigo"
         />
         <UsageProgressBar
-          v-if="usageInfo?.seven_day"
+          v-if="openAIMainSevenDay"
           label="7d"
-          :utilization="usageInfo.seven_day.utilization"
-          :resets-at="usageInfo.seven_day.resets_at"
-          :window-stats="usageInfo.seven_day.window_stats"
+          :utilization="openAIMainSevenDay.utilization"
+          :resets-at="openAIMainSevenDay.resets_at"
+          :window-stats="openAIMainSevenDay.window_stats"
           :show-now-when-idle="true"
           color="emerald"
         />
@@ -625,8 +625,8 @@ const geminiUsageAvailable = computed(() => {
 const hasOpenAIUsageFallback = computed(() => {
   if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return false
   return (
-    !!usageInfo.value?.five_hour ||
-    !!usageInfo.value?.seven_day ||
+    !!openAIMainFiveHour.value ||
+    !!openAIMainSevenDay.value ||
     !!usageInfo.value?.codex_primary ||
     !!usageInfo.value?.codex_secondary
   )
@@ -653,6 +653,41 @@ const toResetAt = (resetAt: unknown, resetAfterSeconds: unknown): string | undef
   if (resetAfter == null || resetAfter < 0) return undefined
   return new Date(Date.now() + resetAfter * 1000).toISOString()
 }
+
+const buildOpenAIProgressFromMainSnapshot = (
+  utilized: unknown,
+  resetAfterSeconds: unknown,
+  resetAt: unknown
+): UsageProgress | null => {
+  const utilization = toNumber(utilized)
+  if (utilization == null) return null
+  return {
+    utilization,
+    resets_at: toResetAt(resetAt, resetAfterSeconds) ?? null,
+    remaining_seconds: toNumber(resetAfterSeconds) ?? 0,
+    window_stats: null
+  }
+}
+
+const openAIMainFiveHour = computed<UsageProgress | null>(() => {
+  const usage = usageInfo.value
+  if (!usage) return null
+  return usage.five_hour ?? buildOpenAIProgressFromMainSnapshot(
+    usage.codex_main_5h_used_percent,
+    usage.codex_main_5h_reset_after_seconds,
+    usage.codex_main_5h_reset_at
+  )
+})
+
+const openAIMainSevenDay = computed<UsageProgress | null>(() => {
+  const usage = usageInfo.value
+  if (!usage) return null
+  return usage.seven_day ?? buildOpenAIProgressFromMainSnapshot(
+    usage.codex_main_7d_used_percent,
+    usage.codex_main_7d_reset_after_seconds,
+    usage.codex_main_7d_reset_at
+  )
+})
 
 const getOpenAICodexSparkSnapshot = (usage: AccountUsageInfo | null) => {
   if (!usage) return null
@@ -726,7 +761,6 @@ const hasOpenAICodexSparkUsage = computed(() => {
 })
 
 const openAICodexSparkWindows = computed(() => {
-  console.log('usageInfo.value', usageInfo.value)
   const snapshot = getOpenAICodexSparkSnapshot(usageInfo.value)
   if (!snapshot) return []
   const buildProgress = (util: number | null, resetAfterSeconds: unknown, resetAt: unknown): {
@@ -1214,25 +1248,6 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
   try {
     const fetchFn = () => adminAPI.accounts.getUsage(props.account.id, options?.source)
     const result = await enqueueUsageRequest(props.account, fetchFn)
-    if (import.meta.env.DEV) {
-      const payload = result as unknown as Record<string, unknown>
-      console.info('[AccountUsageCell] usage response raw', payload)
-      console.info('[AccountUsageCell] usage response', {
-        accountId: props.account.id,
-        source: options?.source,
-        keys: Object.keys(payload),
-        codex5hUsed: payload.codex_5h_used_percent,
-        codex7dUsed: payload.codex_7d_used_percent,
-        codex5hReset: payload.codex_5h_reset_after_seconds,
-        codex7dReset: payload.codex_7d_reset_after_seconds,
-        codexSecondaryUsed: payload.codex_secondary_used_percent,
-        codexPrimaryUsed: payload.codex_primary_used_percent,
-        codexSecondaryWindow: payload.codex_secondary_window_minutes,
-        codexPrimaryWindow: payload.codex_primary_window_minutes,
-        codexSecondaryReset: payload.codex_secondary_reset_after_seconds,
-        codexPrimaryReset: payload.codex_primary_reset_after_seconds
-      })
-    }
     if (!unmounted.value) {
       usageInfo.value = result
       _usageCache.set(props.account.id, { data: result, ts: Date.now() })
@@ -1301,20 +1316,6 @@ const loadActiveUsage = async () => {
   activeQueryLoading.value = true
   try {
     const result = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
-    if (import.meta.env.DEV) {
-      const payload = result as unknown as Record<string, unknown>
-      console.info('[AccountUsageCell] active usage response raw', payload)
-      console.info('[AccountUsageCell] active usage response', {
-        accountId: props.account.id,
-        keys: Object.keys(payload),
-        codex5hUsed: payload.codex_5h_used_percent,
-        codex7dUsed: payload.codex_7d_used_percent,
-        codexSecondaryUsed: payload.codex_secondary_used_percent,
-        codexPrimaryUsed: payload.codex_primary_used_percent,
-        codexSecondaryWindow: payload.codex_secondary_window_minutes,
-        codexPrimaryWindow: payload.codex_primary_window_minutes
-      })
-    }
     usageInfo.value = result
     _usageCache.set(props.account.id, { data: result, ts: Date.now() })
   } catch (e: any) {

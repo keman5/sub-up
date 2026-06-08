@@ -752,7 +752,7 @@ const {
   initialParams: {
     platform: '',
     type: '',
-    status: '',
+    status: 'active',
     privacy_mode: '',
     group: '',
     search: '',

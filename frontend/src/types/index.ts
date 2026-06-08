@@ -999,6 +999,17 @@ export interface CodexUsageSnapshot {
   codex_secondary_reset_at?: string // Secondary window absolute reset time (RFC3339)
   codex_primary_over_secondary_percent?: number // Overflow ratio
 
+  // Main Codex model quota snapshot (non-Spark)
+  codex_main_5h_used_percent?: number
+  codex_main_5h_reset_after_seconds?: number
+  codex_main_5h_reset_at?: string
+  codex_main_5h_window_minutes?: number
+  codex_main_7d_used_percent?: number
+  codex_main_7d_reset_after_seconds?: number
+  codex_main_7d_reset_at?: string
+  codex_main_7d_window_minutes?: number
+  codex_main_usage_updated_at?: string
+
   // Canonical fields (normalized by backend, use these preferentially)
   codex_5h_used_percent?: number // 5-hour window usage percentage
   codex_5h_reset_after_seconds?: number // Seconds until 5h window reset

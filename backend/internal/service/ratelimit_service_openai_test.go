@@ -200,6 +200,33 @@ func TestHandle429_OpenAIPersistsCodexSnapshotImmediately(t *testing.T) {
 	}
 }
 
+func TestHandle429_OpenAINonSparkPersistsMainCodexSnapshot(t *testing.T) {
+	repo := &openAI429SnapshotRepo{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	account := &Account{ID: 125, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "80")
+	headers.Set("x-codex-primary-window-minutes", "10080")
+	headers.Set("x-codex-secondary-used-percent", "20")
+	headers.Set("x-codex-secondary-window-minutes", "300")
+
+	svc.handle429(context.Background(), account, headers, nil, "gpt-5.3-codex")
+
+	if len(repo.updatedExtra) == 0 {
+		t.Fatal("expected codex snapshot to be persisted on 429")
+	}
+	if _, ok := repo.updatedExtra["codex_5h_used_percent"]; ok {
+		t.Fatalf("non-spark 429 must not overwrite spark codex_5h_used_percent: %v", repo.updatedExtra)
+	}
+	if got := repo.updatedExtra["codex_main_5h_used_percent"]; got != 20.0 {
+		t.Fatalf("codex_main_5h_used_percent = %v, want 20", got)
+	}
+	if got := repo.updatedExtra["codex_main_7d_used_percent"]; got != 80.0 {
+		t.Fatalf("codex_main_7d_used_percent = %v, want 80", got)
+	}
+}
+
 func TestHandle429_OpenAISyncsObservedPlanType(t *testing.T) {
 	repo := &openAI429SnapshotRepo{}
 	svc := NewRateLimitService(repo, nil, nil, nil, nil)

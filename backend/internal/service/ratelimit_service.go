@@ -317,7 +317,11 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		)
 		shouldDisable = s.handle403(ctx, account, upstreamMsg, responseBody)
 	case 429:
-		s.handle429(ctx, account, headers, responseBody)
+		model := ""
+		if len(requestedModel) > 0 {
+			model = requestedModel[0]
+		}
+		s.handle429(ctx, account, headers, responseBody, model)
 		shouldDisable = false
 	case 529:
 		s.handle529(ctx, account)
@@ -870,11 +874,15 @@ func (s *RateLimitService) handleCustomErrorCode(ctx context.Context, account *A
 
 // handle429 处理429限流错误
 // 解析响应头获取重置时间，标记账号为限流状态
-func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
+func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte, requestedModel ...string) {
 	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
 	if account.Platform == PlatformOpenAI {
 		persistOpenAI429PlanType(ctx, s.accountRepo, account, responseBody)
-		s.persistOpenAICodexSnapshot(ctx, account, headers)
+		model := ""
+		if len(requestedModel) > 0 {
+			model = requestedModel[0]
+		}
+		s.persistOpenAICodexSnapshot(ctx, account, headers, model)
 		if resetAt := s.calculateOpenAI429ResetTime(headers); resetAt != nil {
 			s.notifyAccountSchedulingBlocked(account, *resetAt, "429")
 			if err := s.accountRepo.SetRateLimited(ctx, account.ID, *resetAt); err != nil {
@@ -1183,7 +1191,7 @@ func pickSooner(a, b *time.Time) *time.Time {
 	}
 }
 
-func (s *RateLimitService) persistOpenAICodexSnapshot(ctx context.Context, account *Account, headers http.Header) {
+func (s *RateLimitService) persistOpenAICodexSnapshot(ctx context.Context, account *Account, headers http.Header, requestedModel ...string) {
 	if s == nil || s.accountRepo == nil || account == nil || headers == nil {
 		return
 	}
@@ -1191,7 +1199,11 @@ func (s *RateLimitService) persistOpenAICodexSnapshot(ctx context.Context, accou
 	if snapshot == nil {
 		return
 	}
-	updates := buildCodexUsageExtraUpdates(snapshot, time.Now())
+	modelOrFamily := openAICodexUsageFamilySpark
+	if len(requestedModel) > 0 && strings.TrimSpace(requestedModel[0]) != "" {
+		modelOrFamily = requestedModel[0]
+	}
+	updates := buildCodexUsageExtraUpdatesForFamily(snapshot, time.Now(), modelOrFamily)
 	if len(updates) == 0 {
 		return
 	}
