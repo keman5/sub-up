@@ -124,6 +124,9 @@ export interface OpsRequestDetail {
   severity?: string
   message?: string
 
+  subscription_id?: number | null
+  subscription_group_name?: string
+
   user_id?: number | null
   api_key_id?: number | null
   account_id?: number | null

@@ -67,6 +67,10 @@ type Group struct {
 	FallbackGroupID *int64 `json:"fallback_group_id,omitempty"`
 	// 无效请求兜底使用的分组 ID
 	FallbackGroupIDOnInvalidRequest *int64 `json:"fallback_group_id_on_invalid_request,omitempty"`
+	// 订阅额度耗尽后自动切换使用的附属套餐分组 ID
+	QuotaFallbackGroupID *int64 `json:"quota_fallback_group_id,omitempty"`
+	// 订阅额度耗尽切换附属套餐时强制使用的模型 ID
+	QuotaFallbackModel string `json:"quota_fallback_model,omitempty"`
 	// 模型路由配置：模型模式 -> 优先账号ID列表
 	ModelRouting map[string][]int64 `json:"model_routing,omitempty"`
 	// 是否启用模型路由配置
@@ -89,6 +93,10 @@ type Group struct {
 	MessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config,omitempty"`
 	// 自定义 /v1/models 展示列表配置；仅影响模型列表响应，不影响调度
 	ModelsListConfig domain.GroupModelsListConfig `json:"models_list_config,omitempty"`
+	// 分组级模型策略：空=不限制，force=强制改写为指定模型
+	ModelPolicyMode string `json:"model_policy_mode,omitempty"`
+	// 分组级模型策略使用的目标模型 ID
+	ModelPolicyModel string `json:"model_policy_model,omitempty"`
 	// 分组 RPM 上限，0 表示不限制；设置后接管该分组用户的限流
 	RpmLimit int `json:"rpm_limit,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
@@ -203,9 +211,9 @@ func (*Group) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case group.FieldRateMultiplier, group.FieldDisplayRateMultiplier, group.FieldDailyLimitUsd, group.FieldWeeklyLimitUsd, group.FieldMonthlyLimitUsd, group.FieldImageRateMultiplier, group.FieldImagePrice1k, group.FieldImagePrice2k, group.FieldImagePrice4k:
 			values[i] = new(sql.NullFloat64)
-		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldRpmLimit:
+		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldQuotaFallbackGroupID, group.FieldSortOrder, group.FieldRpmLimit:
 			values[i] = new(sql.NullInt64)
-		case group.FieldName, group.FieldDescription, group.FieldStatus, group.FieldPlatform, group.FieldSubscriptionType, group.FieldDefaultMappedModel:
+		case group.FieldName, group.FieldDescription, group.FieldStatus, group.FieldPlatform, group.FieldSubscriptionType, group.FieldQuotaFallbackModel, group.FieldDefaultMappedModel, group.FieldModelPolicyMode, group.FieldModelPolicyModel:
 			values[i] = new(sql.NullString)
 		case group.FieldCreatedAt, group.FieldUpdatedAt, group.FieldDeletedAt:
 			values[i] = new(sql.NullTime)
@@ -384,6 +392,19 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 				_m.FallbackGroupIDOnInvalidRequest = new(int64)
 				*_m.FallbackGroupIDOnInvalidRequest = value.Int64
 			}
+		case group.FieldQuotaFallbackGroupID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field quota_fallback_group_id", values[i])
+			} else if value.Valid {
+				_m.QuotaFallbackGroupID = new(int64)
+				*_m.QuotaFallbackGroupID = value.Int64
+			}
+		case group.FieldQuotaFallbackModel:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field quota_fallback_model", values[i])
+			} else if value.Valid {
+				_m.QuotaFallbackModel = value.String
+			}
 		case group.FieldModelRouting:
 			if value, ok := values[i].(*[]byte); !ok {
 				return fmt.Errorf("unexpected type %T for field model_routing", values[i])
@@ -457,6 +478,18 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 				if err := json.Unmarshal(*value, &_m.ModelsListConfig); err != nil {
 					return fmt.Errorf("unmarshal field models_list_config: %w", err)
 				}
+			}
+		case group.FieldModelPolicyMode:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field model_policy_mode", values[i])
+			} else if value.Valid {
+				_m.ModelPolicyMode = value.String
+			}
+		case group.FieldModelPolicyModel:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field model_policy_model", values[i])
+			} else if value.Valid {
+				_m.ModelPolicyModel = value.String
 			}
 		case group.FieldRpmLimit:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -632,6 +665,14 @@ func (_m *Group) String() string {
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")
+	if v := _m.QuotaFallbackGroupID; v != nil {
+		builder.WriteString("quota_fallback_group_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("quota_fallback_model=")
+	builder.WriteString(_m.QuotaFallbackModel)
+	builder.WriteString(", ")
 	builder.WriteString("model_routing=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ModelRouting))
 	builder.WriteString(", ")
@@ -664,6 +705,12 @@ func (_m *Group) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("models_list_config=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ModelsListConfig))
+	builder.WriteString(", ")
+	builder.WriteString("model_policy_mode=")
+	builder.WriteString(_m.ModelPolicyMode)
+	builder.WriteString(", ")
+	builder.WriteString("model_policy_model=")
+	builder.WriteString(_m.ModelPolicyModel)
 	builder.WriteString(", ")
 	builder.WriteString("rpm_limit=")
 	builder.WriteString(fmt.Sprintf("%v", _m.RpmLimit))

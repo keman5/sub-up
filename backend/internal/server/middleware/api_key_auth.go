@@ -190,11 +190,22 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			if subscription != nil {
 				needsMaintenance, validateErr := subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
 				if validateErr != nil {
+					if fallback, fallbackErr := subscriptionService.ResolveQuotaFallback(c.Request.Context(), apiKey.User.ID, apiKey.Group, validateErr); fallbackErr == nil && fallback != nil && fallback.Group != nil && fallback.Subscription != nil {
+						fallbackAPIKey := *apiKey
+						fallbackGroupID := fallback.Group.ID
+						fallbackAPIKey.GroupID = &fallbackGroupID
+						fallbackAPIKey.Group = fallback.Group
+						apiKey = &fallbackAPIKey
+						subscription = fallback.Subscription
+						if fallback.NeedsMaintenance {
+							maintenanceCopy := *fallback.Subscription
+							subscriptionService.DoWindowMaintenance(&maintenanceCopy)
+						}
+						goto billingValidated
+					}
 					code := "SUBSCRIPTION_INVALID"
 					status := 403
-					if errors.Is(validateErr, service.ErrDailyLimitExceeded) ||
-						errors.Is(validateErr, service.ErrWeeklyLimitExceeded) ||
-						errors.Is(validateErr, service.ErrMonthlyLimitExceeded) {
+					if service.IsSubscriptionLimitError(validateErr) {
 						code = "USAGE_LIMIT_EXCEEDED"
 						status = 429
 					}
@@ -215,6 +226,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 				}
 			}
 		}
+	billingValidated:
 
 		// ── 7. 设置上下文 → Next ─────────────────────────────────────
 

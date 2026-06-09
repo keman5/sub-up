@@ -26,10 +26,111 @@ import (
 	"go.uber.org/zap"
 )
 
+func billingErrorDetailsWithFallback(
+	err error,
+	retryAfter *int,
+) (status int, code, message string, fallbackRetryAfter int) {
+	status, code, message, fallback := billingErrorDetails(err)
+	if retryAfter != nil && fallback > 0 {
+		*retryAfter = fallback
+	}
+	return status, code, message, fallback
+}
+
+func (h *OpenAIGatewayHandler) enforceBillingEligibilityWithFallback(
+	c *gin.Context,
+	apiKey *service.APIKey,
+	subscription *service.UserSubscription,
+	reqLog *zap.Logger,
+	contextProvider func() (*service.UserSubscription, *service.APIKey, error),
+	streamStarted bool,
+	handle func(c *gin.Context, status int, code, message string, streamStarted bool),
+) (*service.UserSubscription, *service.APIKey, bool) {
+	if c == nil || apiKey == nil {
+		return subscription, apiKey, false
+	}
+	if h == nil || h.billingCacheService == nil {
+		if reqLog != nil {
+			reqLog.Warn("openai.billing_cache_service_not_ready")
+		}
+		handle(c, http.StatusServiceUnavailable, "service_unavailable", "Service temporarily unavailable", streamStarted)
+		return subscription, apiKey, false
+	}
+
+	platform := service.QuotaPlatform(c.Request.Context(), apiKey)
+	checkErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, platform)
+	if checkErr == nil {
+		return subscription, apiKey, true
+	}
+
+	if reqLog != nil {
+		reqLog.Info("openai.billing_eligibility_check_failed", zap.Error(checkErr))
+	}
+
+	if h.subscriptionService != nil && service.IsSubscriptionLimitError(checkErr) && apiKey.User != nil && apiKey.Group != nil {
+		fallback, fallbackErr := h.subscriptionService.ResolveQuotaFallback(c.Request.Context(), apiKey.User.ID, apiKey.Group, checkErr)
+		if fallbackErr == nil && fallback != nil && fallback.Group != nil && fallback.Subscription != nil {
+			activeSubscription := fallback.Subscription
+			fallbackAPIKey := *apiKey
+			fallbackGroupID := fallback.Group.ID
+			fallbackAPIKey.GroupID = &fallbackGroupID
+			fallbackAPIKey.Group = fallback.Group
+			activeAPIKey := &fallbackAPIKey
+
+			if fallback.NeedsMaintenance {
+				maintenanceCopy := *fallback.Subscription
+				h.subscriptionService.DoWindowMaintenance(&maintenanceCopy)
+			}
+
+			if contextProvider != nil {
+				if refreshedSubscription, refreshedKey, ctxErr := contextProvider(); ctxErr == nil {
+					if refreshedSubscription != nil {
+						activeSubscription = refreshedSubscription
+					}
+					if refreshedKey != nil {
+						activeAPIKey = refreshedKey
+					}
+				}
+			}
+
+			if activeAPIKey != nil && activeSubscription != nil {
+				if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), activeAPIKey.User, activeAPIKey, activeAPIKey.Group, activeSubscription, platform); err == nil {
+					if reqLog != nil {
+						reqLog.Info("openai.billing_eligibility_check_fallback_applied", zap.Int64("group_id", fallback.Group.ID))
+					}
+					if c != nil {
+						c.Set(string(middleware2.ContextKeyAPIKey), activeAPIKey)
+						c.Set(string(middleware2.ContextKeySubscription), activeSubscription)
+						if activeAPIKey.Group != nil {
+							c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.Group, activeAPIKey.Group))
+						}
+					}
+					return activeSubscription, activeAPIKey, true
+				}
+			}
+		}
+	}
+
+	retryAfter := 0
+	status, code, message, fallbackRetryAfter := billingErrorDetailsWithFallback(checkErr, &retryAfter)
+	if fallbackRetryAfter > 0 {
+		retryAfter = fallbackRetryAfter
+	}
+	if c == nil {
+		return subscription, apiKey, false
+	}
+	if retryAfter > 0 {
+		c.Header("Retry-After", strconv.Itoa(retryAfter))
+	}
+	handle(c, status, code, message, streamStarted)
+	return subscription, apiKey, false
+}
+
 // OpenAIGatewayHandler handles OpenAI API gateway requests
 type OpenAIGatewayHandler struct {
 	gatewayService           *service.OpenAIGatewayService
 	billingCacheService      *service.BillingCacheService
+	subscriptionService      *service.SubscriptionService
 	apiKeyService            *service.APIKeyService
 	usageRecordWorkerPool    *service.UsageRecordWorkerPool
 	errorPassthroughService  *service.ErrorPassthroughService
@@ -77,6 +178,7 @@ func NewOpenAIGatewayHandler(
 	gatewayService *service.OpenAIGatewayService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
+	subscriptionService *service.SubscriptionService,
 	apiKeyService *service.APIKeyService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
 	errorPassthroughService *service.ErrorPassthroughService,
@@ -94,6 +196,7 @@ func NewOpenAIGatewayHandler(
 	return &OpenAIGatewayHandler{
 		gatewayService:           gatewayService,
 		billingCacheService:      billingCacheService,
+		subscriptionService:      subscriptionService,
 		apiKeyService:            apiKeyService,
 		usageRecordWorkerPool:    usageRecordWorkerPool,
 		errorPassthroughService:  errorPassthroughService,
@@ -124,8 +227,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 
-	subject, ok := middleware2.GetAuthSubjectFromContext(c)
-	if !ok {
+	subject, subjectFound := middleware2.GetAuthSubjectFromContext(c)
+	if !subjectFound {
 		h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
 		return
 	}
@@ -185,6 +288,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	if policyModel, forced := service.ResolveGroupModelPolicyModel(apiKey.Group, reqModel); forced {
+		reqModel = policyModel
+		body = h.gatewayService.ReplaceModelInBody(body, policyModel)
+	}
 
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
@@ -268,13 +375,17 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	}
 
 	// 2. Re-check billing eligibility after wait
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		reqLog.Info("openai.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
-		h.handleStreamingAwareError(c, status, code, message, streamStarted)
+	billingOK := false
+	subscription, apiKey, billingOK = h.enforceBillingEligibilityWithFallback(
+		c,
+		apiKey,
+		subscription,
+		reqLog,
+		nil,
+		streamStarted,
+		h.handleStreamingAwareError,
+	)
+	if !billingOK {
 		return
 	}
 
@@ -603,8 +714,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 
-	subject, ok := middleware2.GetAuthSubjectFromContext(c)
-	if !ok {
+	subject, subjectFound := middleware2.GetAuthSubjectFromContext(c)
+	if !subjectFound {
 		h.anthropicErrorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
 		return
 	}
@@ -687,13 +798,17 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		reqLog.Info("openai_messages.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
-		h.anthropicStreamingAwareError(c, status, code, message, streamStarted)
+	billingOK := false
+	subscription, apiKey, billingOK = h.enforceBillingEligibilityWithFallback(
+		c,
+		apiKey,
+		subscription,
+		reqLog,
+		nil,
+		streamStarted,
+		h.anthropicStreamingAwareError,
+	)
+	if !billingOK {
 		return
 	}
 
@@ -1308,9 +1423,23 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		reqLog.Info("openai.websocket_billing_eligibility_check_failed", zap.Error(err))
-		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
+	billingOK := false
+	subscription, apiKey, billingOK = h.enforceBillingEligibilityWithFallback(
+		c,
+		apiKey,
+		subscription,
+		reqLog,
+		nil,
+		false,
+		func(inner *gin.Context, _ int, _ string, message string, _ bool) {
+			if inner == nil {
+				closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
+				return
+			}
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, message)
+		},
+	)
+	if !billingOK {
 		return
 	}
 

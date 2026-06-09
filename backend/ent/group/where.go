@@ -175,6 +175,16 @@ func FallbackGroupIDOnInvalidRequest(v int64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldFallbackGroupIDOnInvalidRequest, v))
 }
 
+// QuotaFallbackGroupID applies equality check predicate on the "quota_fallback_group_id" field. It's identical to QuotaFallbackGroupIDEQ.
+func QuotaFallbackGroupID(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldQuotaFallbackGroupID, v))
+}
+
+// QuotaFallbackModel applies equality check predicate on the "quota_fallback_model" field. It's identical to QuotaFallbackModelEQ.
+func QuotaFallbackModel(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldQuotaFallbackModel, v))
+}
+
 // ModelRoutingEnabled applies equality check predicate on the "model_routing_enabled" field. It's identical to ModelRoutingEnabledEQ.
 func ModelRoutingEnabled(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldModelRoutingEnabled, v))
@@ -208,6 +218,16 @@ func RequirePrivacySet(v bool) predicate.Group {
 // DefaultMappedModel applies equality check predicate on the "default_mapped_model" field. It's identical to DefaultMappedModelEQ.
 func DefaultMappedModel(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDefaultMappedModel, v))
+}
+
+// ModelPolicyMode applies equality check predicate on the "model_policy_mode" field. It's identical to ModelPolicyModeEQ.
+func ModelPolicyMode(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldModelPolicyMode, v))
+}
+
+// ModelPolicyModel applies equality check predicate on the "model_policy_model" field. It's identical to ModelPolicyModelEQ.
+func ModelPolicyModel(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldModelPolicyModel, v))
 }
 
 // RpmLimit applies equality check predicate on the "rpm_limit" field. It's identical to RpmLimitEQ.
@@ -1280,6 +1300,121 @@ func FallbackGroupIDOnInvalidRequestNotNil() predicate.Group {
 	return predicate.Group(sql.FieldNotNull(FieldFallbackGroupIDOnInvalidRequest))
 }
 
+// QuotaFallbackGroupIDEQ applies the EQ predicate on the "quota_fallback_group_id" field.
+func QuotaFallbackGroupIDEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldQuotaFallbackGroupID, v))
+}
+
+// QuotaFallbackGroupIDNEQ applies the NEQ predicate on the "quota_fallback_group_id" field.
+func QuotaFallbackGroupIDNEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldQuotaFallbackGroupID, v))
+}
+
+// QuotaFallbackGroupIDIn applies the In predicate on the "quota_fallback_group_id" field.
+func QuotaFallbackGroupIDIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldQuotaFallbackGroupID, vs...))
+}
+
+// QuotaFallbackGroupIDNotIn applies the NotIn predicate on the "quota_fallback_group_id" field.
+func QuotaFallbackGroupIDNotIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldQuotaFallbackGroupID, vs...))
+}
+
+// QuotaFallbackGroupIDGT applies the GT predicate on the "quota_fallback_group_id" field.
+func QuotaFallbackGroupIDGT(v int64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldQuotaFallbackGroupID, v))
+}
+
+// QuotaFallbackGroupIDGTE applies the GTE predicate on the "quota_fallback_group_id" field.
+func QuotaFallbackGroupIDGTE(v int64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldQuotaFallbackGroupID, v))
+}
+
+// QuotaFallbackGroupIDLT applies the LT predicate on the "quota_fallback_group_id" field.
+func QuotaFallbackGroupIDLT(v int64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldQuotaFallbackGroupID, v))
+}
+
+// QuotaFallbackGroupIDLTE applies the LTE predicate on the "quota_fallback_group_id" field.
+func QuotaFallbackGroupIDLTE(v int64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldQuotaFallbackGroupID, v))
+}
+
+// QuotaFallbackGroupIDIsNil applies the IsNil predicate on the "quota_fallback_group_id" field.
+func QuotaFallbackGroupIDIsNil() predicate.Group {
+	return predicate.Group(sql.FieldIsNull(FieldQuotaFallbackGroupID))
+}
+
+// QuotaFallbackGroupIDNotNil applies the NotNil predicate on the "quota_fallback_group_id" field.
+func QuotaFallbackGroupIDNotNil() predicate.Group {
+	return predicate.Group(sql.FieldNotNull(FieldQuotaFallbackGroupID))
+}
+
+// QuotaFallbackModelEQ applies the EQ predicate on the "quota_fallback_model" field.
+func QuotaFallbackModelEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldQuotaFallbackModel, v))
+}
+
+// QuotaFallbackModelNEQ applies the NEQ predicate on the "quota_fallback_model" field.
+func QuotaFallbackModelNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldQuotaFallbackModel, v))
+}
+
+// QuotaFallbackModelIn applies the In predicate on the "quota_fallback_model" field.
+func QuotaFallbackModelIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldQuotaFallbackModel, vs...))
+}
+
+// QuotaFallbackModelNotIn applies the NotIn predicate on the "quota_fallback_model" field.
+func QuotaFallbackModelNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldQuotaFallbackModel, vs...))
+}
+
+// QuotaFallbackModelGT applies the GT predicate on the "quota_fallback_model" field.
+func QuotaFallbackModelGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldQuotaFallbackModel, v))
+}
+
+// QuotaFallbackModelGTE applies the GTE predicate on the "quota_fallback_model" field.
+func QuotaFallbackModelGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldQuotaFallbackModel, v))
+}
+
+// QuotaFallbackModelLT applies the LT predicate on the "quota_fallback_model" field.
+func QuotaFallbackModelLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldQuotaFallbackModel, v))
+}
+
+// QuotaFallbackModelLTE applies the LTE predicate on the "quota_fallback_model" field.
+func QuotaFallbackModelLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldQuotaFallbackModel, v))
+}
+
+// QuotaFallbackModelContains applies the Contains predicate on the "quota_fallback_model" field.
+func QuotaFallbackModelContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldQuotaFallbackModel, v))
+}
+
+// QuotaFallbackModelHasPrefix applies the HasPrefix predicate on the "quota_fallback_model" field.
+func QuotaFallbackModelHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldQuotaFallbackModel, v))
+}
+
+// QuotaFallbackModelHasSuffix applies the HasSuffix predicate on the "quota_fallback_model" field.
+func QuotaFallbackModelHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldQuotaFallbackModel, v))
+}
+
+// QuotaFallbackModelEqualFold applies the EqualFold predicate on the "quota_fallback_model" field.
+func QuotaFallbackModelEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldQuotaFallbackModel, v))
+}
+
+// QuotaFallbackModelContainsFold applies the ContainsFold predicate on the "quota_fallback_model" field.
+func QuotaFallbackModelContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldQuotaFallbackModel, v))
+}
+
 // ModelRoutingIsNil applies the IsNil predicate on the "model_routing" field.
 func ModelRoutingIsNil() predicate.Group {
 	return predicate.Group(sql.FieldIsNull(FieldModelRouting))
@@ -1443,6 +1578,136 @@ func DefaultMappedModelEqualFold(v string) predicate.Group {
 // DefaultMappedModelContainsFold applies the ContainsFold predicate on the "default_mapped_model" field.
 func DefaultMappedModelContainsFold(v string) predicate.Group {
 	return predicate.Group(sql.FieldContainsFold(FieldDefaultMappedModel, v))
+}
+
+// ModelPolicyModeEQ applies the EQ predicate on the "model_policy_mode" field.
+func ModelPolicyModeEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldModelPolicyMode, v))
+}
+
+// ModelPolicyModeNEQ applies the NEQ predicate on the "model_policy_mode" field.
+func ModelPolicyModeNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldModelPolicyMode, v))
+}
+
+// ModelPolicyModeIn applies the In predicate on the "model_policy_mode" field.
+func ModelPolicyModeIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldModelPolicyMode, vs...))
+}
+
+// ModelPolicyModeNotIn applies the NotIn predicate on the "model_policy_mode" field.
+func ModelPolicyModeNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldModelPolicyMode, vs...))
+}
+
+// ModelPolicyModeGT applies the GT predicate on the "model_policy_mode" field.
+func ModelPolicyModeGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldModelPolicyMode, v))
+}
+
+// ModelPolicyModeGTE applies the GTE predicate on the "model_policy_mode" field.
+func ModelPolicyModeGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldModelPolicyMode, v))
+}
+
+// ModelPolicyModeLT applies the LT predicate on the "model_policy_mode" field.
+func ModelPolicyModeLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldModelPolicyMode, v))
+}
+
+// ModelPolicyModeLTE applies the LTE predicate on the "model_policy_mode" field.
+func ModelPolicyModeLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldModelPolicyMode, v))
+}
+
+// ModelPolicyModeContains applies the Contains predicate on the "model_policy_mode" field.
+func ModelPolicyModeContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldModelPolicyMode, v))
+}
+
+// ModelPolicyModeHasPrefix applies the HasPrefix predicate on the "model_policy_mode" field.
+func ModelPolicyModeHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldModelPolicyMode, v))
+}
+
+// ModelPolicyModeHasSuffix applies the HasSuffix predicate on the "model_policy_mode" field.
+func ModelPolicyModeHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldModelPolicyMode, v))
+}
+
+// ModelPolicyModeEqualFold applies the EqualFold predicate on the "model_policy_mode" field.
+func ModelPolicyModeEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldModelPolicyMode, v))
+}
+
+// ModelPolicyModeContainsFold applies the ContainsFold predicate on the "model_policy_mode" field.
+func ModelPolicyModeContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldModelPolicyMode, v))
+}
+
+// ModelPolicyModelEQ applies the EQ predicate on the "model_policy_model" field.
+func ModelPolicyModelEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldModelPolicyModel, v))
+}
+
+// ModelPolicyModelNEQ applies the NEQ predicate on the "model_policy_model" field.
+func ModelPolicyModelNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldModelPolicyModel, v))
+}
+
+// ModelPolicyModelIn applies the In predicate on the "model_policy_model" field.
+func ModelPolicyModelIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldModelPolicyModel, vs...))
+}
+
+// ModelPolicyModelNotIn applies the NotIn predicate on the "model_policy_model" field.
+func ModelPolicyModelNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldModelPolicyModel, vs...))
+}
+
+// ModelPolicyModelGT applies the GT predicate on the "model_policy_model" field.
+func ModelPolicyModelGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldModelPolicyModel, v))
+}
+
+// ModelPolicyModelGTE applies the GTE predicate on the "model_policy_model" field.
+func ModelPolicyModelGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldModelPolicyModel, v))
+}
+
+// ModelPolicyModelLT applies the LT predicate on the "model_policy_model" field.
+func ModelPolicyModelLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldModelPolicyModel, v))
+}
+
+// ModelPolicyModelLTE applies the LTE predicate on the "model_policy_model" field.
+func ModelPolicyModelLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldModelPolicyModel, v))
+}
+
+// ModelPolicyModelContains applies the Contains predicate on the "model_policy_model" field.
+func ModelPolicyModelContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldModelPolicyModel, v))
+}
+
+// ModelPolicyModelHasPrefix applies the HasPrefix predicate on the "model_policy_model" field.
+func ModelPolicyModelHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldModelPolicyModel, v))
+}
+
+// ModelPolicyModelHasSuffix applies the HasSuffix predicate on the "model_policy_model" field.
+func ModelPolicyModelHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldModelPolicyModel, v))
+}
+
+// ModelPolicyModelEqualFold applies the EqualFold predicate on the "model_policy_model" field.
+func ModelPolicyModelEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldModelPolicyModel, v))
+}
+
+// ModelPolicyModelContainsFold applies the ContainsFold predicate on the "model_policy_model" field.
+func ModelPolicyModelContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldModelPolicyModel, v))
 }
 
 // RpmLimitEQ applies the EQ predicate on the "rpm_limit" field.

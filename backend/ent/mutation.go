@@ -14998,6 +14998,9 @@ type GroupMutation struct {
 	addfallback_group_id                    *int64
 	fallback_group_id_on_invalid_request    *int64
 	addfallback_group_id_on_invalid_request *int64
+	quota_fallback_group_id                 *int64
+	addquota_fallback_group_id              *int64
+	quota_fallback_model                    *string
 	model_routing                           *map[string][]int64
 	model_routing_enabled                   *bool
 	mcp_xml_inject                          *bool
@@ -15011,6 +15014,8 @@ type GroupMutation struct {
 	default_mapped_model                    *string
 	messages_dispatch_model_config          *domain.OpenAIMessagesDispatchModelConfig
 	models_list_config                      *domain.GroupModelsListConfig
+	model_policy_mode                       *string
+	model_policy_model                      *string
 	rpm_limit                               *int
 	addrpm_limit                            *int
 	clearedFields                           map[string]struct{}
@@ -16377,6 +16382,112 @@ func (m *GroupMutation) ResetFallbackGroupIDOnInvalidRequest() {
 	delete(m.clearedFields, group.FieldFallbackGroupIDOnInvalidRequest)
 }
 
+// SetQuotaFallbackGroupID sets the "quota_fallback_group_id" field.
+func (m *GroupMutation) SetQuotaFallbackGroupID(i int64) {
+	m.quota_fallback_group_id = &i
+	m.addquota_fallback_group_id = nil
+}
+
+// QuotaFallbackGroupID returns the value of the "quota_fallback_group_id" field in the mutation.
+func (m *GroupMutation) QuotaFallbackGroupID() (r int64, exists bool) {
+	v := m.quota_fallback_group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldQuotaFallbackGroupID returns the old "quota_fallback_group_id" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldQuotaFallbackGroupID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldQuotaFallbackGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldQuotaFallbackGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldQuotaFallbackGroupID: %w", err)
+	}
+	return oldValue.QuotaFallbackGroupID, nil
+}
+
+// AddQuotaFallbackGroupID adds i to the "quota_fallback_group_id" field.
+func (m *GroupMutation) AddQuotaFallbackGroupID(i int64) {
+	if m.addquota_fallback_group_id != nil {
+		*m.addquota_fallback_group_id += i
+	} else {
+		m.addquota_fallback_group_id = &i
+	}
+}
+
+// AddedQuotaFallbackGroupID returns the value that was added to the "quota_fallback_group_id" field in this mutation.
+func (m *GroupMutation) AddedQuotaFallbackGroupID() (r int64, exists bool) {
+	v := m.addquota_fallback_group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearQuotaFallbackGroupID clears the value of the "quota_fallback_group_id" field.
+func (m *GroupMutation) ClearQuotaFallbackGroupID() {
+	m.quota_fallback_group_id = nil
+	m.addquota_fallback_group_id = nil
+	m.clearedFields[group.FieldQuotaFallbackGroupID] = struct{}{}
+}
+
+// QuotaFallbackGroupIDCleared returns if the "quota_fallback_group_id" field was cleared in this mutation.
+func (m *GroupMutation) QuotaFallbackGroupIDCleared() bool {
+	_, ok := m.clearedFields[group.FieldQuotaFallbackGroupID]
+	return ok
+}
+
+// ResetQuotaFallbackGroupID resets all changes to the "quota_fallback_group_id" field.
+func (m *GroupMutation) ResetQuotaFallbackGroupID() {
+	m.quota_fallback_group_id = nil
+	m.addquota_fallback_group_id = nil
+	delete(m.clearedFields, group.FieldQuotaFallbackGroupID)
+}
+
+// SetQuotaFallbackModel sets the "quota_fallback_model" field.
+func (m *GroupMutation) SetQuotaFallbackModel(s string) {
+	m.quota_fallback_model = &s
+}
+
+// QuotaFallbackModel returns the value of the "quota_fallback_model" field in the mutation.
+func (m *GroupMutation) QuotaFallbackModel() (r string, exists bool) {
+	v := m.quota_fallback_model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldQuotaFallbackModel returns the old "quota_fallback_model" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldQuotaFallbackModel(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldQuotaFallbackModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldQuotaFallbackModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldQuotaFallbackModel: %w", err)
+	}
+	return oldValue.QuotaFallbackModel, nil
+}
+
+// ResetQuotaFallbackModel resets all changes to the "quota_fallback_model" field.
+func (m *GroupMutation) ResetQuotaFallbackModel() {
+	m.quota_fallback_model = nil
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (m *GroupMutation) SetModelRouting(value map[string][]int64) {
 	m.model_routing = &value
@@ -16821,6 +16932,78 @@ func (m *GroupMutation) ResetModelsListConfig() {
 	m.models_list_config = nil
 }
 
+// SetModelPolicyMode sets the "model_policy_mode" field.
+func (m *GroupMutation) SetModelPolicyMode(s string) {
+	m.model_policy_mode = &s
+}
+
+// ModelPolicyMode returns the value of the "model_policy_mode" field in the mutation.
+func (m *GroupMutation) ModelPolicyMode() (r string, exists bool) {
+	v := m.model_policy_mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldModelPolicyMode returns the old "model_policy_mode" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldModelPolicyMode(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldModelPolicyMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldModelPolicyMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldModelPolicyMode: %w", err)
+	}
+	return oldValue.ModelPolicyMode, nil
+}
+
+// ResetModelPolicyMode resets all changes to the "model_policy_mode" field.
+func (m *GroupMutation) ResetModelPolicyMode() {
+	m.model_policy_mode = nil
+}
+
+// SetModelPolicyModel sets the "model_policy_model" field.
+func (m *GroupMutation) SetModelPolicyModel(s string) {
+	m.model_policy_model = &s
+}
+
+// ModelPolicyModel returns the value of the "model_policy_model" field in the mutation.
+func (m *GroupMutation) ModelPolicyModel() (r string, exists bool) {
+	v := m.model_policy_model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldModelPolicyModel returns the old "model_policy_model" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldModelPolicyModel(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldModelPolicyModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldModelPolicyModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldModelPolicyModel: %w", err)
+	}
+	return oldValue.ModelPolicyModel, nil
+}
+
+// ResetModelPolicyModel resets all changes to the "model_policy_model" field.
+func (m *GroupMutation) ResetModelPolicyModel() {
+	m.model_policy_model = nil
+}
+
 // SetRpmLimit sets the "rpm_limit" field.
 func (m *GroupMutation) SetRpmLimit(i int) {
 	m.rpm_limit = &i
@@ -17235,7 +17418,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 36)
+	fields := make([]string, 0, 40)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -17308,6 +17491,12 @@ func (m *GroupMutation) Fields() []string {
 	if m.fallback_group_id_on_invalid_request != nil {
 		fields = append(fields, group.FieldFallbackGroupIDOnInvalidRequest)
 	}
+	if m.quota_fallback_group_id != nil {
+		fields = append(fields, group.FieldQuotaFallbackGroupID)
+	}
+	if m.quota_fallback_model != nil {
+		fields = append(fields, group.FieldQuotaFallbackModel)
+	}
 	if m.model_routing != nil {
 		fields = append(fields, group.FieldModelRouting)
 	}
@@ -17340,6 +17529,12 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.models_list_config != nil {
 		fields = append(fields, group.FieldModelsListConfig)
+	}
+	if m.model_policy_mode != nil {
+		fields = append(fields, group.FieldModelPolicyMode)
+	}
+	if m.model_policy_model != nil {
+		fields = append(fields, group.FieldModelPolicyModel)
 	}
 	if m.rpm_limit != nil {
 		fields = append(fields, group.FieldRpmLimit)
@@ -17400,6 +17595,10 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.FallbackGroupID()
 	case group.FieldFallbackGroupIDOnInvalidRequest:
 		return m.FallbackGroupIDOnInvalidRequest()
+	case group.FieldQuotaFallbackGroupID:
+		return m.QuotaFallbackGroupID()
+	case group.FieldQuotaFallbackModel:
+		return m.QuotaFallbackModel()
 	case group.FieldModelRouting:
 		return m.ModelRouting()
 	case group.FieldModelRoutingEnabled:
@@ -17422,6 +17621,10 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.MessagesDispatchModelConfig()
 	case group.FieldModelsListConfig:
 		return m.ModelsListConfig()
+	case group.FieldModelPolicyMode:
+		return m.ModelPolicyMode()
+	case group.FieldModelPolicyModel:
+		return m.ModelPolicyModel()
 	case group.FieldRpmLimit:
 		return m.RpmLimit()
 	}
@@ -17481,6 +17684,10 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldFallbackGroupID(ctx)
 	case group.FieldFallbackGroupIDOnInvalidRequest:
 		return m.OldFallbackGroupIDOnInvalidRequest(ctx)
+	case group.FieldQuotaFallbackGroupID:
+		return m.OldQuotaFallbackGroupID(ctx)
+	case group.FieldQuotaFallbackModel:
+		return m.OldQuotaFallbackModel(ctx)
 	case group.FieldModelRouting:
 		return m.OldModelRouting(ctx)
 	case group.FieldModelRoutingEnabled:
@@ -17503,6 +17710,10 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldMessagesDispatchModelConfig(ctx)
 	case group.FieldModelsListConfig:
 		return m.OldModelsListConfig(ctx)
+	case group.FieldModelPolicyMode:
+		return m.OldModelPolicyMode(ctx)
+	case group.FieldModelPolicyModel:
+		return m.OldModelPolicyModel(ctx)
 	case group.FieldRpmLimit:
 		return m.OldRpmLimit(ctx)
 	}
@@ -17682,6 +17893,20 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetFallbackGroupIDOnInvalidRequest(v)
 		return nil
+	case group.FieldQuotaFallbackGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetQuotaFallbackGroupID(v)
+		return nil
+	case group.FieldQuotaFallbackModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetQuotaFallbackModel(v)
+		return nil
 	case group.FieldModelRouting:
 		v, ok := value.(map[string][]int64)
 		if !ok {
@@ -17759,6 +17984,20 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetModelsListConfig(v)
 		return nil
+	case group.FieldModelPolicyMode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetModelPolicyMode(v)
+		return nil
+	case group.FieldModelPolicyModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetModelPolicyModel(v)
+		return nil
 	case group.FieldRpmLimit:
 		v, ok := value.(int)
 		if !ok {
@@ -17810,6 +18049,9 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addfallback_group_id_on_invalid_request != nil {
 		fields = append(fields, group.FieldFallbackGroupIDOnInvalidRequest)
 	}
+	if m.addquota_fallback_group_id != nil {
+		fields = append(fields, group.FieldQuotaFallbackGroupID)
+	}
 	if m.addsort_order != nil {
 		fields = append(fields, group.FieldSortOrder)
 	}
@@ -17848,6 +18090,8 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedFallbackGroupID()
 	case group.FieldFallbackGroupIDOnInvalidRequest:
 		return m.AddedFallbackGroupIDOnInvalidRequest()
+	case group.FieldQuotaFallbackGroupID:
+		return m.AddedQuotaFallbackGroupID()
 	case group.FieldSortOrder:
 		return m.AddedSortOrder()
 	case group.FieldRpmLimit:
@@ -17945,6 +18189,13 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddFallbackGroupIDOnInvalidRequest(v)
 		return nil
+	case group.FieldQuotaFallbackGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddQuotaFallbackGroupID(v)
+		return nil
 	case group.FieldSortOrder:
 		v, ok := value.(int)
 		if !ok {
@@ -17997,6 +18248,9 @@ func (m *GroupMutation) ClearedFields() []string {
 	if m.FieldCleared(group.FieldFallbackGroupIDOnInvalidRequest) {
 		fields = append(fields, group.FieldFallbackGroupIDOnInvalidRequest)
 	}
+	if m.FieldCleared(group.FieldQuotaFallbackGroupID) {
+		fields = append(fields, group.FieldQuotaFallbackGroupID)
+	}
 	if m.FieldCleared(group.FieldModelRouting) {
 		fields = append(fields, group.FieldModelRouting)
 	}
@@ -18043,6 +18297,9 @@ func (m *GroupMutation) ClearField(name string) error {
 		return nil
 	case group.FieldFallbackGroupIDOnInvalidRequest:
 		m.ClearFallbackGroupIDOnInvalidRequest()
+		return nil
+	case group.FieldQuotaFallbackGroupID:
+		m.ClearQuotaFallbackGroupID()
 		return nil
 	case group.FieldModelRouting:
 		m.ClearModelRouting()
@@ -18127,6 +18384,12 @@ func (m *GroupMutation) ResetField(name string) error {
 	case group.FieldFallbackGroupIDOnInvalidRequest:
 		m.ResetFallbackGroupIDOnInvalidRequest()
 		return nil
+	case group.FieldQuotaFallbackGroupID:
+		m.ResetQuotaFallbackGroupID()
+		return nil
+	case group.FieldQuotaFallbackModel:
+		m.ResetQuotaFallbackModel()
+		return nil
 	case group.FieldModelRouting:
 		m.ResetModelRouting()
 		return nil
@@ -18159,6 +18422,12 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldModelsListConfig:
 		m.ResetModelsListConfig()
+		return nil
+	case group.FieldModelPolicyMode:
+		m.ResetModelPolicyMode()
+		return nil
+	case group.FieldModelPolicyModel:
+		m.ResetModelPolicyModel()
 		return nil
 	case group.FieldRpmLimit:
 		m.ResetRpmLimit()

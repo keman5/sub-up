@@ -836,50 +836,68 @@ func init() {
 	groupDescClaudeCodeOnly := groupFields[18].Descriptor()
 	// group.DefaultClaudeCodeOnly holds the default value on creation for the claude_code_only field.
 	group.DefaultClaudeCodeOnly = groupDescClaudeCodeOnly.Default.(bool)
+	// groupDescQuotaFallbackModel is the schema descriptor for quota_fallback_model field.
+	groupDescQuotaFallbackModel := groupFields[22].Descriptor()
+	// group.DefaultQuotaFallbackModel holds the default value on creation for the quota_fallback_model field.
+	group.DefaultQuotaFallbackModel = groupDescQuotaFallbackModel.Default.(string)
+	// group.QuotaFallbackModelValidator is a validator for the "quota_fallback_model" field. It is called by the builders before save.
+	group.QuotaFallbackModelValidator = groupDescQuotaFallbackModel.Validators[0].(func(string) error)
 	// groupDescModelRoutingEnabled is the schema descriptor for model_routing_enabled field.
-	groupDescModelRoutingEnabled := groupFields[22].Descriptor()
+	groupDescModelRoutingEnabled := groupFields[24].Descriptor()
 	// group.DefaultModelRoutingEnabled holds the default value on creation for the model_routing_enabled field.
 	group.DefaultModelRoutingEnabled = groupDescModelRoutingEnabled.Default.(bool)
 	// groupDescMcpXMLInject is the schema descriptor for mcp_xml_inject field.
-	groupDescMcpXMLInject := groupFields[23].Descriptor()
+	groupDescMcpXMLInject := groupFields[25].Descriptor()
 	// group.DefaultMcpXMLInject holds the default value on creation for the mcp_xml_inject field.
 	group.DefaultMcpXMLInject = groupDescMcpXMLInject.Default.(bool)
 	// groupDescSupportedModelScopes is the schema descriptor for supported_model_scopes field.
-	groupDescSupportedModelScopes := groupFields[24].Descriptor()
+	groupDescSupportedModelScopes := groupFields[26].Descriptor()
 	// group.DefaultSupportedModelScopes holds the default value on creation for the supported_model_scopes field.
 	group.DefaultSupportedModelScopes = groupDescSupportedModelScopes.Default.([]string)
 	// groupDescSortOrder is the schema descriptor for sort_order field.
-	groupDescSortOrder := groupFields[25].Descriptor()
+	groupDescSortOrder := groupFields[27].Descriptor()
 	// group.DefaultSortOrder holds the default value on creation for the sort_order field.
 	group.DefaultSortOrder = groupDescSortOrder.Default.(int)
 	// groupDescAllowMessagesDispatch is the schema descriptor for allow_messages_dispatch field.
-	groupDescAllowMessagesDispatch := groupFields[26].Descriptor()
+	groupDescAllowMessagesDispatch := groupFields[28].Descriptor()
 	// group.DefaultAllowMessagesDispatch holds the default value on creation for the allow_messages_dispatch field.
 	group.DefaultAllowMessagesDispatch = groupDescAllowMessagesDispatch.Default.(bool)
 	// groupDescRequireOauthOnly is the schema descriptor for require_oauth_only field.
-	groupDescRequireOauthOnly := groupFields[27].Descriptor()
+	groupDescRequireOauthOnly := groupFields[29].Descriptor()
 	// group.DefaultRequireOauthOnly holds the default value on creation for the require_oauth_only field.
 	group.DefaultRequireOauthOnly = groupDescRequireOauthOnly.Default.(bool)
 	// groupDescRequirePrivacySet is the schema descriptor for require_privacy_set field.
-	groupDescRequirePrivacySet := groupFields[28].Descriptor()
+	groupDescRequirePrivacySet := groupFields[30].Descriptor()
 	// group.DefaultRequirePrivacySet holds the default value on creation for the require_privacy_set field.
 	group.DefaultRequirePrivacySet = groupDescRequirePrivacySet.Default.(bool)
 	// groupDescDefaultMappedModel is the schema descriptor for default_mapped_model field.
-	groupDescDefaultMappedModel := groupFields[29].Descriptor()
+	groupDescDefaultMappedModel := groupFields[31].Descriptor()
 	// group.DefaultDefaultMappedModel holds the default value on creation for the default_mapped_model field.
 	group.DefaultDefaultMappedModel = groupDescDefaultMappedModel.Default.(string)
 	// group.DefaultMappedModelValidator is a validator for the "default_mapped_model" field. It is called by the builders before save.
 	group.DefaultMappedModelValidator = groupDescDefaultMappedModel.Validators[0].(func(string) error)
 	// groupDescMessagesDispatchModelConfig is the schema descriptor for messages_dispatch_model_config field.
-	groupDescMessagesDispatchModelConfig := groupFields[30].Descriptor()
+	groupDescMessagesDispatchModelConfig := groupFields[32].Descriptor()
 	// group.DefaultMessagesDispatchModelConfig holds the default value on creation for the messages_dispatch_model_config field.
 	group.DefaultMessagesDispatchModelConfig = groupDescMessagesDispatchModelConfig.Default.(domain.OpenAIMessagesDispatchModelConfig)
 	// groupDescModelsListConfig is the schema descriptor for models_list_config field.
-	groupDescModelsListConfig := groupFields[31].Descriptor()
+	groupDescModelsListConfig := groupFields[33].Descriptor()
 	// group.DefaultModelsListConfig holds the default value on creation for the models_list_config field.
 	group.DefaultModelsListConfig = groupDescModelsListConfig.Default.(domain.GroupModelsListConfig)
+	// groupDescModelPolicyMode is the schema descriptor for model_policy_mode field.
+	groupDescModelPolicyMode := groupFields[34].Descriptor()
+	// group.DefaultModelPolicyMode holds the default value on creation for the model_policy_mode field.
+	group.DefaultModelPolicyMode = groupDescModelPolicyMode.Default.(string)
+	// group.ModelPolicyModeValidator is a validator for the "model_policy_mode" field. It is called by the builders before save.
+	group.ModelPolicyModeValidator = groupDescModelPolicyMode.Validators[0].(func(string) error)
+	// groupDescModelPolicyModel is the schema descriptor for model_policy_model field.
+	groupDescModelPolicyModel := groupFields[35].Descriptor()
+	// group.DefaultModelPolicyModel holds the default value on creation for the model_policy_model field.
+	group.DefaultModelPolicyModel = groupDescModelPolicyModel.Default.(string)
+	// group.ModelPolicyModelValidator is a validator for the "model_policy_model" field. It is called by the builders before save.
+	group.ModelPolicyModelValidator = groupDescModelPolicyModel.Validators[0].(func(string) error)
 	// groupDescRpmLimit is the schema descriptor for rpm_limit field.
-	groupDescRpmLimit := groupFields[32].Descriptor()
+	groupDescRpmLimit := groupFields[36].Descriptor()
 	// group.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
 	group.DefaultRpmLimit = groupDescRpmLimit.Default.(int)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()

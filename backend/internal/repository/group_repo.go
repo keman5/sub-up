@@ -68,6 +68,7 @@ func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) er
 		SetClaudeCodeOnly(groupIn.ClaudeCodeOnly).
 		SetNillableFallbackGroupID(groupIn.FallbackGroupID).
 		SetNillableFallbackGroupIDOnInvalidRequest(groupIn.FallbackGroupIDOnInvalidRequest).
+		SetNillableQuotaFallbackGroupID(groupIn.QuotaFallbackGroupID).
 		SetModelRoutingEnabled(groupIn.ModelRoutingEnabled).
 		SetMcpXMLInject(groupIn.MCPXMLInject).
 		SetAllowMessagesDispatch(groupIn.AllowMessagesDispatch).
@@ -76,6 +77,8 @@ func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) er
 		SetDefaultMappedModel(groupIn.DefaultMappedModel).
 		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig).
 		SetModelsListConfig(groupIn.ModelsListConfig).
+		SetModelPolicyMode(groupIn.ModelPolicyMode).
+		SetModelPolicyModel(groupIn.ModelPolicyModel).
 		SetRpmLimit(groupIn.RPMLimit)
 
 	// 设置模型路由配置
@@ -154,6 +157,8 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetDefaultMappedModel(groupIn.DefaultMappedModel).
 		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig).
 		SetModelsListConfig(groupIn.ModelsListConfig).
+		SetModelPolicyMode(groupIn.ModelPolicyMode).
+		SetModelPolicyModel(groupIn.ModelPolicyModel).
 		SetRpmLimit(groupIn.RPMLimit)
 
 	// 显式处理可空字段：nil 需要 clear，非 nil 需要 set。
@@ -199,6 +204,11 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		builder = builder.SetFallbackGroupIDOnInvalidRequest(*groupIn.FallbackGroupIDOnInvalidRequest)
 	} else {
 		builder = builder.ClearFallbackGroupIDOnInvalidRequest()
+	}
+	if groupIn.QuotaFallbackGroupID != nil {
+		builder = builder.SetQuotaFallbackGroupID(*groupIn.QuotaFallbackGroupID)
+	} else {
+		builder = builder.ClearQuotaFallbackGroupID()
 	}
 
 	// 处理 ModelRouting：nil 时清除，否则设置

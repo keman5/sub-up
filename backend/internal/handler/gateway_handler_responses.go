@@ -75,6 +75,10 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	if policyModel, forced := service.ResolveGroupModelPolicyModel(apiKey.Group, reqModel); forced {
+		reqModel = policyModel
+		body = h.gatewayService.ReplaceModelInBody(body, policyModel)
+	}
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
 		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)

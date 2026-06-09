@@ -494,6 +494,47 @@ func (_u *GroupUpdate) ClearFallbackGroupIDOnInvalidRequest() *GroupUpdate {
 	return _u
 }
 
+// SetQuotaFallbackGroupID sets the "quota_fallback_group_id" field.
+func (_u *GroupUpdate) SetQuotaFallbackGroupID(v int64) *GroupUpdate {
+	_u.mutation.ResetQuotaFallbackGroupID()
+	_u.mutation.SetQuotaFallbackGroupID(v)
+	return _u
+}
+
+// SetNillableQuotaFallbackGroupID sets the "quota_fallback_group_id" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableQuotaFallbackGroupID(v *int64) *GroupUpdate {
+	if v != nil {
+		_u.SetQuotaFallbackGroupID(*v)
+	}
+	return _u
+}
+
+// AddQuotaFallbackGroupID adds value to the "quota_fallback_group_id" field.
+func (_u *GroupUpdate) AddQuotaFallbackGroupID(v int64) *GroupUpdate {
+	_u.mutation.AddQuotaFallbackGroupID(v)
+	return _u
+}
+
+// ClearQuotaFallbackGroupID clears the value of the "quota_fallback_group_id" field.
+func (_u *GroupUpdate) ClearQuotaFallbackGroupID() *GroupUpdate {
+	_u.mutation.ClearQuotaFallbackGroupID()
+	return _u
+}
+
+// SetQuotaFallbackModel sets the "quota_fallback_model" field.
+func (_u *GroupUpdate) SetQuotaFallbackModel(v string) *GroupUpdate {
+	_u.mutation.SetQuotaFallbackModel(v)
+	return _u
+}
+
+// SetNillableQuotaFallbackModel sets the "quota_fallback_model" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableQuotaFallbackModel(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetQuotaFallbackModel(*v)
+	}
+	return _u
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (_u *GroupUpdate) SetModelRouting(v map[string][]int64) *GroupUpdate {
 	_u.mutation.SetModelRouting(v)
@@ -647,6 +688,34 @@ func (_u *GroupUpdate) SetModelsListConfig(v domain.GroupModelsListConfig) *Grou
 func (_u *GroupUpdate) SetNillableModelsListConfig(v *domain.GroupModelsListConfig) *GroupUpdate {
 	if v != nil {
 		_u.SetModelsListConfig(*v)
+	}
+	return _u
+}
+
+// SetModelPolicyMode sets the "model_policy_mode" field.
+func (_u *GroupUpdate) SetModelPolicyMode(v string) *GroupUpdate {
+	_u.mutation.SetModelPolicyMode(v)
+	return _u
+}
+
+// SetNillableModelPolicyMode sets the "model_policy_mode" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableModelPolicyMode(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetModelPolicyMode(*v)
+	}
+	return _u
+}
+
+// SetModelPolicyModel sets the "model_policy_model" field.
+func (_u *GroupUpdate) SetModelPolicyModel(v string) *GroupUpdate {
+	_u.mutation.SetModelPolicyModel(v)
+	return _u
+}
+
+// SetNillableModelPolicyModel sets the "model_policy_model" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableModelPolicyModel(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetModelPolicyModel(*v)
 	}
 	return _u
 }
@@ -957,9 +1026,24 @@ func (_u *GroupUpdate) check() error {
 			return &ValidationError{Name: "subscription_type", err: fmt.Errorf(`ent: validator failed for field "Group.subscription_type": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.QuotaFallbackModel(); ok {
+		if err := group.QuotaFallbackModelValidator(v); err != nil {
+			return &ValidationError{Name: "quota_fallback_model", err: fmt.Errorf(`ent: validator failed for field "Group.quota_fallback_model": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.DefaultMappedModel(); ok {
 		if err := group.DefaultMappedModelValidator(v); err != nil {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ModelPolicyMode(); ok {
+		if err := group.ModelPolicyModeValidator(v); err != nil {
+			return &ValidationError{Name: "model_policy_mode", err: fmt.Errorf(`ent: validator failed for field "Group.model_policy_mode": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ModelPolicyModel(); ok {
+		if err := group.ModelPolicyModelValidator(v); err != nil {
+			return &ValidationError{Name: "model_policy_model", err: fmt.Errorf(`ent: validator failed for field "Group.model_policy_model": %w`, err)}
 		}
 	}
 	return nil
@@ -1112,6 +1196,18 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.FallbackGroupIDOnInvalidRequestCleared() {
 		_spec.ClearField(group.FieldFallbackGroupIDOnInvalidRequest, field.TypeInt64)
 	}
+	if value, ok := _u.mutation.QuotaFallbackGroupID(); ok {
+		_spec.SetField(group.FieldQuotaFallbackGroupID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedQuotaFallbackGroupID(); ok {
+		_spec.AddField(group.FieldQuotaFallbackGroupID, field.TypeInt64, value)
+	}
+	if _u.mutation.QuotaFallbackGroupIDCleared() {
+		_spec.ClearField(group.FieldQuotaFallbackGroupID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.QuotaFallbackModel(); ok {
+		_spec.SetField(group.FieldQuotaFallbackModel, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.ModelRouting(); ok {
 		_spec.SetField(group.FieldModelRouting, field.TypeJSON, value)
 	}
@@ -1155,6 +1251,12 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.ModelsListConfig(); ok {
 		_spec.SetField(group.FieldModelsListConfig, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.ModelPolicyMode(); ok {
+		_spec.SetField(group.FieldModelPolicyMode, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.ModelPolicyModel(); ok {
+		_spec.SetField(group.FieldModelPolicyModel, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.RpmLimit(); ok {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
@@ -1934,6 +2036,47 @@ func (_u *GroupUpdateOne) ClearFallbackGroupIDOnInvalidRequest() *GroupUpdateOne
 	return _u
 }
 
+// SetQuotaFallbackGroupID sets the "quota_fallback_group_id" field.
+func (_u *GroupUpdateOne) SetQuotaFallbackGroupID(v int64) *GroupUpdateOne {
+	_u.mutation.ResetQuotaFallbackGroupID()
+	_u.mutation.SetQuotaFallbackGroupID(v)
+	return _u
+}
+
+// SetNillableQuotaFallbackGroupID sets the "quota_fallback_group_id" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableQuotaFallbackGroupID(v *int64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetQuotaFallbackGroupID(*v)
+	}
+	return _u
+}
+
+// AddQuotaFallbackGroupID adds value to the "quota_fallback_group_id" field.
+func (_u *GroupUpdateOne) AddQuotaFallbackGroupID(v int64) *GroupUpdateOne {
+	_u.mutation.AddQuotaFallbackGroupID(v)
+	return _u
+}
+
+// ClearQuotaFallbackGroupID clears the value of the "quota_fallback_group_id" field.
+func (_u *GroupUpdateOne) ClearQuotaFallbackGroupID() *GroupUpdateOne {
+	_u.mutation.ClearQuotaFallbackGroupID()
+	return _u
+}
+
+// SetQuotaFallbackModel sets the "quota_fallback_model" field.
+func (_u *GroupUpdateOne) SetQuotaFallbackModel(v string) *GroupUpdateOne {
+	_u.mutation.SetQuotaFallbackModel(v)
+	return _u
+}
+
+// SetNillableQuotaFallbackModel sets the "quota_fallback_model" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableQuotaFallbackModel(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetQuotaFallbackModel(*v)
+	}
+	return _u
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (_u *GroupUpdateOne) SetModelRouting(v map[string][]int64) *GroupUpdateOne {
 	_u.mutation.SetModelRouting(v)
@@ -2087,6 +2230,34 @@ func (_u *GroupUpdateOne) SetModelsListConfig(v domain.GroupModelsListConfig) *G
 func (_u *GroupUpdateOne) SetNillableModelsListConfig(v *domain.GroupModelsListConfig) *GroupUpdateOne {
 	if v != nil {
 		_u.SetModelsListConfig(*v)
+	}
+	return _u
+}
+
+// SetModelPolicyMode sets the "model_policy_mode" field.
+func (_u *GroupUpdateOne) SetModelPolicyMode(v string) *GroupUpdateOne {
+	_u.mutation.SetModelPolicyMode(v)
+	return _u
+}
+
+// SetNillableModelPolicyMode sets the "model_policy_mode" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableModelPolicyMode(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetModelPolicyMode(*v)
+	}
+	return _u
+}
+
+// SetModelPolicyModel sets the "model_policy_model" field.
+func (_u *GroupUpdateOne) SetModelPolicyModel(v string) *GroupUpdateOne {
+	_u.mutation.SetModelPolicyModel(v)
+	return _u
+}
+
+// SetNillableModelPolicyModel sets the "model_policy_model" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableModelPolicyModel(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetModelPolicyModel(*v)
 	}
 	return _u
 }
@@ -2410,9 +2581,24 @@ func (_u *GroupUpdateOne) check() error {
 			return &ValidationError{Name: "subscription_type", err: fmt.Errorf(`ent: validator failed for field "Group.subscription_type": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.QuotaFallbackModel(); ok {
+		if err := group.QuotaFallbackModelValidator(v); err != nil {
+			return &ValidationError{Name: "quota_fallback_model", err: fmt.Errorf(`ent: validator failed for field "Group.quota_fallback_model": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.DefaultMappedModel(); ok {
 		if err := group.DefaultMappedModelValidator(v); err != nil {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ModelPolicyMode(); ok {
+		if err := group.ModelPolicyModeValidator(v); err != nil {
+			return &ValidationError{Name: "model_policy_mode", err: fmt.Errorf(`ent: validator failed for field "Group.model_policy_mode": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ModelPolicyModel(); ok {
+		if err := group.ModelPolicyModelValidator(v); err != nil {
+			return &ValidationError{Name: "model_policy_model", err: fmt.Errorf(`ent: validator failed for field "Group.model_policy_model": %w`, err)}
 		}
 	}
 	return nil
@@ -2582,6 +2768,18 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	if _u.mutation.FallbackGroupIDOnInvalidRequestCleared() {
 		_spec.ClearField(group.FieldFallbackGroupIDOnInvalidRequest, field.TypeInt64)
 	}
+	if value, ok := _u.mutation.QuotaFallbackGroupID(); ok {
+		_spec.SetField(group.FieldQuotaFallbackGroupID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedQuotaFallbackGroupID(); ok {
+		_spec.AddField(group.FieldQuotaFallbackGroupID, field.TypeInt64, value)
+	}
+	if _u.mutation.QuotaFallbackGroupIDCleared() {
+		_spec.ClearField(group.FieldQuotaFallbackGroupID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.QuotaFallbackModel(); ok {
+		_spec.SetField(group.FieldQuotaFallbackModel, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.ModelRouting(); ok {
 		_spec.SetField(group.FieldModelRouting, field.TypeJSON, value)
 	}
@@ -2625,6 +2823,12 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.ModelsListConfig(); ok {
 		_spec.SetField(group.FieldModelsListConfig, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.ModelPolicyMode(); ok {
+		_spec.SetField(group.FieldModelPolicyMode, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.ModelPolicyModel(); ok {
+		_spec.SetField(group.FieldModelPolicyModel, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.RpmLimit(); ok {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)

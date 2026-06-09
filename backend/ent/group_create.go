@@ -357,6 +357,34 @@ func (_c *GroupCreate) SetNillableFallbackGroupIDOnInvalidRequest(v *int64) *Gro
 	return _c
 }
 
+// SetQuotaFallbackGroupID sets the "quota_fallback_group_id" field.
+func (_c *GroupCreate) SetQuotaFallbackGroupID(v int64) *GroupCreate {
+	_c.mutation.SetQuotaFallbackGroupID(v)
+	return _c
+}
+
+// SetNillableQuotaFallbackGroupID sets the "quota_fallback_group_id" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableQuotaFallbackGroupID(v *int64) *GroupCreate {
+	if v != nil {
+		_c.SetQuotaFallbackGroupID(*v)
+	}
+	return _c
+}
+
+// SetQuotaFallbackModel sets the "quota_fallback_model" field.
+func (_c *GroupCreate) SetQuotaFallbackModel(v string) *GroupCreate {
+	_c.mutation.SetQuotaFallbackModel(v)
+	return _c
+}
+
+// SetNillableQuotaFallbackModel sets the "quota_fallback_model" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableQuotaFallbackModel(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetQuotaFallbackModel(*v)
+	}
+	return _c
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (_c *GroupCreate) SetModelRouting(v map[string][]int64) *GroupCreate {
 	_c.mutation.SetModelRouting(v)
@@ -491,6 +519,34 @@ func (_c *GroupCreate) SetModelsListConfig(v domain.GroupModelsListConfig) *Grou
 func (_c *GroupCreate) SetNillableModelsListConfig(v *domain.GroupModelsListConfig) *GroupCreate {
 	if v != nil {
 		_c.SetModelsListConfig(*v)
+	}
+	return _c
+}
+
+// SetModelPolicyMode sets the "model_policy_mode" field.
+func (_c *GroupCreate) SetModelPolicyMode(v string) *GroupCreate {
+	_c.mutation.SetModelPolicyMode(v)
+	return _c
+}
+
+// SetNillableModelPolicyMode sets the "model_policy_mode" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableModelPolicyMode(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetModelPolicyMode(*v)
+	}
+	return _c
+}
+
+// SetModelPolicyModel sets the "model_policy_model" field.
+func (_c *GroupCreate) SetModelPolicyModel(v string) *GroupCreate {
+	_c.mutation.SetModelPolicyModel(v)
+	return _c
+}
+
+// SetNillableModelPolicyModel sets the "model_policy_model" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableModelPolicyModel(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetModelPolicyModel(*v)
 	}
 	return _c
 }
@@ -694,6 +750,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultClaudeCodeOnly
 		_c.mutation.SetClaudeCodeOnly(v)
 	}
+	if _, ok := _c.mutation.QuotaFallbackModel(); !ok {
+		v := group.DefaultQuotaFallbackModel
+		_c.mutation.SetQuotaFallbackModel(v)
+	}
 	if _, ok := _c.mutation.ModelRoutingEnabled(); !ok {
 		v := group.DefaultModelRoutingEnabled
 		_c.mutation.SetModelRoutingEnabled(v)
@@ -733,6 +793,14 @@ func (_c *GroupCreate) defaults() error {
 	if _, ok := _c.mutation.ModelsListConfig(); !ok {
 		v := group.DefaultModelsListConfig
 		_c.mutation.SetModelsListConfig(v)
+	}
+	if _, ok := _c.mutation.ModelPolicyMode(); !ok {
+		v := group.DefaultModelPolicyMode
+		_c.mutation.SetModelPolicyMode(v)
+	}
+	if _, ok := _c.mutation.ModelPolicyModel(); !ok {
+		v := group.DefaultModelPolicyModel
+		_c.mutation.SetModelPolicyModel(v)
 	}
 	if _, ok := _c.mutation.RpmLimit(); !ok {
 		v := group.DefaultRpmLimit
@@ -805,6 +873,14 @@ func (_c *GroupCreate) check() error {
 	if _, ok := _c.mutation.ClaudeCodeOnly(); !ok {
 		return &ValidationError{Name: "claude_code_only", err: errors.New(`ent: missing required field "Group.claude_code_only"`)}
 	}
+	if _, ok := _c.mutation.QuotaFallbackModel(); !ok {
+		return &ValidationError{Name: "quota_fallback_model", err: errors.New(`ent: missing required field "Group.quota_fallback_model"`)}
+	}
+	if v, ok := _c.mutation.QuotaFallbackModel(); ok {
+		if err := group.QuotaFallbackModelValidator(v); err != nil {
+			return &ValidationError{Name: "quota_fallback_model", err: fmt.Errorf(`ent: validator failed for field "Group.quota_fallback_model": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.ModelRoutingEnabled(); !ok {
 		return &ValidationError{Name: "model_routing_enabled", err: errors.New(`ent: missing required field "Group.model_routing_enabled"`)}
 	}
@@ -839,6 +915,22 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.ModelsListConfig(); !ok {
 		return &ValidationError{Name: "models_list_config", err: errors.New(`ent: missing required field "Group.models_list_config"`)}
+	}
+	if _, ok := _c.mutation.ModelPolicyMode(); !ok {
+		return &ValidationError{Name: "model_policy_mode", err: errors.New(`ent: missing required field "Group.model_policy_mode"`)}
+	}
+	if v, ok := _c.mutation.ModelPolicyMode(); ok {
+		if err := group.ModelPolicyModeValidator(v); err != nil {
+			return &ValidationError{Name: "model_policy_mode", err: fmt.Errorf(`ent: validator failed for field "Group.model_policy_mode": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.ModelPolicyModel(); !ok {
+		return &ValidationError{Name: "model_policy_model", err: errors.New(`ent: missing required field "Group.model_policy_model"`)}
+	}
+	if v, ok := _c.mutation.ModelPolicyModel(); ok {
+		if err := group.ModelPolicyModelValidator(v); err != nil {
+			return &ValidationError{Name: "model_policy_model", err: fmt.Errorf(`ent: validator failed for field "Group.model_policy_model": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.RpmLimit(); !ok {
 		return &ValidationError{Name: "rpm_limit", err: errors.New(`ent: missing required field "Group.rpm_limit"`)}
@@ -966,6 +1058,14 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldFallbackGroupIDOnInvalidRequest, field.TypeInt64, value)
 		_node.FallbackGroupIDOnInvalidRequest = &value
 	}
+	if value, ok := _c.mutation.QuotaFallbackGroupID(); ok {
+		_spec.SetField(group.FieldQuotaFallbackGroupID, field.TypeInt64, value)
+		_node.QuotaFallbackGroupID = &value
+	}
+	if value, ok := _c.mutation.QuotaFallbackModel(); ok {
+		_spec.SetField(group.FieldQuotaFallbackModel, field.TypeString, value)
+		_node.QuotaFallbackModel = value
+	}
 	if value, ok := _c.mutation.ModelRouting(); ok {
 		_spec.SetField(group.FieldModelRouting, field.TypeJSON, value)
 		_node.ModelRouting = value
@@ -1009,6 +1109,14 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.ModelsListConfig(); ok {
 		_spec.SetField(group.FieldModelsListConfig, field.TypeJSON, value)
 		_node.ModelsListConfig = value
+	}
+	if value, ok := _c.mutation.ModelPolicyMode(); ok {
+		_spec.SetField(group.FieldModelPolicyMode, field.TypeString, value)
+		_node.ModelPolicyMode = value
+	}
+	if value, ok := _c.mutation.ModelPolicyModel(); ok {
+		_spec.SetField(group.FieldModelPolicyModel, field.TypeString, value)
+		_node.ModelPolicyModel = value
 	}
 	if value, ok := _c.mutation.RpmLimit(); ok {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
@@ -1578,6 +1686,42 @@ func (u *GroupUpsert) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsert {
 	return u
 }
 
+// SetQuotaFallbackGroupID sets the "quota_fallback_group_id" field.
+func (u *GroupUpsert) SetQuotaFallbackGroupID(v int64) *GroupUpsert {
+	u.Set(group.FieldQuotaFallbackGroupID, v)
+	return u
+}
+
+// UpdateQuotaFallbackGroupID sets the "quota_fallback_group_id" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateQuotaFallbackGroupID() *GroupUpsert {
+	u.SetExcluded(group.FieldQuotaFallbackGroupID)
+	return u
+}
+
+// AddQuotaFallbackGroupID adds v to the "quota_fallback_group_id" field.
+func (u *GroupUpsert) AddQuotaFallbackGroupID(v int64) *GroupUpsert {
+	u.Add(group.FieldQuotaFallbackGroupID, v)
+	return u
+}
+
+// ClearQuotaFallbackGroupID clears the value of the "quota_fallback_group_id" field.
+func (u *GroupUpsert) ClearQuotaFallbackGroupID() *GroupUpsert {
+	u.SetNull(group.FieldQuotaFallbackGroupID)
+	return u
+}
+
+// SetQuotaFallbackModel sets the "quota_fallback_model" field.
+func (u *GroupUpsert) SetQuotaFallbackModel(v string) *GroupUpsert {
+	u.Set(group.FieldQuotaFallbackModel, v)
+	return u
+}
+
+// UpdateQuotaFallbackModel sets the "quota_fallback_model" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateQuotaFallbackModel() *GroupUpsert {
+	u.SetExcluded(group.FieldQuotaFallbackModel)
+	return u
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (u *GroupUpsert) SetModelRouting(v map[string][]int64) *GroupUpsert {
 	u.Set(group.FieldModelRouting, v)
@@ -1719,6 +1863,30 @@ func (u *GroupUpsert) SetModelsListConfig(v domain.GroupModelsListConfig) *Group
 // UpdateModelsListConfig sets the "models_list_config" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateModelsListConfig() *GroupUpsert {
 	u.SetExcluded(group.FieldModelsListConfig)
+	return u
+}
+
+// SetModelPolicyMode sets the "model_policy_mode" field.
+func (u *GroupUpsert) SetModelPolicyMode(v string) *GroupUpsert {
+	u.Set(group.FieldModelPolicyMode, v)
+	return u
+}
+
+// UpdateModelPolicyMode sets the "model_policy_mode" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateModelPolicyMode() *GroupUpsert {
+	u.SetExcluded(group.FieldModelPolicyMode)
+	return u
+}
+
+// SetModelPolicyModel sets the "model_policy_model" field.
+func (u *GroupUpsert) SetModelPolicyModel(v string) *GroupUpsert {
+	u.Set(group.FieldModelPolicyModel, v)
+	return u
+}
+
+// UpdateModelPolicyModel sets the "model_policy_model" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateModelPolicyModel() *GroupUpsert {
+	u.SetExcluded(group.FieldModelPolicyModel)
 	return u
 }
 
@@ -2261,6 +2429,48 @@ func (u *GroupUpsertOne) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsertOne 
 	})
 }
 
+// SetQuotaFallbackGroupID sets the "quota_fallback_group_id" field.
+func (u *GroupUpsertOne) SetQuotaFallbackGroupID(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetQuotaFallbackGroupID(v)
+	})
+}
+
+// AddQuotaFallbackGroupID adds v to the "quota_fallback_group_id" field.
+func (u *GroupUpsertOne) AddQuotaFallbackGroupID(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddQuotaFallbackGroupID(v)
+	})
+}
+
+// UpdateQuotaFallbackGroupID sets the "quota_fallback_group_id" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateQuotaFallbackGroupID() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateQuotaFallbackGroupID()
+	})
+}
+
+// ClearQuotaFallbackGroupID clears the value of the "quota_fallback_group_id" field.
+func (u *GroupUpsertOne) ClearQuotaFallbackGroupID() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearQuotaFallbackGroupID()
+	})
+}
+
+// SetQuotaFallbackModel sets the "quota_fallback_model" field.
+func (u *GroupUpsertOne) SetQuotaFallbackModel(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetQuotaFallbackModel(v)
+	})
+}
+
+// UpdateQuotaFallbackModel sets the "quota_fallback_model" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateQuotaFallbackModel() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateQuotaFallbackModel()
+	})
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (u *GroupUpsertOne) SetModelRouting(v map[string][]int64) *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
@@ -2426,6 +2636,34 @@ func (u *GroupUpsertOne) SetModelsListConfig(v domain.GroupModelsListConfig) *Gr
 func (u *GroupUpsertOne) UpdateModelsListConfig() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateModelsListConfig()
+	})
+}
+
+// SetModelPolicyMode sets the "model_policy_mode" field.
+func (u *GroupUpsertOne) SetModelPolicyMode(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetModelPolicyMode(v)
+	})
+}
+
+// UpdateModelPolicyMode sets the "model_policy_mode" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateModelPolicyMode() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateModelPolicyMode()
+	})
+}
+
+// SetModelPolicyModel sets the "model_policy_model" field.
+func (u *GroupUpsertOne) SetModelPolicyModel(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetModelPolicyModel(v)
+	})
+}
+
+// UpdateModelPolicyModel sets the "model_policy_model" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateModelPolicyModel() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateModelPolicyModel()
 	})
 }
 
@@ -3137,6 +3375,48 @@ func (u *GroupUpsertBulk) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsertBul
 	})
 }
 
+// SetQuotaFallbackGroupID sets the "quota_fallback_group_id" field.
+func (u *GroupUpsertBulk) SetQuotaFallbackGroupID(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetQuotaFallbackGroupID(v)
+	})
+}
+
+// AddQuotaFallbackGroupID adds v to the "quota_fallback_group_id" field.
+func (u *GroupUpsertBulk) AddQuotaFallbackGroupID(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddQuotaFallbackGroupID(v)
+	})
+}
+
+// UpdateQuotaFallbackGroupID sets the "quota_fallback_group_id" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateQuotaFallbackGroupID() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateQuotaFallbackGroupID()
+	})
+}
+
+// ClearQuotaFallbackGroupID clears the value of the "quota_fallback_group_id" field.
+func (u *GroupUpsertBulk) ClearQuotaFallbackGroupID() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearQuotaFallbackGroupID()
+	})
+}
+
+// SetQuotaFallbackModel sets the "quota_fallback_model" field.
+func (u *GroupUpsertBulk) SetQuotaFallbackModel(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetQuotaFallbackModel(v)
+	})
+}
+
+// UpdateQuotaFallbackModel sets the "quota_fallback_model" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateQuotaFallbackModel() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateQuotaFallbackModel()
+	})
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (u *GroupUpsertBulk) SetModelRouting(v map[string][]int64) *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
@@ -3302,6 +3582,34 @@ func (u *GroupUpsertBulk) SetModelsListConfig(v domain.GroupModelsListConfig) *G
 func (u *GroupUpsertBulk) UpdateModelsListConfig() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateModelsListConfig()
+	})
+}
+
+// SetModelPolicyMode sets the "model_policy_mode" field.
+func (u *GroupUpsertBulk) SetModelPolicyMode(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetModelPolicyMode(v)
+	})
+}
+
+// UpdateModelPolicyMode sets the "model_policy_mode" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateModelPolicyMode() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateModelPolicyMode()
+	})
+}
+
+// SetModelPolicyModel sets the "model_policy_model" field.
+func (u *GroupUpsertBulk) SetModelPolicyModel(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetModelPolicyModel(v)
+	})
+}
+
+// UpdateModelPolicyModel sets the "model_policy_model" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateModelPolicyModel() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateModelPolicyModel()
 	})
 }
 

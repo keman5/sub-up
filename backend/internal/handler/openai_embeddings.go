@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -87,13 +86,19 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		reqLog.Info("openai_embeddings.billing_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
-		h.errorResponse(c, status, code, message)
+	billingOK := false
+	subscription, apiKey, billingOK = h.enforceBillingEligibilityWithFallback(
+		c,
+		apiKey,
+		subscription,
+		reqLog,
+		nil,
+		false,
+		func(c *gin.Context, status int, code, message string, _ bool) {
+			h.errorResponse(c, status, code, message)
+		},
+	)
+	if !billingOK {
 		return
 	}
 

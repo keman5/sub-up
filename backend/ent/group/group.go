@@ -64,6 +64,10 @@ const (
 	FieldFallbackGroupID = "fallback_group_id"
 	// FieldFallbackGroupIDOnInvalidRequest holds the string denoting the fallback_group_id_on_invalid_request field in the database.
 	FieldFallbackGroupIDOnInvalidRequest = "fallback_group_id_on_invalid_request"
+	// FieldQuotaFallbackGroupID holds the string denoting the quota_fallback_group_id field in the database.
+	FieldQuotaFallbackGroupID = "quota_fallback_group_id"
+	// FieldQuotaFallbackModel holds the string denoting the quota_fallback_model field in the database.
+	FieldQuotaFallbackModel = "quota_fallback_model"
 	// FieldModelRouting holds the string denoting the model_routing field in the database.
 	FieldModelRouting = "model_routing"
 	// FieldModelRoutingEnabled holds the string denoting the model_routing_enabled field in the database.
@@ -86,6 +90,10 @@ const (
 	FieldMessagesDispatchModelConfig = "messages_dispatch_model_config"
 	// FieldModelsListConfig holds the string denoting the models_list_config field in the database.
 	FieldModelsListConfig = "models_list_config"
+	// FieldModelPolicyMode holds the string denoting the model_policy_mode field in the database.
+	FieldModelPolicyMode = "model_policy_mode"
+	// FieldModelPolicyModel holds the string denoting the model_policy_model field in the database.
+	FieldModelPolicyModel = "model_policy_model"
 	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
 	FieldRpmLimit = "rpm_limit"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
@@ -187,6 +195,8 @@ var Columns = []string{
 	FieldClaudeCodeOnly,
 	FieldFallbackGroupID,
 	FieldFallbackGroupIDOnInvalidRequest,
+	FieldQuotaFallbackGroupID,
+	FieldQuotaFallbackModel,
 	FieldModelRouting,
 	FieldModelRoutingEnabled,
 	FieldMcpXMLInject,
@@ -198,6 +208,8 @@ var Columns = []string{
 	FieldDefaultMappedModel,
 	FieldMessagesDispatchModelConfig,
 	FieldModelsListConfig,
+	FieldModelPolicyMode,
+	FieldModelPolicyModel,
 	FieldRpmLimit,
 }
 
@@ -264,6 +276,10 @@ var (
 	DefaultImageRateMultiplier float64
 	// DefaultClaudeCodeOnly holds the default value on creation for the "claude_code_only" field.
 	DefaultClaudeCodeOnly bool
+	// DefaultQuotaFallbackModel holds the default value on creation for the "quota_fallback_model" field.
+	DefaultQuotaFallbackModel string
+	// QuotaFallbackModelValidator is a validator for the "quota_fallback_model" field. It is called by the builders before save.
+	QuotaFallbackModelValidator func(string) error
 	// DefaultModelRoutingEnabled holds the default value on creation for the "model_routing_enabled" field.
 	DefaultModelRoutingEnabled bool
 	// DefaultMcpXMLInject holds the default value on creation for the "mcp_xml_inject" field.
@@ -286,6 +302,14 @@ var (
 	DefaultMessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig
 	// DefaultModelsListConfig holds the default value on creation for the "models_list_config" field.
 	DefaultModelsListConfig domain.GroupModelsListConfig
+	// DefaultModelPolicyMode holds the default value on creation for the "model_policy_mode" field.
+	DefaultModelPolicyMode string
+	// ModelPolicyModeValidator is a validator for the "model_policy_mode" field. It is called by the builders before save.
+	ModelPolicyModeValidator func(string) error
+	// DefaultModelPolicyModel holds the default value on creation for the "model_policy_model" field.
+	DefaultModelPolicyModel string
+	// ModelPolicyModelValidator is a validator for the "model_policy_model" field. It is called by the builders before save.
+	ModelPolicyModelValidator func(string) error
 	// DefaultRpmLimit holds the default value on creation for the "rpm_limit" field.
 	DefaultRpmLimit int
 )
@@ -418,6 +442,16 @@ func ByFallbackGroupIDOnInvalidRequest(opts ...sql.OrderTermOption) OrderOption 
 	return sql.OrderByField(FieldFallbackGroupIDOnInvalidRequest, opts...).ToFunc()
 }
 
+// ByQuotaFallbackGroupID orders the results by the quota_fallback_group_id field.
+func ByQuotaFallbackGroupID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldQuotaFallbackGroupID, opts...).ToFunc()
+}
+
+// ByQuotaFallbackModel orders the results by the quota_fallback_model field.
+func ByQuotaFallbackModel(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldQuotaFallbackModel, opts...).ToFunc()
+}
+
 // ByModelRoutingEnabled orders the results by the model_routing_enabled field.
 func ByModelRoutingEnabled(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldModelRoutingEnabled, opts...).ToFunc()
@@ -451,6 +485,16 @@ func ByRequirePrivacySet(opts ...sql.OrderTermOption) OrderOption {
 // ByDefaultMappedModel orders the results by the default_mapped_model field.
 func ByDefaultMappedModel(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDefaultMappedModel, opts...).ToFunc()
+}
+
+// ByModelPolicyMode orders the results by the model_policy_mode field.
+func ByModelPolicyMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldModelPolicyMode, opts...).ToFunc()
+}
+
+// ByModelPolicyModel orders the results by the model_policy_model field.
+func ByModelPolicyModel(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldModelPolicyModel, opts...).ToFunc()
 }
 
 // ByRpmLimit orders the results by the rpm_limit field.

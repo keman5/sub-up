@@ -5172,6 +5172,7 @@ export default {
         table: {
           time: '时间',
           kind: '类型',
+          subscription: '订阅',
           platform: '平台',
           model: '模型',
           duration: '耗时',

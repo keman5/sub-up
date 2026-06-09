@@ -212,6 +212,9 @@ type CreateGroupInput struct {
 	FallbackGroupID      *int64 // 降级分组 ID
 	// 无效请求兜底分组 ID（仅 anthropic 平台使用）
 	FallbackGroupIDOnInvalidRequest *int64
+	// 订阅额度耗尽后自动切换使用的附属套餐分组 ID。
+	QuotaFallbackGroupID *int64
+	// 切换到附属套餐时强制使用的模型；空值表示保留用户请求模型。
 	// 模型路由配置（仅 anthropic 平台使用）
 	ModelRouting        map[string][]int64
 	ModelRoutingEnabled bool // 是否启用模型路由
@@ -225,6 +228,8 @@ type CreateGroupInput struct {
 	RequirePrivacySet           bool
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
 	ModelsListConfig            GroupModelsListConfig
+	ModelPolicyMode             string
+	ModelPolicyModel            string
 	// RPMLimit 分组 RPM 上限（0 = 不限制）
 	RPMLimit int
 	// 从指定分组复制账号（创建分组后在同一事务内绑定）
@@ -253,6 +258,7 @@ type UpdateGroupInput struct {
 	FallbackGroupID      *int64 // 降级分组 ID
 	// 无效请求兜底分组 ID（仅 anthropic 平台使用）
 	FallbackGroupIDOnInvalidRequest *int64
+	QuotaFallbackGroupID            *int64
 	// 模型路由配置（仅 anthropic 平台使用）
 	ModelRouting        map[string][]int64
 	ModelRoutingEnabled *bool // 是否启用模型路由
@@ -266,6 +272,8 @@ type UpdateGroupInput struct {
 	RequirePrivacySet           *bool
 	MessagesDispatchModelConfig *OpenAIMessagesDispatchModelConfig
 	ModelsListConfig            *GroupModelsListConfig
+	ModelPolicyMode             *string
+	ModelPolicyModel            *string
 	// RPMLimit 分组 RPM 上限（0 = 不限制），nil 表示未提供不改动。
 	RPMLimit *int
 	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
@@ -1827,6 +1835,15 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 			return nil, err
 		}
 	}
+	quotaFallbackGroupID := input.QuotaFallbackGroupID
+	if quotaFallbackGroupID != nil && *quotaFallbackGroupID <= 0 {
+		quotaFallbackGroupID = nil
+	}
+	if quotaFallbackGroupID != nil {
+		if err := s.validateQuotaFallbackGroup(ctx, 0, platform, subscriptionType, *quotaFallbackGroupID); err != nil {
+			return nil, err
+		}
+	}
 
 	// MCPXMLInject：默认为 true，仅当显式传入 false 时关闭
 	mcpXMLInject := true
@@ -1886,6 +1903,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ClaudeCodeOnly:                  input.ClaudeCodeOnly,
 		FallbackGroupID:                 input.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: fallbackOnInvalidRequest,
+		QuotaFallbackGroupID:            quotaFallbackGroupID,
 		ModelRouting:                    input.ModelRouting,
 		MCPXMLInject:                    mcpXMLInject,
 		SupportedModelScopes:            input.SupportedModelScopes,
@@ -1895,6 +1913,8 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		DefaultMappedModel:              input.DefaultMappedModel,
 		MessagesDispatchModelConfig:     normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
 		ModelsListConfig:                normalizeGroupModelsListConfig(input.ModelsListConfig),
+		ModelPolicyMode:                 NormalizeGroupModelPolicyMode(input.ModelPolicyMode),
+		ModelPolicyModel:                NormalizeGroupModelPolicyModel(input.ModelPolicyMode, input.ModelPolicyModel),
 		RPMLimit:                        input.RPMLimit,
 	}
 	sanitizeGroupMessagesDispatchFields(group)
@@ -2019,6 +2039,32 @@ func (s *adminServiceImpl) validateFallbackGroupOnInvalidRequest(ctx context.Con
 	return nil
 }
 
+func (s *adminServiceImpl) validateQuotaFallbackGroup(ctx context.Context, currentGroupID int64, platform, subscriptionType string, fallbackGroupID int64) error {
+	if subscriptionType != SubscriptionTypeSubscription {
+		return fmt.Errorf("quota fallback is only supported for subscription groups")
+	}
+	if currentGroupID > 0 && currentGroupID == fallbackGroupID {
+		return fmt.Errorf("cannot set self as quota fallback group")
+	}
+	fallbackGroup, err := s.groupRepo.GetByIDLite(ctx, fallbackGroupID)
+	if err != nil {
+		return fmt.Errorf("quota fallback group not found: %w", err)
+	}
+	if fallbackGroup.Status != StatusActive {
+		return fmt.Errorf("quota fallback group must be active")
+	}
+	if fallbackGroup.Platform != platform {
+		return fmt.Errorf("quota fallback group platform mismatch")
+	}
+	if fallbackGroup.SubscriptionType != SubscriptionTypeSubscription {
+		return fmt.Errorf("quota fallback group must be subscription type")
+	}
+	if fallbackGroup.QuotaFallbackGroupID != nil {
+		return fmt.Errorf("quota fallback group cannot have another quota fallback configured")
+	}
+	return nil
+}
+
 func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *UpdateGroupInput) (*Group, error) {
 	group, err := s.groupRepo.GetByID(ctx, id)
 	if err != nil {
@@ -2109,6 +2155,20 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		}
 	}
 	group.FallbackGroupIDOnInvalidRequest = fallbackOnInvalidRequest
+	quotaFallbackGroupID := group.QuotaFallbackGroupID
+	if input.QuotaFallbackGroupID != nil {
+		if *input.QuotaFallbackGroupID > 0 {
+			quotaFallbackGroupID = input.QuotaFallbackGroupID
+		} else {
+			quotaFallbackGroupID = nil
+		}
+	}
+	if quotaFallbackGroupID != nil {
+		if err := s.validateQuotaFallbackGroup(ctx, id, group.Platform, group.SubscriptionType, *quotaFallbackGroupID); err != nil {
+			return nil, err
+		}
+	}
+	group.QuotaFallbackGroupID = quotaFallbackGroupID
 
 	// 模型路由配置
 	if input.ModelRouting != nil {
@@ -2144,6 +2204,14 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.ModelsListConfig != nil {
 		group.ModelsListConfig = normalizeGroupModelsListConfig(*input.ModelsListConfig)
+	}
+	if input.ModelPolicyMode != nil {
+		group.ModelPolicyMode = NormalizeGroupModelPolicyMode(*input.ModelPolicyMode)
+	}
+	if input.ModelPolicyModel != nil {
+		group.ModelPolicyModel = NormalizeGroupModelPolicyModel(group.ModelPolicyMode, *input.ModelPolicyModel)
+	} else if input.ModelPolicyMode != nil {
+		group.ModelPolicyModel = NormalizeGroupModelPolicyModel(group.ModelPolicyMode, group.ModelPolicyModel)
 	}
 	if input.RPMLimit != nil {
 		group.RPMLimit = *input.RPMLimit

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand/v2"
@@ -38,6 +39,13 @@ var (
 	ErrSubscriptionNilInput       = infraerrors.BadRequest("SUBSCRIPTION_NIL_INPUT", "subscription input cannot be nil")
 	ErrAdjustWouldExpire          = infraerrors.BadRequest("ADJUST_WOULD_EXPIRE", "adjustment would result in expired subscription (remaining days must be > 0)")
 )
+
+type QuotaFallbackResolution struct {
+	Group              *Group
+	Subscription       *UserSubscription
+	NeedsMaintenance   bool
+	OriginalLimitError error
+}
 
 // SubscriptionService 订阅服务
 type SubscriptionService struct {
@@ -897,6 +905,64 @@ func (s *SubscriptionService) ValidateAndCheckLimits(sub *UserSubscription, grou
 	}
 
 	return needsMaintenance, nil
+}
+
+func IsSubscriptionLimitError(err error) bool {
+	return errors.Is(err, ErrDailyLimitExceeded) ||
+		errors.Is(err, ErrWeeklyLimitExceeded) ||
+		errors.Is(err, ErrMonthlyLimitExceeded)
+}
+
+func (s *SubscriptionService) ResolveQuotaFallback(ctx context.Context, userID int64, sourceGroup *Group, limitErr error) (*QuotaFallbackResolution, error) {
+	if s == nil || sourceGroup == nil || !IsSubscriptionLimitError(limitErr) {
+		return nil, nil
+	}
+	if sourceGroup.QuotaFallbackGroupID == nil || *sourceGroup.QuotaFallbackGroupID <= 0 {
+		return nil, nil
+	}
+	fallbackGroup, err := s.groupRepo.GetByIDLite(ctx, *sourceGroup.QuotaFallbackGroupID)
+	if err != nil {
+		return nil, err
+	}
+	if fallbackGroup == nil ||
+		fallbackGroup.Status != StatusActive ||
+		fallbackGroup.Platform != sourceGroup.Platform ||
+		fallbackGroup.SubscriptionType != SubscriptionTypeSubscription {
+		return nil, nil
+	}
+	fallbackSub, err := s.GetActiveSubscription(ctx, userID, fallbackGroup.ID)
+	if err != nil {
+		if !errors.Is(err, ErrSubscriptionNotFound) {
+			return nil, err
+		}
+		fallbackSub, err = s.createSubscription(ctx, &AssignSubscriptionInput{
+			UserID:       userID,
+			GroupID:      fallbackGroup.ID,
+			ValidityDays: fallbackGroup.DefaultValidityDays,
+			Notes:        fmt.Sprintf("额度耗尽自动接力：%s -> %s", sourceGroup.Name, fallbackGroup.Name),
+		})
+		if err != nil {
+			return nil, err
+		}
+		s.InvalidateSubCache(userID, fallbackGroup.ID)
+		if s.billingCacheService != nil {
+			go func() {
+				cacheCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = s.billingCacheService.InvalidateSubscription(cacheCtx, userID, fallbackGroup.ID)
+			}()
+		}
+	}
+	needsMaintenance, fallbackErr := s.ValidateAndCheckLimits(fallbackSub, fallbackGroup)
+	if fallbackErr != nil {
+		return nil, fallbackErr
+	}
+	return &QuotaFallbackResolution{
+		Group:              fallbackGroup,
+		Subscription:       fallbackSub,
+		NeedsMaintenance:   needsMaintenance,
+		OriginalLimitError: limitErr,
+	}, nil
 }
 
 // DoWindowMaintenance 异步执行窗口维护（激活+重置）

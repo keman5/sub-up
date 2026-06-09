@@ -5013,6 +5013,7 @@ export default {
         table: {
           time: 'Time',
           kind: 'Kind',
+          subscription: 'Subscription',
           platform: 'Platform',
           model: 'Model',
           duration: 'Duration',
