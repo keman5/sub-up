@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	AdminComplianceEnabled        = false
 	AdminComplianceVersion        = "v2026.06.10"
 	AdminComplianceDocumentPathZH = "docs/legal/admin-compliance.zh.md"
 	AdminComplianceDocumentPathEN = "docs/legal/admin-compliance.en.md"
@@ -91,7 +92,7 @@ func adminComplianceAcknowledgementKey(adminUserID int64) string {
 
 func (s *SettingService) GetAdminComplianceStatus(ctx context.Context, adminUserID int64) (*AdminComplianceStatus, error) {
 	status := &AdminComplianceStatus{
-		Required:       true,
+		Required:       AdminComplianceEnabled,
 		Version:        AdminComplianceVersion,
 		DocumentPathZH: AdminComplianceDocumentPathZH,
 		DocumentPathEN: AdminComplianceDocumentPathEN,
@@ -99,6 +100,9 @@ func (s *SettingService) GetAdminComplianceStatus(ctx context.Context, adminUser
 		DocumentURLEN:  AdminComplianceDocumentURLEN,
 		AckPhraseZH:    AdminComplianceAckPhraseZH,
 		AckPhraseEN:    AdminComplianceAckPhraseEN,
+	}
+	if !AdminComplianceEnabled {
+		return status, nil
 	}
 	if s == nil || s.settingRepo == nil {
 		return status, nil
@@ -132,6 +136,9 @@ func (s *SettingService) IsAdminComplianceAcknowledged(ctx context.Context, admi
 }
 
 func (s *SettingService) AcceptAdminCompliance(ctx context.Context, input AdminComplianceAcceptInput) (*AdminComplianceStatus, error) {
+	if !AdminComplianceEnabled {
+		return s.GetAdminComplianceStatus(ctx, input.AdminUserID)
+	}
 	if s == nil || s.settingRepo == nil {
 		return nil, infraerrors.InternalServer("SETTING_SERVICE_UNAVAILABLE", "setting service is unavailable")
 	}
