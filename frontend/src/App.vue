@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { RouterView, useRouter, useRoute } from 'vue-router'
-import { onBeforeUnmount, watch } from 'vue'
+import { onBeforeUnmount, onMounted, watch } from 'vue'
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
+import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
 import { resolveDocumentTitle } from '@/router/title'
 import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
-import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore } from '@/stores'
+import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, useAdminComplianceStore } from '@/stores'
 import { getSetupStatus } from '@/api/setup'
 import { applySiteIcons } from '@/utils/siteIcons'
 
@@ -15,6 +16,7 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
+const adminComplianceStore = useAdminComplianceStore()
 let routeSetupCheckSeq = 0
 
 // Watch for site settings changes and update favicon/title
@@ -35,10 +37,21 @@ function onVisibilityChange() {
   }
 }
 
+function onAdminComplianceRequired(event: Event) {
+  const detail = (event as CustomEvent<Record<string, string>>).detail || {}
+  adminComplianceStore.requireAcknowledgement(detail)
+}
+
 watch(
   () => authStore.isAuthenticated,
   (isAuthenticated, oldValue) => {
     if (isAuthenticated) {
+      if (authStore.isAdmin) {
+        adminComplianceStore.fetchStatus().catch((error) => {
+          console.error('Failed to fetch admin compliance status:', error)
+        })
+      }
+
       // User logged in: preload subscriptions and start polling
       subscriptionStore.fetchActiveSubscriptions().catch((error) => {
         console.error('Failed to preload subscriptions:', error)
@@ -60,6 +73,7 @@ watch(
       // User logged out: clear data and stop polling
       subscriptionStore.clear()
       announcementStore.reset()
+      adminComplianceStore.reset()
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   },
@@ -75,6 +89,7 @@ router.afterEach(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('admin-compliance-required', onAdminComplianceRequired)
 })
 
 async function initializeRouteEnvironment() {
@@ -111,6 +126,10 @@ async function initializeRouteEnvironment() {
   document.title = resolveDocumentTitle(route.meta.title, appStore.siteName, route.meta.titleKey as string)
 }
 
+onMounted(() => {
+  window.addEventListener('admin-compliance-required', onAdminComplianceRequired)
+})
+
 watch(
   () => route.fullPath,
   () => {
@@ -125,4 +144,5 @@ watch(
   <RouterView />
   <Toast />
   <AnnouncementPopup />
+  <AdminComplianceDialog />
 </template>
