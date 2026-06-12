@@ -777,6 +777,42 @@ curl -i http://localhost:5173/api/v1/admin/compliance
 - 合规 API 需要继续保留，fork 默认关闭时返回 `required=false`，不要通过删路由造成前端 404。
 - 登录页 logo 白底属于当前 fork 视觉修复；若官方后续调整登录页布局，继续确认透明 logo 在浅/深背景下可辨认。
 
+### 2026-06-13 前台长有效期 token 触发浏览器定时器上限导致 refresh 风暴
+
+线上现象：a2 登录成功后仍会在极短时间内持续请求 `/api/v1/auth/refresh`，后端先返回 200，随后被 refresh-token 限流打到 429。本地复现时登录响应 `expires_in=2592000`（30 天），后端日志显示登录后没有先出现业务接口 401，却在同一秒内连续出现几十次 `/api/v1/auth/refresh`。
+
+根因：前端 `scheduleTokenRefreshAt()` 直接把 `expires_at - now - 120s` 交给 `setTimeout`。30 天 access token 的延迟超过浏览器 `setTimeout` 最大安全延迟（约 24.8 天），浏览器会把超长延迟夹成近似立即执行，导致“refresh 成功 -> 重新安排 30 天定时器 -> 立即触发 -> 再 refresh”的循环。
+
+本地补丁：
+
+- `frontend/src/stores/auth.ts`：新增 `MAX_TOKEN_REFRESH_DELAY=24h`，超长主动刷新延迟改为分段等待；每段醒来后重新计算是否已进入 120 秒刷新缓冲区，未到期则继续分段等待，到期才调用 `performTokenRefresh()`。
+- `frontend/src/stores/__tests__/auth.spec.ts`：覆盖 30 天长有效期 token 登录后 60 秒内不应触发主动 refresh，防止浏览器定时器上限导致回归。
+
+验证：
+
+```bash
+pnpm --dir frontend exec vitest run src/stores/__tests__/auth.spec.ts -t '长有效期 token 登录后不会因 setTimeout 上限立即 refresh'
+pnpm --dir frontend exec vitest run src/stores/__tests__/auth.spec.ts src/api/__tests__/client.spec.ts src/components/layout/__tests__/AppSidebar.spec.ts src/components/__tests__/LoginForm.spec.ts
+pnpm --dir frontend run build
+git diff --check
+```
+
+本地运行验证：
+
+```bash
+/opt/homebrew/opt/postgresql@18/bin/pg_ctl -D .local/pg18 -l .local/pg18/server.log -o "-p 5433" start
+DATA_DIR=.local/ap2-runtime .local/ap2-runtime/sub2api-current
+VITE_DEV_PORT=5173 VITE_DEV_PROXY_TARGET=http://127.0.0.1:18083 pnpm --dir frontend run dev -- --host 127.0.0.1
+```
+
+浏览器登录本地 `http://localhost:5173/login` 后进入 `/dashboard`；后端日志中 `01:19` 这次登录后的业务接口均为 200，且该时间窗没有 `/api/v1/auth/refresh`。
+
+同步官方后的复查：
+
+- 搜索 `MAX_TOKEN_REFRESH_DELAY`、`scheduleTokenRefreshAt`、`TOKEN_REFRESH_BUFFER`、`performTokenRefresh`。
+- 如果官方改用短 token 或 cookie 会话，也要继续确认“token 有效期超过 24.8 天时不会把超长毫秒值直接传给浏览器 `setTimeout`”。
+- 复跑 auth store 长有效期 token 测试；登录后网络面板不应出现成批 `/api/v1/auth/refresh`。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：

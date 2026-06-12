@@ -15,6 +15,7 @@ const TOKEN_EXPIRES_AT_KEY = 'token_expires_at' // 存储过期时间戳而非�
 const PENDING_AUTH_SESSION_KEY = 'pending_auth_session'
 const AUTO_REFRESH_INTERVAL = 60 * 1000 // 60 seconds for user data refresh
 const TOKEN_REFRESH_BUFFER = 120 * 1000 // 120 seconds before expiry to refresh token
+const MAX_TOKEN_REFRESH_DELAY = 24 * 60 * 60 * 1000 // Browsers clamp very long setTimeout delays.
 
 type PendingAuthTokenField = 'pending_auth_token' | 'pending_oauth_token'
 
@@ -191,17 +192,21 @@ export const useAuthStore = defineStore('auth', () => {
 
     // Calculate remaining time until refresh (buffer time before expiry)
     const now = Date.now()
-    const refreshInMs = Math.max(0, expiresAtMs - now - TOKEN_REFRESH_BUFFER)
+    const refreshInMs = expiresAtMs - now - TOKEN_REFRESH_BUFFER
 
     if (refreshInMs <= 0) {
-      // Token is about to expire or already expired, refresh immediately
-      performTokenRefresh()
+      // Short-lived or nearly expired tokens should not proactively refresh in the background.
+      // They will be refreshed by the axios 401 path when a real API request needs it.
       return
     }
 
     tokenRefreshTimeoutId = setTimeout(() => {
+      if (expiresAtMs - Date.now() > TOKEN_REFRESH_BUFFER) {
+        scheduleTokenRefreshAt(expiresAtMs)
+        return
+      }
       performTokenRefresh()
-    }, refreshInMs)
+    }, Math.min(refreshInMs, MAX_TOKEN_REFRESH_DELAY))
   }
 
   /**

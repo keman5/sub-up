@@ -106,6 +106,30 @@ describe('useAuthStore', () => {
       expect(mockGetCurrentUser).not.toHaveBeenCalled()
     })
 
+    it('长有效期 token 登录后不会因 setTimeout 上限立即 refresh', async () => {
+      mockLogin.mockResolvedValue({
+        ...fakeAuthResponse,
+        expires_in: 30 * 24 * 60 * 60,
+      })
+      mockRefreshToken.mockResolvedValue({
+        access_token: 'refreshed-token',
+        refresh_token: 'refreshed-refresh-token',
+        expires_in: 30 * 24 * 60 * 60,
+      })
+      mockGetCurrentUser.mockResolvedValue({ data: fakeUser })
+      const store = useAuthStore()
+
+      await store.login({ email: 'test@example.com', password: '123456' })
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+    })
+
     it('外部刷新成功后重排 token 刷新定时器，避免成功后立即再次刷新', async () => {
       mockLogin.mockResolvedValue(fakeAuthResponse)
       mockGetCurrentUser.mockResolvedValue({ data: fakeUser })
@@ -349,6 +373,34 @@ describe('useAuthStore', () => {
         provider: 'wechat',
         redirect: '/profile',
       })
+    })
+  })
+
+  // --- setToken ---
+
+  describe('setToken', () => {
+    it('短有效期 OAuth token 设置后不立即 refresh，避免回调登录后 refresh 循环', async () => {
+      localStorage.setItem('refresh_token', 'oauth-refresh-token')
+      localStorage.setItem('token_expires_at', String(Date.now() + 60_000))
+      mockGetCurrentUser.mockResolvedValue({ data: fakeUser })
+      mockRefreshToken.mockResolvedValue({
+        access_token: 'refreshed-token',
+        refresh_token: 'refreshed-refresh-token',
+        expires_in: 60,
+      })
+
+      const store = useAuthStore()
+      await store.setToken('oauth-access-token')
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(mockGetCurrentUser).toHaveBeenCalledTimes(1)
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(5 * 60_000)
+
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+      expect(store.token).toBe('oauth-access-token')
     })
   })
 
