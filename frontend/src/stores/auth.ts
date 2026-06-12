@@ -79,6 +79,7 @@ export const useAuthStore = defineStore('auth', () => {
   const pendingAuthSession = ref<PendingAuthSessionSummary | null>(null)
   let refreshIntervalId: ReturnType<typeof setInterval> | null = null
   let tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null
+  let tokenRefreshPromise: Promise<void> | null = null
 
   // ==================== Computed ====================
 
@@ -205,20 +206,30 @@ export const useAuthStore = defineStore('auth', () => {
     if (!refreshTokenValue.value) {
       return
     }
-
-    try {
-      const response = await authAPI.refreshToken()
-
-      // Update state
-      token.value = response.access_token
-      refreshTokenValue.value = response.refresh_token
-
-      // Schedule next refresh (this also updates tokenExpiresAt and localStorage)
-      scheduleTokenRefresh(response.expires_in)
-    } catch (error) {
-      console.error('Token refresh failed:', error)
-      // Don't clear auth here - the interceptor will handle 401 errors
+    if (tokenRefreshPromise) {
+      return tokenRefreshPromise
     }
+
+    tokenRefreshPromise = (async () => {
+      try {
+        const response = await authAPI.refreshToken()
+
+        // Update state
+        token.value = response.access_token
+        refreshTokenValue.value = response.refresh_token
+
+        // Schedule next refresh (this also updates tokenExpiresAt and localStorage)
+        scheduleTokenRefresh(response.expires_in)
+      } catch (error) {
+        console.error('Token refresh failed:', error)
+        sessionStorage.setItem('auth_expired', '1')
+        clearAuth({ preservePendingAuthSession: pendingAuthSession.value !== null })
+      } finally {
+        tokenRefreshPromise = null
+      }
+    })()
+
+    return tokenRefreshPromise
   }
 
   /**
@@ -229,6 +240,7 @@ export const useAuthStore = defineStore('auth', () => {
       clearTimeout(tokenRefreshTimeoutId)
       tokenRefreshTimeoutId = null
     }
+    tokenRefreshPromise = null
   }
 
   /**

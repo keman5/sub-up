@@ -707,6 +707,38 @@ curl -k -sS -H 'Cache-Control: no-cache' 'https://ai.upit.top/?redeploy=20260601
 - `cd backend && go test ./cmd/server -run 'TestProvide(ServiceBuildInfo|Cleanup_WithMinimalDependencies_NoPanic)' -count=1`
 - `git diff --check`
 
+### 2026-06-12 前台 auth refresh 失败后反复请求修复
+
+线上现象：浏览器本地保留已失效 `refresh_token` 时，前台会持续请求 `/api/v1/auth/refresh`，直到后端接口被限流。根因在前端 auth store：`checkAuth()` 恢复本地会话后，如果 token 已过期会立即触发主动 refresh；但 `authAPI.refreshToken()` 失败时原逻辑只打印日志，不清理本地登录态和坏的 `refresh_token`，页面重载或路由重新初始化后会继续使用同一个坏 token 请求 refresh。
+
+本地补丁：
+
+- `frontend/src/stores/auth.ts`：为主动 token refresh 增加单飞保护；refresh 失败时写入 `sessionStorage.auth_expired=1` 并调用 `clearAuth(...)` 清理 `auth_token`、`refresh_token`、`auth_user` 和过期时间，避免下一次启动继续使用坏 token。
+- `frontend/src/stores/__tests__/auth.spec.ts`：覆盖“本地 token 已过期且 refresh 返回 401 时，应清理本地登录态且只请求一次 refresh”。
+- `frontend/src/api/__tests__/client.spec.ts`：覆盖 axios client 对 `/auth/refresh` 自身 401 不递归刷新，确认拦截器的 `isAuthEndpoint` 边界仍有效。
+
+验证：
+
+```bash
+pnpm --dir frontend exec vitest run src/stores/__tests__/auth.spec.ts src/api/__tests__/client.spec.ts
+pnpm --dir frontend run typecheck
+pnpm --dir frontend run build
+git diff --check
+```
+
+线上 a2 验证：
+
+- 镜像：`sub2api:subapi-f289f84a-ap2-auth-refresh-fix-20260612104831`
+- `sub2api-ap2` 为 `healthy`
+- `http://127.0.0.1:8083/health` 与 `https://ap2.upit.top/health` 均返回 ok
+- `sub2api` / `sub2api-ap1` 未被切换，仍保持原镜像
+
+同步官方后的复查：
+
+- 搜索 `performTokenRefresh`、`scheduleTokenRefreshAt`、`tokenRefreshPromise`、`/auth/refresh`、`isAuthEndpoint`。
+- 复跑上述两个前端测试文件，重点确认坏 refresh token 只触发一次 refresh，并且失败后本地 `auth_token` / `refresh_token` 被清理。
+- 如果官方已经在 auth store 中实现等价的失败清理和单飞保护，并且测试覆盖同样边界，可以删除本地补丁；否则保留本 fork 行为，避免刷新风暴再次打到后端限流。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：

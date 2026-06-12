@@ -212,6 +212,29 @@ describe('useAuthStore', () => {
       expect(store.isAuthenticated).toBe(true)
     })
 
+    it('主动 token refresh 失败时清除本地登录态，避免反复请求 refresh', async () => {
+      localStorage.setItem('auth_token', 'expired-token')
+      localStorage.setItem('auth_user', JSON.stringify(fakeUser))
+      localStorage.setItem('refresh_token', 'stale-refresh')
+      localStorage.setItem('token_expires_at', String(Date.now() - 1000))
+
+      mockGetCurrentUser.mockResolvedValue({ data: fakeUser })
+      mockRefreshToken.mockRejectedValue({ status: 401, code: 'INVALID_REFRESH_TOKEN' })
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const store = useAuthStore()
+      store.checkAuth()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(mockRefreshToken).toHaveBeenCalledTimes(1)
+      expect(store.isAuthenticated).toBe(false)
+      expect(localStorage.getItem('auth_token')).toBeNull()
+      expect(localStorage.getItem('refresh_token')).toBeNull()
+
+      consoleError.mockRestore()
+    })
+
     it('恢复持久化 pending auth session', () => {
       localStorage.setItem(
         'pending_auth_session',

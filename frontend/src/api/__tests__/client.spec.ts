@@ -229,6 +229,46 @@ describe('API Client', () => {
         writable: true,
       })
     })
+
+    it('refresh 接口自身 401 时不再次刷新，避免 refresh 请求循环', async () => {
+      localStorage.setItem('auth_token', 'expired-token')
+      localStorage.setItem('refresh_token', 'stale-refresh')
+
+      const originalLocation = window.location
+      Object.defineProperty(window, 'location', {
+        value: { ...originalLocation, pathname: '/dashboard', href: '/dashboard' },
+        writable: true,
+      })
+
+      const adapter = vi.fn().mockRejectedValue({
+        response: {
+          status: 401,
+          data: { code: 'INVALID_REFRESH_TOKEN', message: 'Invalid refresh token' },
+        },
+        config: {
+          url: '/auth/refresh',
+          headers: { Authorization: 'Bearer expired-token' },
+        },
+        code: 'ERR_BAD_REQUEST',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await expect(apiClient.post('/auth/refresh', { refresh_token: 'stale-refresh' })).rejects.toEqual(
+        expect.objectContaining({
+          status: 401,
+          code: 'INVALID_REFRESH_TOKEN',
+        })
+      )
+
+      expect(adapter).toHaveBeenCalledTimes(1)
+      expect(localStorage.getItem('auth_token')).toBeNull()
+      expect(localStorage.getItem('refresh_token')).toBeNull()
+
+      Object.defineProperty(window, 'location', {
+        value: originalLocation,
+        writable: true,
+      })
+    })
   })
 
   // --- 网络错误 ---
