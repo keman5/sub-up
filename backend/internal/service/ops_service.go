@@ -37,6 +37,7 @@ type OpsService struct {
 	geminiCompatService       *GeminiMessagesCompatService
 	antigravityGatewayService *AntigravityGatewayService
 	systemLogSink             *OpsSystemLogSink
+	headroomStatsService      *HeadroomStatsService
 
 	// cleanupReloader 由 wire 在 OpsCleanupService 构造完成后通过 SetCleanupReloader 注入。
 	// 解耦避免 OpsService -> OpsCleanupService 的硬依赖（cleanup 也读 settings，会循环）。
@@ -99,9 +100,17 @@ func NewOpsService(
 		geminiCompatService:       geminiCompatService,
 		antigravityGatewayService: antigravityGatewayService,
 		systemLogSink:             systemLogSink,
+		headroomStatsService:      NewHeadroomStatsService(cfg),
 	}
 	svc.applyRuntimeLogConfigOnStartup(context.Background())
 	return svc
+}
+
+func (s *OpsService) GetHeadroomStats(ctx context.Context) (*HeadroomStatsSnapshot, error) {
+	if s == nil || s.headroomStatsService == nil {
+		return nil, ErrHeadroomStatsDisabled
+	}
+	return s.headroomStatsService.GetStats(ctx)
 }
 
 func (s *OpsService) RequireMonitoringEnabled(ctx context.Context) error {

@@ -351,6 +351,154 @@ gzip -c /tmp/sub2api-build-output/sub2api | ssh 51token-vps '
 '
 ```
 
+### 3.4 2026-06-11 线上共享数据层、Grafana 移除与 sysstat 监控
+
+当前 1 vCPU / 约 2 GiB 内存 VPS 不再为 `ap1`、`ap2` 各自运行独立 PostgreSQL 和 Redis。三套 sub2api 应用共享主 compose 的 PostgreSQL / Redis，以减少常驻容器数量、healthcheck 和后台连接池开销。
+
+当前线上拓扑：
+
+| 环境 | compose 目录 | 应用容器 | 本机端口 | PostgreSQL database | Redis DB | 说明 |
+| --- | --- | --- | --- | --- | --- | --- |
+| primary | `/opt/sub2api-deploy` | `sub2api` | `127.0.0.1:8081` | `sub2api` | `0` | 持有共享 `sub2api-postgres` / `sub2api-redis` |
+| ap1 / a1 | `/opt/sub2api-ap1-deploy` | `sub2api-ap1` | `127.0.0.1:8082` | `sub2api_ap1` | `1` | compose 只保留应用容器，接入共享网络 |
+| ap2 / a2 | `/opt/sub2api-ap2-deploy` | `sub2api-ap2` | `127.0.0.1:8083` | `sub2api_ap2` | `2` | compose 保留 `headroom-a2`，接入共享网络 |
+
+共享基础设施：
+
+- `sub2api-postgres`：唯一 PostgreSQL 容器。
+- `sub2api-redis`：唯一 Redis 容器。
+- `sub2api-deploy_sub2api-network`：共享 Docker network；`ap1` / `ap2` compose 通过 `external: true` 接入。
+- `headroom-a2`：仅供 `ap2` 使用，保留在 `/opt/sub2api-ap2-deploy`，内部服务地址为 `http://headroom-a2:8787`。
+
+已废弃并移除的容器：
+
+- `sub2api-ap1-postgres`
+- `sub2api-ap1-redis`
+- `sub2api-ap2-postgres`
+- `sub2api-ap2-redis`
+- `grafana`
+- `pdc-agent-sub2api`
+
+> 注意：旧数据目录、卷和迁移备份不要立即删除。2026-06-11 迁移备份位于 `/root/sub2api-migration-backup-20260611-200522`，包含 compose / `.env` 备份和 PostgreSQL dump。
+
+`ap1` / `ap2` compose 关键要求：
+
+```yaml
+networks:
+  shared-sub2api-network:
+    external: true
+    name: sub2api-deploy_sub2api-network
+```
+
+`ap1` 应用环境变量必须指向共享数据层：
+
+```yaml
+- DATABASE_HOST=sub2api-postgres
+- DATABASE_DBNAME=sub2api_ap1
+- REDIS_HOST=sub2api-redis
+- REDIS_DB=1
+```
+
+`ap2` 应用环境变量必须指向共享数据层：
+
+```yaml
+- DATABASE_HOST=sub2api-postgres
+- DATABASE_DBNAME=sub2api_ap2
+- REDIS_HOST=sub2api-redis
+- REDIS_DB=2
+```
+
+以后重部署 `ap1` / `ap2` 时，不要再把 `postgres` / `redis` 服务加回各自 compose；否则会重新引入三套数据库和缓存，1 核 VPS 很容易再次 CPU 100%。
+
+迁移或恢复时的基本顺序：
+
+1. 备份 `/opt/sub2api-deploy`、`/opt/sub2api-ap1-deploy`、`/opt/sub2api-ap2-deploy` 中的 `docker-compose.yml` 和 `.env`。
+2. 分别对旧库执行 `pg_dump -Fc`，不要在聊天记录或文档展开数据库密码。
+3. 短暂停止 `sub2api-ap1` 和 `sub2api-ap2` 应用容器，避免迁移期间继续写旧库。
+4. 在 `sub2api-postgres` 中创建或重建 `sub2api_ap1`、`sub2api_ap2`，再用 `pg_restore --no-owner` 导入。
+5. 将旧 `ap1` Redis DB0 迁到主 `sub2api-redis` DB1，将旧 `ap2` Redis DB0 迁到主 DB2；可用 `redis-cli MIGRATE ... COPY REPLACE` 保留源数据。
+6. 修改 `ap1` / `ap2` compose，接入 `sub2api-deploy_sub2api-network`，并更新 `DATABASE_*` / `REDIS_*` 环境变量。
+7. `docker compose up -d` 重建 `sub2api-ap1`、`headroom-a2`、`sub2api-ap2`。
+8. 健康检查通过后再移除旧 `ap1/ap2` PostgreSQL / Redis orphan 容器和 Grafana / PDC 容器。
+
+验证命令：
+
+```bash
+ssh 51token-vps '
+  docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
+  docker ps -a --format "{{.Names}}" | egrep "grafana|pdc-agent|sub2api-ap1-postgres|sub2api-ap1-redis|sub2api-ap2-postgres|sub2api-ap2-redis" || echo none
+
+  for port in 8081 8082 8083; do
+    echo -n "$port "
+    curl -fsS --max-time 8 "http://127.0.0.1:$port/health"
+    echo
+  done
+
+  docker exec headroom-a2 curl -fsS --max-time 5 http://127.0.0.1:8787/readyz
+
+  for db in sub2api sub2api_ap1 sub2api_ap2; do
+    echo -n "$db "
+    docker exec sub2api-postgres psql -U sub2api -d "$db" -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema = '\''public'\'';"
+  done
+
+  for n in 0 1 2; do
+    echo -n "redis-db$n "
+    docker exec sub2api-redis sh -lc "env -u REDISCLI_AUTH redis-cli -n $n DBSIZE"
+  done
+'
+```
+
+2026-06-11 实测结果：
+
+- `8081`、`8082`、`8083` 的 `/health` 均返回 `{"status":"ok"}`。
+- `headroom-a2` `/readyz` 返回 `ready=true`。
+- `sub2api`、`sub2api-ap1`、`sub2api-ap2`、`headroom-a2`、`sub2api-postgres`、`sub2api-redis` 均为 `healthy`。
+- `sub2api_ap1`、`sub2api_ap2` 各恢复出 86 张 public 表。
+- 稳定后 `sar -u 1 5` 平均 CPU idle 约 58%，比迁移前持续 idle 0% 明显下降。
+
+#### 3.4.1 snapd 移除与 sysstat 历史监控
+
+当前 VPS 不使用 snapd / LXD。为减少后台 watchdog 和无用服务，已移除：
+
+- `lxd` snap
+- `core20` snap
+- `snapd`
+
+确认方式：
+
+```bash
+ssh 51token-vps '
+  if command -v snap >/dev/null 2>&1; then snap list; else echo "snap removed"; fi
+  systemctl list-units "snap*" --no-pager --all || true
+'
+```
+
+历史监控使用 `sysstat`，并把默认 10 分钟采样改为 1 分钟采样。关键配置：
+
+- `/etc/default/sysstat`：`ENABLED="true"`
+- `/etc/systemd/system/sysstat-collect.timer.d/override.conf`
+
+override 内容：
+
+```ini
+[Timer]
+OnCalendar=
+OnCalendar=*:0/1
+AccuracySec=10s
+```
+
+常用查询：
+
+```bash
+ssh 51token-vps '
+  sar -u
+  sar -u -s 16:00:00 -e 17:30:00
+  sar -r
+  sar -q
+  systemctl list-timers "*sysstat*" --no-pager
+'
+```
+
 ### 4. 构建只替换二进制的运行镜像
 
 ```bash

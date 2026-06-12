@@ -3490,7 +3490,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	targetURL := openaiPlatformAPIURL
 	switch account.Type {
 	case AccountTypeOAuth:
-		targetURL = chatgptCodexURL
+		targetURL = s.openAIOAuthCodexResponsesURL()
 	case AccountTypeAPIKey:
 		baseURL := account.GetOpenAIBaseURL()
 		if baseURL != "" {
@@ -3532,7 +3532,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	// OAuth 透传到 ChatGPT internal API 时补齐必要头。
 	if account.Type == AccountTypeOAuth {
 		promptCacheKey := strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String())
-		req.Host = "chatgpt.com"
+		s.applyOpenAIOAuthCodexHost(req)
 		if chatgptAccountID := account.GetChatGPTAccountID(); chatgptAccountID != "" {
 			req.Header.Set("chatgpt-account-id", chatgptAccountID)
 		}
@@ -4220,7 +4220,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	switch account.Type {
 	case AccountTypeOAuth:
 		// OAuth accounts use ChatGPT internal API
-		targetURL = chatgptCodexURL
+		targetURL = s.openAIOAuthCodexResponsesURL()
 	case AccountTypeAPIKey:
 		// API Key accounts use Platform API or custom base URL
 		baseURL := account.GetOpenAIBaseURL()
@@ -4249,8 +4249,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 
 	// Set headers specific to OAuth accounts (ChatGPT internal API)
 	if account.Type == AccountTypeOAuth {
-		// Required: set Host for ChatGPT API (must use req.Host, not Header.Set)
-		req.Host = "chatgpt.com"
+		s.applyOpenAIOAuthCodexHost(req)
 		// Required: set chatgpt-account-id header
 		chatgptAccountID := account.GetChatGPTAccountID()
 		if chatgptAccountID != "" {
@@ -4323,6 +4322,25 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	}
 
 	return req, nil
+}
+
+func (s *OpenAIGatewayService) openAIOAuthCodexResponsesURL() string {
+	if s != nil && s.cfg != nil {
+		if override := strings.TrimSpace(s.cfg.Gateway.OpenAIOAuthCodexResponsesURL); override != "" {
+			return override
+		}
+	}
+	return chatgptCodexURL
+}
+
+func (s *OpenAIGatewayService) applyOpenAIOAuthCodexHost(req *http.Request) {
+	if req == nil || req.URL == nil {
+		return
+	}
+	if strings.EqualFold(req.URL.Host, "chatgpt.com") {
+		// Required when talking directly to ChatGPT API (must use req.Host, not Header.Set).
+		req.Host = "chatgpt.com"
+	}
 }
 
 // overrideBrowserUserAgent 检查请求的最终 user-agent，若为浏览器 UA 则替换为后台配置的 Codex UA。

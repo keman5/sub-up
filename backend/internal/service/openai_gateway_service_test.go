@@ -2117,6 +2117,21 @@ func TestOpenAIBuildUpstreamRequestCompactForcesJSONAcceptForOAuth(t *testing.T)
 	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(req.Context()))
 }
 
+func TestOpenAIBuildOpenAIResponsesWSURLUsesOAuthCodexOverride(t *testing.T) {
+	account := &Account{Type: AccountTypeOAuth}
+
+	defaultURL, err := (&OpenAIGatewayService{}).buildOpenAIResponsesWSURL(account)
+	require.NoError(t, err)
+	require.Equal(t, "wss://chatgpt.com/backend-api/codex/responses", defaultURL)
+
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
+		OpenAIOAuthCodexResponsesURL: "http://headroom-a2:8787/v1/responses",
+	}}}
+	overrideURL, err := svc.buildOpenAIResponsesWSURL(account)
+	require.NoError(t, err)
+	require.Equal(t, "ws://headroom-a2:8787/v1/responses", overrideURL)
+}
+
 func TestOpenAIBuildUpstreamRequestOAuthMessagesBridgeUsesSessionOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

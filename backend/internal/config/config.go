@@ -68,6 +68,7 @@ type Config struct {
 	Database                DatabaseConfig                `mapstructure:"database"`
 	Redis                   RedisConfig                   `mapstructure:"redis"`
 	Ops                     OpsConfig                     `mapstructure:"ops"`
+	HeadroomStats           HeadroomStatsConfig           `mapstructure:"headroom_stats"`
 	JWT                     JWTConfig                     `mapstructure:"jwt"`
 	Totp                    TotpConfig                    `mapstructure:"totp"`
 	LinuxDo                 LinuxDoConnectConfig          `mapstructure:"linuxdo_connect"`
@@ -692,6 +693,9 @@ type GatewayConfig struct {
 	// OpenAIResponseHeaderTimeout: OpenAI/Codex 上游等待响应头的超时时间（秒），0表示无超时
 	// OpenAI/Codex 请求可能在上游排队较久；默认不使用通用响应头超时截断。
 	OpenAIResponseHeaderTimeout int `mapstructure:"openai_response_header_timeout"`
+	// OpenAIOAuthCodexResponsesURL: OAuth/Codex responses 上游完整 URL 覆盖。
+	// 为空时保持默认直连 ChatGPT；用于环境级 sidecar 代理（如 headroom）。
+	OpenAIOAuthCodexResponsesURL string `mapstructure:"openai_oauth_codex_responses_url"`
 	// 请求体最大字节数，用于网关请求体大小限制
 	MaxBodySize int64 `mapstructure:"max_body_size"`
 	// 非流式上游响应体读取上限（字节），用于防止无界读取导致内存放大
@@ -1261,6 +1265,12 @@ type OpsMetricsCollectorCacheConfig struct {
 	TTL     time.Duration `mapstructure:"ttl"`
 }
 
+type HeadroomStatsConfig struct {
+	Enabled        bool   `mapstructure:"enabled"`
+	URL            string `mapstructure:"url"`
+	TimeoutSeconds int    `mapstructure:"timeout_seconds"`
+}
+
 type JWTConfig struct {
 	Secret     string `mapstructure:"secret"`
 	ExpireHour int    `mapstructure:"expire_hour"`
@@ -1766,12 +1776,17 @@ func setDefaults() {
 	// TTL should be slightly larger than collection interval (1m) to maximize cross-replica cache hits.
 	viper.SetDefault("ops.metrics_collector_cache.ttl", 65*time.Second)
 
+	// Headroom stats integration (disabled by default; intended for sidecar deployments).
+	viper.SetDefault("headroom_stats.enabled", false)
+	viper.SetDefault("headroom_stats.url", "")
+	viper.SetDefault("headroom_stats.timeout_seconds", 2)
+
 	// JWT
 	viper.SetDefault("jwt.secret", "")
 	viper.SetDefault("jwt.expire_hour", 24)
 	viper.SetDefault("jwt.access_token_expire_minutes", 43200) // 30 days
-	viper.SetDefault("jwt.refresh_token_expire_days", 30)  // 30天Refresh Token有效期
-	viper.SetDefault("jwt.refresh_window_minutes", 2)      // 过期前2分钟开始允许刷新
+	viper.SetDefault("jwt.refresh_token_expire_days", 30)      // 30天Refresh Token有效期
+	viper.SetDefault("jwt.refresh_window_minutes", 2)          // 过期前2分钟开始允许刷新
 
 	// TOTP
 	viper.SetDefault("totp.encryption_key", "")
@@ -1853,6 +1868,7 @@ func setDefaults() {
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
+	viper.SetDefault("gateway.openai_oauth_codex_responses_url", "")
 	viper.SetDefault("gateway.log_upstream_error_body", true)
 	viper.SetDefault("gateway.log_upstream_error_body_max_bytes", 2048)
 	viper.SetDefault("gateway.inject_beta_for_apikey", false)
@@ -2505,6 +2521,12 @@ func (c *Config) Validate() error {
 	if c.Gateway.OpenAIResponseHeaderTimeout < 0 {
 		return fmt.Errorf("gateway.openai_response_header_timeout must be non-negative")
 	}
+	if strings.TrimSpace(c.Gateway.OpenAIOAuthCodexResponsesURL) != "" {
+		if err := ValidateAbsoluteHTTPURL(c.Gateway.OpenAIOAuthCodexResponsesURL); err != nil {
+			return fmt.Errorf("gateway.openai_oauth_codex_responses_url invalid: %w", err)
+		}
+		warnIfInsecureURL("gateway.openai_oauth_codex_responses_url", c.Gateway.OpenAIOAuthCodexResponsesURL)
+	}
 	if strings.TrimSpace(c.Gateway.ConnectionPoolIsolation) != "" {
 		switch c.Gateway.ConnectionPoolIsolation {
 		case ConnectionPoolIsolationProxy, ConnectionPoolIsolationAccount, ConnectionPoolIsolationAccountProxy:
@@ -2878,6 +2900,15 @@ func (c *Config) Validate() error {
 	}
 	if c.Ops.MetricsCollectorCache.TTL < 0 {
 		return fmt.Errorf("ops.metrics_collector_cache.ttl must be non-negative")
+	}
+	if c.HeadroomStats.TimeoutSeconds <= 0 {
+		return fmt.Errorf("headroom_stats.timeout_seconds must be positive")
+	}
+	if c.HeadroomStats.Enabled {
+		if err := ValidateAbsoluteHTTPURL(c.HeadroomStats.URL); err != nil {
+			return fmt.Errorf("headroom_stats.url invalid: %w", err)
+		}
+		warnIfInsecureURL("headroom_stats.url", c.HeadroomStats.URL)
 	}
 	if c.Ops.Cleanup.ErrorLogRetentionDays < 0 {
 		return fmt.Errorf("ops.cleanup.error_log_retention_days must be non-negative")
