@@ -221,6 +221,17 @@ apiClient.interceptors.response.use(
               localStorage.setItem('auth_token', access_token)
               localStorage.setItem('refresh_token', newRefreshToken)
               localStorage.setItem('token_expires_at', String(Date.now() + expires_in * 1000))
+              try {
+                window.dispatchEvent(new CustomEvent('auth-token-refreshed', {
+                  detail: {
+                    access_token,
+                    refresh_token: newRefreshToken,
+                    expires_in,
+                  },
+                }))
+              } catch {
+                // ignore event failures
+              }
 
               // Notify subscribers with new token
               onTokenRefreshed(access_token)

@@ -18,6 +18,12 @@ const TOKEN_REFRESH_BUFFER = 120 * 1000 // 120 seconds before expiry to refresh 
 
 type PendingAuthTokenField = 'pending_auth_token' | 'pending_oauth_token'
 
+interface RefreshedTokenEventDetail {
+  access_token?: string
+  refresh_token?: string
+  expires_in?: number
+}
+
 interface PendingAuthSessionSummary {
   token: string
   token_field: PendingAuthTokenField
@@ -80,6 +86,7 @@ export const useAuthStore = defineStore('auth', () => {
   let refreshIntervalId: ReturnType<typeof setInterval> | null = null
   let tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null
   let tokenRefreshPromise: Promise<void> | null = null
+  let tokenRefreshEventListenerRegistered = false
 
   // ==================== Computed ====================
 
@@ -102,6 +109,8 @@ export const useAuthStore = defineStore('auth', () => {
    * Also starts auto-refresh and immediately fetches latest user data
    */
   function checkAuth(): void {
+    ensureTokenRefreshEventListener()
+
     const savedToken = localStorage.getItem(AUTH_TOKEN_KEY)
     const savedUser = localStorage.getItem(AUTH_USER_KEY)
     const savedRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
@@ -115,17 +124,20 @@ export const useAuthStore = defineStore('auth', () => {
         refreshTokenValue.value = savedRefreshToken
         tokenExpiresAt.value = savedExpiresAt ? parseInt(savedExpiresAt, 10) : null
 
-        // Immediately refresh user data from backend (async, don't block)
-        refreshUser().catch((error) => {
-          console.error('Failed to refresh user on init:', error)
-        })
+        // Immediately refresh user data from backend only while the access token is still valid.
+        // Expired restored tokens are refreshed by the next real API request instead of a background loop.
+        if (!isAccessTokenExpired()) {
+          refreshUser().catch((error) => {
+            console.error('Failed to refresh user on init:', error)
+          })
+        }
 
         // Start auto-refresh interval for user data
         startAutoRefresh()
 
         // Start proactive token refresh if we have refresh token and expiry info
         // Note: use !== null to handle case when tokenExpiresAt.value is 0 (expired)
-        if (savedRefreshToken && tokenExpiresAt.value !== null) {
+        if (savedRefreshToken && tokenExpiresAt.value !== null && !isAccessTokenExpired()) {
           scheduleTokenRefreshAt(tokenExpiresAt.value)
         }
       } catch (error) {
@@ -144,12 +156,16 @@ export const useAuthStore = defineStore('auth', () => {
     stopAutoRefresh()
 
     refreshIntervalId = setInterval(() => {
-      if (token.value) {
+      if (token.value && !isAccessTokenExpired()) {
         refreshUser().catch((error) => {
           console.error('Auto-refresh user failed:', error)
         })
       }
     }, AUTO_REFRESH_INTERVAL)
+  }
+
+  function isAccessTokenExpired(): boolean {
+    return tokenExpiresAt.value !== null && tokenExpiresAt.value <= Date.now()
   }
 
   /**
@@ -196,6 +212,17 @@ export const useAuthStore = defineStore('auth', () => {
     const expiresAtMs = Date.now() + expiresInSeconds * 1000
     tokenExpiresAt.value = expiresAtMs
     localStorage.setItem(TOKEN_EXPIRES_AT_KEY, String(expiresAtMs))
+
+    if (tokenRefreshTimeoutId) {
+      clearTimeout(tokenRefreshTimeoutId)
+      tokenRefreshTimeoutId = null
+    }
+
+    const expiresInMs = expiresInSeconds * 1000
+    if (expiresInMs > 0 && expiresInMs <= TOKEN_REFRESH_BUFFER) {
+      return
+    }
+
     scheduleTokenRefreshAt(expiresAtMs)
   }
 
@@ -292,6 +319,8 @@ export const useAuthStore = defineStore('auth', () => {
    * Internal helper function
    */
   function setAuthFromResponse(response: AuthResponse): void {
+    ensureTokenRefreshEventListener()
+
     // Store token and user
     token.value = response.access_token
 
@@ -350,6 +379,8 @@ export const useAuthStore = defineStore('auth', () => {
    * @param newToken - 后端签发的 JWT access token
    */
   async function setToken(newToken: string): Promise<User> {
+    ensureTokenRefreshEventListener()
+
     // Clear any previous state first (avoid mixing sessions)
     // Note: Don't clear localStorage here as OAuth callback may have set refresh_token
     stopAutoRefresh()
@@ -402,6 +433,39 @@ export const useAuthStore = defineStore('auth', () => {
 
   function clearPendingAuthSession(): void {
     setPendingAuthSession(null)
+  }
+
+  function ensureTokenRefreshEventListener(): void {
+    if (tokenRefreshEventListenerRegistered) {
+      return
+    }
+    window.addEventListener('auth-token-refreshed', handleExternalTokenRefresh as EventListener)
+    tokenRefreshEventListenerRegistered = true
+  }
+
+  function removeTokenRefreshEventListener(): void {
+    if (!tokenRefreshEventListenerRegistered) {
+      return
+    }
+    window.removeEventListener('auth-token-refreshed', handleExternalTokenRefresh as EventListener)
+    tokenRefreshEventListenerRegistered = false
+  }
+
+  function handleExternalTokenRefresh(event: CustomEvent<RefreshedTokenEventDetail>): void {
+    const detail = event.detail || {}
+    const nextAccessToken = typeof detail.access_token === 'string' ? detail.access_token : ''
+    const nextRefreshToken = typeof detail.refresh_token === 'string' ? detail.refresh_token : ''
+    const nextExpiresIn = typeof detail.expires_in === 'number' ? detail.expires_in : 0
+
+    if (!nextAccessToken || !nextRefreshToken || nextExpiresIn <= 0) {
+      return
+    }
+
+    token.value = nextAccessToken
+    refreshTokenValue.value = nextRefreshToken
+    localStorage.setItem(AUTH_TOKEN_KEY, nextAccessToken)
+    localStorage.setItem(REFRESH_TOKEN_KEY, nextRefreshToken)
+    scheduleTokenRefresh(nextExpiresIn)
   }
 
   /**
@@ -457,6 +521,7 @@ export const useAuthStore = defineStore('auth', () => {
     stopAutoRefresh()
     // Stop token refresh
     stopTokenRefresh()
+    removeTokenRefreshEventListener()
 
     token.value = null
     refreshTokenValue.value = null

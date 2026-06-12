@@ -739,6 +739,44 @@ git diff --check
 - 复跑上述两个前端测试文件，重点确认坏 refresh token 只触发一次 refresh，并且失败后本地 `auth_token` / `refresh_token` 被清理。
 - 如果官方已经在 auth store 中实现等价的失败清理和单飞保护，并且测试覆盖同样边界，可以删除本地补丁；否则保留本 fork 行为，避免刷新风暴再次打到后端限流。
 
+### 2026-06-12 前台短有效期 token 后台 refresh 循环收口
+
+线上现象：登录成功后 `/api/v1/auth/refresh` 仍会持续返回 200 并反复请求；这不是失败重试，而是前台拿到短有效期 token（例如 60 秒）后，主动刷新定时器和每 60 秒用户资料刷新互相触发，导致空闲页面也持续刷新 token。旧二进制还会让 `/api/v1/admin/compliance` 返回 404，原因是本地/线上运行的镜像未包含当前合规路由注册代码；当前源码中的合规 API 应保留，且 fork 默认关闭时返回 `required=false`。
+
+本地补丁：
+
+- `frontend/src/stores/auth.ts`：`expires_in <= TOKEN_REFRESH_BUFFER` 时只保存 `token_expires_at`，不再安排主动 refresh 定时器；自动用户资料刷新在 access token 已过期时直接跳过，不触发 `/auth/me -> 401 -> /auth/refresh`；`checkAuth()` 恢复已过期 token 时不后台请求用户信息或立即 refresh，等待用户真实 API 请求由 axios 401 拦截器刷新；登录、OAuth 回调和外部 `auth-token-refreshed` 事件统一注册 token 刷新事件监听，长有效期 token 仍保留过期前 120 秒主动刷新。
+- `frontend/src/api/client.ts`：axios 401 刷新成功后派发 `auth-token-refreshed` 事件，让 Pinia auth store 同步新 access/refresh token 和过期时间，避免 store 继续用旧过期时间重新排后台刷新。
+- `frontend/src/stores/__tests__/auth.spec.ts` 与 `frontend/src/api/__tests__/client.spec.ts`：覆盖短有效期登录、外部刷新返回短有效期 token、恢复已过期 token 不后台 refresh、`/auth/refresh` 自身 401 不递归刷新等边界。
+- `frontend/src/components/layout/AuthLayout.vue`：登录页 logo 继续使用站点配置的 `site_logo`，但外层补白色圆角背景与浅描边，避免透明底黑色标识在登录背景上不可辨认。
+
+验证：
+
+```bash
+pnpm --dir frontend exec vitest run src/stores/__tests__/auth.spec.ts src/api/__tests__/client.spec.ts src/components/layout/__tests__/AppSidebar.spec.ts src/components/__tests__/LoginForm.spec.ts
+pnpm --dir frontend run build
+git diff --check
+```
+
+本地运行验证：
+
+```bash
+/opt/homebrew/opt/postgresql@18/bin/pg_ctl -D .local/pg18 -l .local/pg18/server.log -o "-p 5433" start
+DATA_DIR=.local/ap2-runtime .local/ap2-runtime/sub2api-current
+VITE_DEV_PORT=5173 VITE_DEV_PROXY_TARGET=http://127.0.0.1:18083 pnpm --dir frontend run dev -- --host 127.0.0.1
+curl -i http://localhost:5173/setup/status
+curl -i http://localhost:5173/api/v1/admin/compliance
+```
+
+预期：`/setup/status` 返回 200；未带 token 的 `/api/v1/admin/compliance` 返回 401 而不是 404，说明当前后端路由已注册。管理员有效 token 请求时应返回 `required=false`，不得弹出合规确认。
+
+同步官方后的复查：
+
+- 搜索 `scheduleTokenRefresh`、`startAutoRefresh`、`isAccessTokenExpired`、`auth-token-refreshed`、`AdminComplianceEnabled`、`registerAdminComplianceRoutes`、`AuthLayout.vue`。
+- 确认短有效期 token 不再进入后台主动 refresh 循环，页面空闲时不会每 30/60 秒刷 `/api/v1/auth/refresh`；真实用户操作遇到 401 时仍能通过 axios 拦截器刷新并重放原请求。
+- 合规 API 需要继续保留，fork 默认关闭时返回 `required=false`，不要通过删路由造成前端 404。
+- 登录页 logo 白底属于当前 fork 视觉修复；若官方后续调整登录页布局，继续确认透明 logo 在浅/深背景下可辨认。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：

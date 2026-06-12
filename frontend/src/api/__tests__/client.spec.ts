@@ -269,6 +269,62 @@ describe('API Client', () => {
         writable: true,
       })
     })
+
+    it('刷新成功后广播新 token 事件并重试原请求', async () => {
+      localStorage.setItem('auth_token', 'expired-token')
+      localStorage.setItem('refresh_token', 'old-refresh-token')
+      const listener = vi.fn()
+      window.addEventListener('auth-token-refreshed', listener)
+      const axiosPost = vi.spyOn(axios, 'post').mockResolvedValue({
+        data: {
+          code: 0,
+          data: {
+            access_token: 'new-access-token',
+            refresh_token: 'new-refresh-token',
+            expires_in: 3600,
+          },
+        },
+      })
+
+      const adapter = vi
+        .fn()
+        .mockRejectedValueOnce({
+          response: {
+            status: 401,
+            data: { code: 'TOKEN_EXPIRED', message: 'Token expired' },
+          },
+          config: {
+            url: '/test',
+            headers: { Authorization: 'Bearer expired-token' },
+          },
+          code: 'ERR_BAD_REQUEST',
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          data: { code: 0, data: { ok: true } },
+          headers: {},
+          config: {},
+          statusText: 'OK',
+        })
+      apiClient.defaults.adapter = adapter
+
+      const response = await apiClient.get('/test')
+
+      expect(response.data).toEqual({ ok: true })
+      expect(axiosPost).toHaveBeenCalledWith(
+        '/api/v1/auth/refresh',
+        { refresh_token: 'old-refresh-token' },
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
+        access_token: 'new-access-token',
+        refresh_token: 'new-refresh-token',
+        expires_in: 3600,
+      })
+
+      window.removeEventListener('auth-token-refreshed', listener)
+    })
   })
 
   // --- 网络错误 ---
