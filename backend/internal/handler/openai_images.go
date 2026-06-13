@@ -302,7 +302,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		}
 		if result != nil {
 			if account.Type == service.AccountTypeOAuth {
-				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders)
+				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders, result.UpstreamModel)
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, result.FirstTokenMs)
 		} else {

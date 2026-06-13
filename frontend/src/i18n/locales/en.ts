@@ -3199,6 +3199,7 @@ export default {
         viewTempUnschedDetails: 'View temp unschedulable details'
       },
       columns: {
+        id: 'ID',
         name: 'Name',
         platformType: 'Platform/Type',
         platform: 'Platform',

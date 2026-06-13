@@ -672,28 +672,26 @@ const buildOpenAIProgressFromMainSnapshot = (
 const openAIMainFiveHour = computed<UsageProgress | null>(() => {
   const usage = usageInfo.value
   if (!usage) return null
-  return usage.five_hour ?? buildOpenAIProgressFromMainSnapshot(
+  return buildOpenAIProgressFromMainSnapshot(
     usage.codex_main_5h_used_percent,
     usage.codex_main_5h_reset_after_seconds,
     usage.codex_main_5h_reset_at
-  )
+  ) ?? usage.five_hour
 })
 
 const openAIMainSevenDay = computed<UsageProgress | null>(() => {
   const usage = usageInfo.value
   if (!usage) return null
-  return usage.seven_day ?? buildOpenAIProgressFromMainSnapshot(
+  return buildOpenAIProgressFromMainSnapshot(
     usage.codex_main_7d_used_percent,
     usage.codex_main_7d_reset_after_seconds,
     usage.codex_main_7d_reset_at
-  )
+  ) ?? usage.seven_day
 })
 
 const getOpenAICodexSparkSnapshot = (usage: AccountUsageInfo | null) => {
   if (!usage) return null
-
-  const secondaryWindowMinutes = toInt(usage.codex_secondary_window_minutes)
-  const primaryWindowMinutes = toInt(usage.codex_primary_window_minutes)
+  const hasExplicitSparkSnapshot = Boolean(usage.codex_usage_updated_at)
 
   const buildFromProgress = (progress: UsageProgress | null | undefined) => {
     if (!progress) return null
@@ -704,46 +702,70 @@ const getOpenAICodexSparkSnapshot = (usage: AccountUsageInfo | null) => {
     }
   }
 
+  const primaryWindowMinutes = toInt(usage.codex_primary_window_minutes)
+  const secondaryWindowMinutes = toInt(usage.codex_secondary_window_minutes)
+  const rawPrimary = {
+    utilized: toNumber(usage.codex_primary_used_percent),
+    resetAfterSeconds: usage.codex_primary_reset_after_seconds,
+    resetAt: usage.codex_primary_reset_at,
+    windowMinutes: primaryWindowMinutes,
+    progress: buildFromProgress(usage.codex_primary)
+  }
+  const rawSecondary = {
+    utilized: toNumber(usage.codex_secondary_used_percent),
+    resetAfterSeconds: usage.codex_secondary_reset_after_seconds,
+    resetAt: usage.codex_secondary_reset_at,
+    windowMinutes: secondaryWindowMinutes,
+    progress: buildFromProgress(usage.codex_secondary)
+  }
+  const rawSnapshotForWindow = (window: '5h' | '7d') => {
+    const raw = [rawPrimary, rawSecondary]
+    const withWindow = raw.filter((item) => item.windowMinutes != null)
+    if (withWindow.length >= 2) {
+      const sorted = [...withWindow].sort((a, b) => (a.windowMinutes ?? 0) - (b.windowMinutes ?? 0))
+      return window === '5h' ? sorted[0] : sorted[sorted.length - 1]
+    }
+    if (withWindow.length === 1) {
+      const known = withWindow[0]
+      const unknown = known === rawPrimary ? rawSecondary : rawPrimary
+      const knownIs5h = (known.windowMinutes ?? 0) <= 360
+      if ((window === '5h' && knownIs5h) || (window === '7d' && !knownIs5h)) {
+        return known
+      }
+      return unknown
+    }
+    return window === '5h' ? rawSecondary : rawPrimary
+  }
+  const applyRawSnapshotFallback = (target: {
+    utilized: number | null
+    resetAfterSeconds: unknown
+    resetAt: unknown
+  }, window: '5h' | '7d') => {
+    if (!hasExplicitSparkSnapshot || target.utilized != null) return
+    const raw = rawSnapshotForWindow(window)
+    if (raw.progress) {
+      target.utilized = raw.progress.utilized
+      target.resetAfterSeconds = raw.progress.resetAfterSeconds
+      target.resetAt = raw.progress.resetAt ?? undefined
+      return
+    }
+    target.utilized = raw.utilized
+    target.resetAfterSeconds = raw.resetAfterSeconds
+    target.resetAt = raw.resetAt
+  }
+
   const spark5h = {
     utilized: toNumber(usage.codex_5h_used_percent),
     resetAfterSeconds: usage.codex_5h_reset_after_seconds,
     resetAt: usage.codex_5h_reset_at
   }
-  if (spark5h.utilized == null) {
-    const spark5hProgress = buildFromProgress(usage.codex_secondary)
-    if (spark5hProgress) {
-      spark5h.utilized = spark5hProgress.utilized
-      spark5h.resetAfterSeconds = spark5hProgress.resetAfterSeconds
-      spark5h.resetAt = spark5hProgress.resetAt ?? undefined
-    }
-  }
-  if (spark5h.utilized == null && secondaryWindowMinutes != null) {
-    if (secondaryWindowMinutes === 300) {
-      spark5h.utilized = toNumber(usage.codex_secondary_used_percent)
-      spark5h.resetAfterSeconds = usage.codex_secondary_reset_after_seconds
-      spark5h.resetAt = usage.codex_secondary_reset_at
-    }
-  }
+  applyRawSnapshotFallback(spark5h, '5h')
   const spark7d = {
     utilized: toNumber(usage.codex_7d_used_percent),
     resetAfterSeconds: usage.codex_7d_reset_after_seconds,
     resetAt: usage.codex_7d_reset_at
   }
-  if (spark7d.utilized == null) {
-    const spark7dProgress = buildFromProgress(usage.codex_primary)
-    if (spark7dProgress) {
-      spark7d.utilized = spark7dProgress.utilized
-      spark7d.resetAfterSeconds = spark7dProgress.resetAfterSeconds
-      spark7d.resetAt = spark7dProgress.resetAt ?? undefined
-    }
-  }
-  if (spark7d.utilized == null && primaryWindowMinutes != null) {
-    if (primaryWindowMinutes === 10080) {
-      spark7d.utilized = toNumber(usage.codex_primary_used_percent)
-      spark7d.resetAfterSeconds = usage.codex_primary_reset_after_seconds
-      spark7d.resetAt = usage.codex_primary_reset_at
-    }
-  }
+  applyRawSnapshotFallback(spark7d, '7d')
 
   if (spark5h.utilized == null && spark7d.utilized == null) {
     return null
@@ -1230,7 +1252,7 @@ const isAnthropicOAuthOrSetupToken = computed(() => {
   return props.account.platform === 'anthropic' && (props.account.type === 'oauth' || props.account.type === 'setup-token')
 })
 
-const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?: boolean }) => {
+const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?: boolean; force?: boolean }) => {
   if (!shouldFetchUsage.value) return
 
   // Check cache
@@ -1247,7 +1269,7 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
   error.value = null
 
   try {
-    const fetchFn = () => adminAPI.accounts.getUsage(props.account.id, options?.source)
+    const fetchFn = () => adminAPI.accounts.getUsage(props.account.id, options?.source, options?.force)
     const result = await enqueueUsageRequest(props.account, fetchFn)
     if (!unmounted.value) {
       usageInfo.value = result
@@ -1437,7 +1459,9 @@ watch(openAIUsageRefreshKey, (nextKey, prevKey) => {
   if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return
 
   _usageCache.delete(props.account.id)
-  requestAutoLoad()
+  loadUsage({ bypassCache: true, force: true }).catch((e) => {
+    console.error('Failed to refresh OpenAI usage after account update:', e)
+  })
 })
 
 watch(
@@ -1455,7 +1479,7 @@ watch(
 
     const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
     _usageCache.delete(props.account.id)
-    loadUsage({ source, bypassCache: true }).catch((e) => {
+    loadUsage({ source, bypassCache: true, force: props.account.platform === 'openai' && props.account.type === 'oauth' }).catch((e) => {
       console.error('Failed to refresh usage after manual refresh:', e)
     })
   }

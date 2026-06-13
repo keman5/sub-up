@@ -636,7 +636,6 @@ func setCodexUsageSnapshotFields(usage *UsageInfo, extra map[string]any) {
 	if usage == nil || len(extra) == 0 {
 		return
 	}
-
 	if v, ok := extra["codex_5h_used_percent"]; ok {
 		parsed := parseExtraFloat64(v)
 		usage.Codex5hUsedPercent = &parsed
@@ -710,60 +709,94 @@ func setCodexUsageSnapshotFields(usage *UsageInfo, extra map[string]any) {
 		usage.CodexMainUsageUpdatedAt = &s
 	}
 
-	primaryWindowMinutesRaw, hasPrimaryWindowMinutesRaw := extra["codex_primary_window_minutes"]
-	secondaryWindowMinutesRaw, hasSecondaryWindowMinutesRaw := extra["codex_secondary_window_minutes"]
-	var primaryWindowMinutes, secondaryWindowMinutes int
-	hasPrimaryWindowMinutes := false
-	hasSecondaryWindowMinutes := false
+	applyRawCodexSnapshotFallback(usage, extra)
+}
 
-	if hasPrimaryWindowMinutesRaw {
-		primaryWindowMinutes = parseExtraInt(primaryWindowMinutesRaw)
-		hasPrimaryWindowMinutes = true
+type rawCodexWindowSnapshot struct {
+	usedPercent       *float64
+	resetAfterSeconds *int
+	resetAt           *string
+	windowMinutes     *int
+}
+
+func buildRawCodexWindowSnapshot(extra map[string]any, prefix string) rawCodexWindowSnapshot {
+	out := rawCodexWindowSnapshot{}
+	if v, ok := extra[prefix+"_used_percent"]; ok {
+		parsed := parseExtraFloat64(v)
+		out.usedPercent = &parsed
 	}
-	if hasSecondaryWindowMinutesRaw {
-		secondaryWindowMinutes = parseExtraInt(secondaryWindowMinutesRaw)
-		hasSecondaryWindowMinutes = true
+	if v, ok := extra[prefix+"_reset_after_seconds"]; ok {
+		parsed := parseExtraInt(v)
+		out.resetAfterSeconds = &parsed
 	}
+	if v, ok := extra[prefix+"_reset_at"]; ok {
+		s := fmt.Sprint(v)
+		out.resetAt = &s
+	}
+	if v, ok := extra[prefix+"_window_minutes"]; ok {
+		parsed := parseExtraInt(v)
+		out.windowMinutes = &parsed
+	}
+	return out
+}
+
+func selectRawCodexSnapshotForWindow(primary, secondary rawCodexWindowSnapshot, window string) rawCodexWindowSnapshot {
+	if primary.windowMinutes != nil && secondary.windowMinutes != nil {
+		if *primary.windowMinutes < *secondary.windowMinutes {
+			if window == "5h" {
+				return primary
+			}
+			return secondary
+		}
+		if window == "5h" {
+			return secondary
+		}
+		return primary
+	}
+
+	if primary.windowMinutes != nil {
+		primaryIs5h := *primary.windowMinutes <= 360
+		if (window == "5h" && primaryIs5h) || (window == "7d" && !primaryIs5h) {
+			return primary
+		}
+		return secondary
+	}
+
+	if secondary.windowMinutes != nil {
+		secondaryIs5h := *secondary.windowMinutes <= 360
+		if (window == "5h" && secondaryIs5h) || (window == "7d" && !secondaryIs5h) {
+			return secondary
+		}
+		return primary
+	}
+
+	if window == "5h" {
+		return secondary
+	}
+	return primary
+}
+
+func applyRawCodexSnapshotFallback(usage *UsageInfo, extra map[string]any) {
+	primary := buildRawCodexWindowSnapshot(extra, "codex_primary")
+	secondary := buildRawCodexWindowSnapshot(extra, "codex_secondary")
 
 	if usage.Codex5hUsedPercent == nil {
-		if hasSecondaryWindowMinutes && int(secondaryWindowMinutes) == 300 {
-			if v, ok := extra["codex_secondary_used_percent"]; ok {
-				parsed := parseExtraFloat64(v)
-				usage.Codex5hUsedPercent = &parsed
-			}
-			if v, ok := extra["codex_secondary_reset_after_seconds"]; ok {
-				parsed := parseExtraInt(v)
-				usage.Codex5hResetAfterSeconds = &parsed
-			}
-			if v, ok := extra["codex_secondary_window_minutes"]; ok {
-				parsed := parseExtraInt(v)
-				usage.Codex5hWindowMinutes = &parsed
-			}
-			if v, ok := extra["codex_secondary_reset_at"]; ok {
-				s := fmt.Sprint(v)
-				usage.Codex5hResetAt = &s
-			}
+		raw5h := selectRawCodexSnapshotForWindow(primary, secondary, "5h")
+		if raw5h.usedPercent != nil {
+			usage.Codex5hUsedPercent = raw5h.usedPercent
+			usage.Codex5hResetAfterSeconds = raw5h.resetAfterSeconds
+			usage.Codex5hResetAt = raw5h.resetAt
+			usage.Codex5hWindowMinutes = raw5h.windowMinutes
 		}
 	}
 
 	if usage.Codex7dUsedPercent == nil {
-		if hasPrimaryWindowMinutes && int(primaryWindowMinutes) == 10080 {
-			if v, ok := extra["codex_primary_used_percent"]; ok {
-				parsed := parseExtraFloat64(v)
-				usage.Codex7dUsedPercent = &parsed
-			}
-			if v, ok := extra["codex_primary_reset_after_seconds"]; ok {
-				parsed := parseExtraInt(v)
-				usage.Codex7dResetAfterSeconds = &parsed
-			}
-			if v, ok := extra["codex_primary_window_minutes"]; ok {
-				parsed := parseExtraInt(v)
-				usage.Codex7dWindowMinutes = &parsed
-			}
-			if v, ok := extra["codex_primary_reset_at"]; ok {
-				s := fmt.Sprint(v)
-				usage.Codex7dResetAt = &s
-			}
+		raw7d := selectRawCodexSnapshotForWindow(primary, secondary, "7d")
+		if raw7d.usedPercent != nil {
+			usage.Codex7dUsedPercent = raw7d.usedPercent
+			usage.Codex7dResetAfterSeconds = raw7d.resetAfterSeconds
+			usage.Codex7dResetAt = raw7d.resetAt
+			usage.Codex7dWindowMinutes = raw7d.windowMinutes
 		}
 	}
 }
@@ -792,7 +825,29 @@ func shouldRefreshOpenAICodexSnapshot(account *Account, usage *UsageInfo, now ti
 	if account.IsRateLimited() {
 		return true
 	}
+	if isOpenAICodexSparkSnapshotIncomplete(account) {
+		return true
+	}
 	return isOpenAICodexSnapshotStale(account, now)
+}
+
+func isOpenAICodexSparkSnapshotIncomplete(account *Account) bool {
+	if account == nil || !account.IsOpenAIOAuth() || !account.IsOpenAIResponsesWebSocketV2Enabled() {
+		return false
+	}
+	if account.Extra == nil {
+		return true
+	}
+	if _, ok := account.Extra["codex_usage_updated_at"]; !ok {
+		return true
+	}
+	if _, ok := account.Extra["codex_5h_used_percent"]; !ok {
+		return true
+	}
+	if _, ok := account.Extra["codex_7d_used_percent"]; !ok {
+		return true
+	}
+	return false
 }
 
 func isOpenAICodexSnapshotStale(account *Account, now time.Time) bool {
@@ -970,7 +1025,7 @@ func extractOpenAICodexProbeUpdatesForModel(resp *http.Response, model string) (
 	if resp == nil {
 		return nil, nil
 	}
-	if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
+	if snapshot := ParseCodexRateLimitHeadersForModel(resp.Header, model); snapshot != nil {
 		return buildCodexUsageExtraUpdatesForFamily(snapshot, time.Now(), model), nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

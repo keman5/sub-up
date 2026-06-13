@@ -177,12 +177,19 @@ func TestHandle429_OpenAIPersistsCodexSnapshotImmediately(t *testing.T) {
 	account := &Account{ID: 123, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 
 	headers := http.Header{}
+	headers.Set("x-codex-active-limit", "codex_bengalfox")
 	headers.Set("x-codex-primary-used-percent", "100")
 	headers.Set("x-codex-primary-reset-after-seconds", "604800")
 	headers.Set("x-codex-primary-window-minutes", "10080")
 	headers.Set("x-codex-secondary-used-percent", "100")
 	headers.Set("x-codex-secondary-reset-after-seconds", "18000")
 	headers.Set("x-codex-secondary-window-minutes", "300")
+	headers.Set("x-codex-bengalfox-primary-used-percent", "0")
+	headers.Set("x-codex-bengalfox-primary-reset-after-seconds", "604800")
+	headers.Set("x-codex-bengalfox-primary-window-minutes", "10080")
+	headers.Set("x-codex-bengalfox-secondary-used-percent", "0")
+	headers.Set("x-codex-bengalfox-secondary-reset-after-seconds", "18000")
+	headers.Set("x-codex-bengalfox-secondary-window-minutes", "300")
 
 	svc.handle429(context.Background(), account, headers, nil)
 
@@ -192,11 +199,11 @@ func TestHandle429_OpenAIPersistsCodexSnapshotImmediately(t *testing.T) {
 	if len(repo.updatedExtra) == 0 {
 		t.Fatal("expected codex snapshot to be persisted on 429")
 	}
-	if got := repo.updatedExtra["codex_5h_used_percent"]; got != 100.0 {
-		t.Fatalf("codex_5h_used_percent = %v, want 100", got)
+	if got := repo.updatedExtra["codex_5h_used_percent"]; got != 0.0 {
+		t.Fatalf("codex_5h_used_percent = %v, want active Spark limit 0", got)
 	}
-	if got := repo.updatedExtra["codex_7d_used_percent"]; got != 100.0 {
-		t.Fatalf("codex_7d_used_percent = %v, want 100", got)
+	if got := repo.updatedExtra["codex_7d_used_percent"]; got != 0.0 {
+		t.Fatalf("codex_7d_used_percent = %v, want active Spark limit 0", got)
 	}
 }
 

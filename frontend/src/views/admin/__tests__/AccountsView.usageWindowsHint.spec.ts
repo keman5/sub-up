@@ -66,6 +66,7 @@ const DataTableStub = {
   props: ['columns', 'data'],
   template: `
     <div data-test="data-table">
+      <div data-test="columns">{{ columns.map(column => column.key).join(',') }}</div>
       <template v-for="column in columns" :key="column.key">
         <div v-if="column.key === 'usage'" data-test="usage-header">
           <slot :name="'header-' + column.key" :column="column" />
@@ -160,5 +161,13 @@ describe('admin AccountsView usage windows hint', () => {
     const hint = wrapper.find('[data-test="usage-windows-hint"]')
     expect(hint.exists()).toBe(true)
     expect(hint.text()).toBe('admin.accounts.usageWindowsHint')
+  })
+
+  it('shows account ID as a dedicated list column before account name', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const visibleColumns = wrapper.get('[data-test="columns"]').text().split(',')
+    expect(visibleColumns.slice(0, 3)).toEqual(['select', 'id', 'name'])
   })
 })

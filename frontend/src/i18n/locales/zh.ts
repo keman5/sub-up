@@ -3237,6 +3237,7 @@ export default {
       failedToToggleSchedulable: '切换调度状态失败',
       groupCountTotal: '共 {count} 个分组',
       columns: {
+        id: 'ID',
         name: '名称',
         platformType: '平台/类型',
         platform: '平台',

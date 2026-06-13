@@ -49,6 +49,20 @@ func TestShouldRefreshOpenAICodexSnapshot(t *testing.T) {
 		t.Fatal("expected complete non-rate-limited usage to skip codex snapshot refresh")
 	}
 
+	if !shouldRefreshOpenAICodexSnapshot(&Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"openai_oauth_responses_websockets_v2_enabled": true,
+			"codex_usage_updated_at":                       now.Format(time.RFC3339),
+			"codex_main_usage_updated_at":                  now.Format(time.RFC3339),
+			"codex_main_5h_used_percent":                   1.0,
+			"codex_main_7d_used_percent":                   2.0,
+		},
+	}, usage, now) {
+		t.Fatal("expected missing Spark snapshot to require refresh")
+	}
+
 	if !shouldRefreshOpenAICodexSnapshot(&Account{}, &UsageInfo{FiveHour: nil, SevenDay: &UsageProgress{}}, now) {
 		t.Fatal("expected missing 5h snapshot to require refresh")
 	}
@@ -84,11 +98,51 @@ func TestExtractOpenAICodexProbeUpdatesAccepts429WithCodexHeaders(t *testing.T) 
 	if len(updates) == 0 {
 		t.Fatal("expected codex probe updates from 429 headers")
 	}
+	if _, ok := updates["codex_main_5h_used_percent"]; ok {
+		t.Fatalf("spark codex probe must not write main codex_main_5h_used_percent: %v", updates)
+	}
 	if got := updates["codex_5h_used_percent"]; got != 100.0 {
 		t.Fatalf("codex_5h_used_percent = %v, want 100", got)
 	}
 	if got := updates["codex_7d_used_percent"]; got != 100.0 {
 		t.Fatalf("codex_7d_used_percent = %v, want 100", got)
+	}
+}
+
+func TestExtractOpenAICodexProbeUpdatesUsesActiveSparkLimitHeaders(t *testing.T) {
+	t.Parallel()
+
+	headers := make(http.Header)
+	headers.Set("x-codex-active-limit", "codex_bengalfox")
+	headers.Set("x-codex-primary-used-percent", "13")
+	headers.Set("x-codex-primary-reset-after-seconds", "12701")
+	headers.Set("x-codex-primary-window-minutes", "300")
+	headers.Set("x-codex-secondary-used-percent", "29")
+	headers.Set("x-codex-secondary-reset-after-seconds", "407818")
+	headers.Set("x-codex-secondary-window-minutes", "10080")
+	headers.Set("x-codex-bengalfox-limit-name", "GPT-5.3-Codex-Spark")
+	headers.Set("x-codex-bengalfox-primary-used-percent", "0")
+	headers.Set("x-codex-bengalfox-primary-reset-after-seconds", "18000")
+	headers.Set("x-codex-bengalfox-primary-window-minutes", "300")
+	headers.Set("x-codex-bengalfox-secondary-used-percent", "0")
+	headers.Set("x-codex-bengalfox-secondary-reset-after-seconds", "586489")
+	headers.Set("x-codex-bengalfox-secondary-window-minutes", "10080")
+
+	updates, err := extractOpenAICodexProbeUpdatesForModel(&http.Response{StatusCode: http.StatusOK, Header: headers}, "gpt-5.3-codex-spark")
+	if err != nil {
+		t.Fatalf("extractOpenAICodexProbeUpdatesForModel() error = %v", err)
+	}
+	if got := updates["codex_5h_used_percent"]; got != 0.0 {
+		t.Fatalf("codex_5h_used_percent = %v, want active Spark limit 0", got)
+	}
+	if got := updates["codex_7d_used_percent"]; got != 0.0 {
+		t.Fatalf("codex_7d_used_percent = %v, want active Spark limit 0", got)
+	}
+	if got := updates["codex_primary_used_percent"]; got != 0.0 {
+		t.Fatalf("raw spark primary = %v, want active Spark limit 0", got)
+	}
+	if got := updates["codex_secondary_used_percent"]; got != 0.0 {
+		t.Fatalf("raw spark secondary = %v, want active Spark limit 0", got)
 	}
 }
 
@@ -157,8 +211,11 @@ func TestAccountUsageService_GetOpenAIUsage_DoesNotPromoteCodexExtraToRateLimit(
 	if err != nil {
 		t.Fatalf("getOpenAIUsage() error = %v", err)
 	}
-	if usage.SevenDay == nil || usage.SevenDay.Utilization != 100.0 {
-		t.Fatalf("预期 7 天用量仍然可见，实际为 %#v", usage.SevenDay)
+	if usage.SevenDay != nil {
+		t.Fatalf("不应将 Spark 7 天用量提升为主套餐 7 天用量: %#v", usage.SevenDay)
+	}
+	if usage.Codex7dUsedPercent == nil || *usage.Codex7dUsedPercent != 100.0 {
+		t.Fatalf("预期 Spark 7 天用量仍然可见，实际为 %v", usage.Codex7dUsedPercent)
 	}
 	if account.RateLimitResetAt != nil {
 		t.Fatalf("不应让已耗尽的 codex extra 改写运行时限流状态: %v", account.RateLimitResetAt)
@@ -214,6 +271,93 @@ func TestAccountUsageService_GetOpenAIUsageSeparatesMainAndSparkSnapshots(t *tes
 	}
 	if usage.Codex7dUsedPercent == nil || *usage.Codex7dUsedPercent != 82.0 {
 		t.Fatalf("spark codex_7d_used_percent = %v, want 82", usage.Codex7dUsedPercent)
+	}
+}
+
+func TestAccountUsageService_GetOpenAIUsageKeepsSparkSnapshotSeparateWithoutMain(t *testing.T) {
+	t.Parallel()
+
+	resetAt := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second).Format(time.RFC3339)
+	svc := &AccountUsageService{}
+	account := &Account{
+		ID:       902,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_5h_used_percent":          1.0,
+			"codex_5h_reset_at":              resetAt,
+			"codex_5h_window_minutes":        300,
+			"codex_7d_used_percent":          22.0,
+			"codex_7d_reset_at":              resetAt,
+			"codex_7d_window_minutes":        10080,
+			"codex_usage_updated_at":         time.Now().Format(time.RFC3339),
+			"codex_primary_used_percent":     1.0,
+			"codex_primary_window_minutes":   300,
+			"codex_secondary_used_percent":   22.0,
+			"codex_secondary_window_minutes": 10080,
+		},
+	}
+
+	usage, err := svc.getOpenAIUsage(context.Background(), account, false)
+	if err != nil {
+		t.Fatalf("getOpenAIUsage() error = %v", err)
+	}
+	if usage.FiveHour != nil {
+		t.Fatalf("spark snapshot without codex_main_* must not populate main five_hour: %#v", usage.FiveHour)
+	}
+	if usage.SevenDay != nil {
+		t.Fatalf("spark snapshot without codex_main_* must not populate main seven_day: %#v", usage.SevenDay)
+	}
+	if usage.CodexMain5hUsedPercent != nil || usage.CodexMain7dUsedPercent != nil {
+		t.Fatalf("spark snapshot without codex_main_* must not be exposed as main usage: 5h=%v 7d=%v", usage.CodexMain5hUsedPercent, usage.CodexMain7dUsedPercent)
+	}
+	if usage.Codex5hUsedPercent == nil || *usage.Codex5hUsedPercent != 1.0 {
+		t.Fatalf("spark codex_5h_used_percent = %v, want 1", usage.Codex5hUsedPercent)
+	}
+	if usage.Codex7dUsedPercent == nil || *usage.Codex7dUsedPercent != 22.0 {
+		t.Fatalf("spark codex_7d_used_percent = %v, want 22", usage.Codex7dUsedPercent)
+	}
+}
+
+func TestAccountUsageService_GetOpenAIUsageMapsRawSparkSnapshotByWindowMinutes(t *testing.T) {
+	t.Parallel()
+
+	resetAt5h := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second).Format(time.RFC3339)
+	resetAt7d := time.Now().Add(6 * 24 * time.Hour).UTC().Truncate(time.Second).Format(time.RFC3339)
+	svc := &AccountUsageService{}
+	account := &Account{
+		ID:       903,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_usage_updated_at":                     time.Now().Format(time.RFC3339),
+			"codex_primary_used_percent":                 6.0,
+			"codex_primary_window_minutes":               300,
+			"codex_primary_reset_at":                     resetAt5h,
+			"codex_primary_reset_after_seconds":          7200,
+			"codex_secondary_used_percent":               42.0,
+			"codex_secondary_window_minutes":             10080,
+			"codex_secondary_reset_at":                   resetAt7d,
+			"codex_secondary_reset_after_seconds":        518400,
+			"codex_primary_over_secondary_limit_percent": 14.0,
+		},
+	}
+
+	usage, err := svc.getOpenAIUsage(context.Background(), account, false)
+	if err != nil {
+		t.Fatalf("getOpenAIUsage() error = %v", err)
+	}
+	if usage.Codex5hUsedPercent == nil || *usage.Codex5hUsedPercent != 6.0 {
+		t.Fatalf("codex_5h_used_percent = %v, want 6", usage.Codex5hUsedPercent)
+	}
+	if usage.Codex7dUsedPercent == nil || *usage.Codex7dUsedPercent != 42.0 {
+		t.Fatalf("codex_7d_used_percent = %v, want 42", usage.Codex7dUsedPercent)
+	}
+	if usage.Codex5hResetAt == nil || *usage.Codex5hResetAt != resetAt5h {
+		t.Fatalf("codex_5h_reset_at = %v, want %s", usage.Codex5hResetAt, resetAt5h)
+	}
+	if usage.Codex7dResetAt == nil || *usage.Codex7dResetAt != resetAt7d {
+		t.Fatalf("codex_7d_reset_at = %v, want %s", usage.Codex7dResetAt, resetAt7d)
 	}
 }
 

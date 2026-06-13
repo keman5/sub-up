@@ -1195,13 +1195,13 @@ func (s *RateLimitService) persistOpenAICodexSnapshot(ctx context.Context, accou
 	if s == nil || s.accountRepo == nil || account == nil || headers == nil {
 		return
 	}
-	snapshot := ParseCodexRateLimitHeaders(headers)
-	if snapshot == nil {
-		return
-	}
 	modelOrFamily := openAICodexUsageFamilySpark
 	if len(requestedModel) > 0 && strings.TrimSpace(requestedModel[0]) != "" {
 		modelOrFamily = requestedModel[0]
+	}
+	snapshot := ParseCodexRateLimitHeadersForModel(headers, modelOrFamily)
+	if snapshot == nil {
+		return
 	}
 	updates := buildCodexUsageExtraUpdatesForFamily(snapshot, time.Now(), modelOrFamily)
 	if len(updates) == 0 {

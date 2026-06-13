@@ -2011,7 +2011,7 @@ func TestOpenAIValidateUpstreamBaseURLEnabledEnforcesAllowlist(t *testing.T) {
 	}
 }
 
-func TestOpenAIUpdateCodexUsageSnapshotFromHeaders(t *testing.T) {
+func TestOpenAIUpdateCodexUsageSnapshotFromHeadersWritesMainFieldsForMainModel(t *testing.T) {
 	repo := &snapshotUpdateAccountRepo{updateExtraCalls: make(chan map[string]any, 1)}
 	svc := &OpenAIGatewayService{accountRepo: repo}
 	headers := http.Header{}
@@ -2022,17 +2022,62 @@ func TestOpenAIUpdateCodexUsageSnapshotFromHeaders(t *testing.T) {
 	headers.Set("x-codex-primary-reset-after-seconds", "600")
 	headers.Set("x-codex-secondary-reset-after-seconds", "86400")
 
-	svc.UpdateCodexUsageSnapshotFromHeaders(context.Background(), 123, headers)
+	svc.UpdateCodexUsageSnapshotFromHeaders(context.Background(), 123, headers, "gpt-5.3-codex")
 
 	select {
 	case updates := <-repo.updateExtraCalls:
-		require.Equal(t, 12.0, updates["codex_5h_used_percent"])
-		require.Equal(t, 34.0, updates["codex_7d_used_percent"])
-		require.Equal(t, 600, updates["codex_5h_reset_after_seconds"])
-		require.Equal(t, 86400, updates["codex_7d_reset_after_seconds"])
+		require.NotContains(t, updates, "codex_5h_used_percent")
+		require.NotContains(t, updates, "codex_7d_used_percent")
+		require.Equal(t, 12.0, updates["codex_main_5h_used_percent"])
+		require.Equal(t, 34.0, updates["codex_main_7d_used_percent"])
+		require.Equal(t, 600, updates["codex_main_5h_reset_after_seconds"])
+		require.Equal(t, 86400, updates["codex_main_7d_reset_after_seconds"])
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected UpdateExtra to be called")
 	}
+}
+
+func TestOpenAIUpdateCodexUsageSnapshotFromHeadersWritesSparkFieldsForSparkModel(t *testing.T) {
+	repo := &snapshotUpdateAccountRepo{updateExtraCalls: make(chan map[string]any, 1)}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	headers := http.Header{}
+	headers.Set("x-codex-active-limit", "codex_bengalfox")
+	headers.Set("x-codex-primary-used-percent", "12")
+	headers.Set("x-codex-secondary-used-percent", "34")
+	headers.Set("x-codex-primary-window-minutes", "300")
+	headers.Set("x-codex-secondary-window-minutes", "10080")
+	headers.Set("x-codex-bengalfox-primary-used-percent", "0")
+	headers.Set("x-codex-bengalfox-secondary-used-percent", "0")
+	headers.Set("x-codex-bengalfox-primary-window-minutes", "300")
+	headers.Set("x-codex-bengalfox-secondary-window-minutes", "10080")
+
+	svc.UpdateCodexUsageSnapshotFromHeaders(context.Background(), 456, headers, "gpt-5.3-codex-spark")
+
+	select {
+	case updates := <-repo.updateExtraCalls:
+		require.NotContains(t, updates, "codex_main_5h_used_percent")
+		require.NotContains(t, updates, "codex_main_7d_used_percent")
+		require.Equal(t, 0.0, updates["codex_5h_used_percent"])
+		require.Equal(t, 0.0, updates["codex_7d_used_percent"])
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected UpdateExtra to be called")
+	}
+}
+
+func TestOpenAIPassthroughSnapshotModelFallsBackToBodyModel(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.3-codex","input":"hello"}`)
+
+	got := openAIPassthroughSnapshotModel(body, "", "gpt-5.3-codex")
+
+	require.Equal(t, "gpt-5.3-codex", got)
+}
+
+func TestOpenAIPassthroughSnapshotModelKeepsMappedModel(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.3-codex","input":"hello"}`)
+
+	got := openAIPassthroughSnapshotModel(body, "gpt-5.3-codex-spark", "gpt-5.3-codex")
+
+	require.Equal(t, "gpt-5.3-codex-spark", got)
 }
 
 func TestOpenAIResponsesRequestPathSuffix(t *testing.T) {

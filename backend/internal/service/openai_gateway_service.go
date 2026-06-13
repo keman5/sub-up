@@ -12,7 +12,9 @@ import (
 	"io"
 	"log/slog"
 	"math/rand"
+	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -3076,10 +3078,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 
 		// Get proxy URL
-		proxyURL := ""
-		if account.ProxyID != nil && account.Proxy != nil {
-			proxyURL = account.Proxy.URL()
-		}
+		proxyURL := s.openAICodexHTTPProxyURL(account, upstreamReq)
 
 		// Send request
 		upstreamStart := time.Now()
@@ -3183,7 +3182,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 		// Extract and save Codex usage snapshot from response headers (for OAuth accounts)
 		if account.Type == AccountTypeOAuth {
-			if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
+			if snapshot := ParseCodexRateLimitHeadersForModel(resp.Header, upstreamModel); snapshot != nil {
 				s.updateCodexUsageSnapshot(ctx, account.ID, snapshot, upstreamModel)
 			}
 		}
@@ -3290,6 +3289,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		return nil, policyErr
 	}
 	body = updatedBody
+	upstreamSnapshotModel := openAIPassthroughSnapshotModel(body, upstreamPassthroughModel, reqModel)
 
 	apiKey := getAPIKeyFromContext(c)
 	if IsImageGenerationIntent(openAIResponsesEndpoint, reqModel, body) && !GroupAllowsImageGeneration(apiKeyGroup(apiKey)) {
@@ -3360,10 +3360,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		return nil, err
 	}
 
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
+	proxyURL := s.openAICodexHTTPProxyURL(account, upstreamReq)
 
 	if c != nil {
 		c.Set("openai_passthrough", true)
@@ -3418,8 +3415,8 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	}
 	s.bindHTTPResponseAccount(ctx, c, account, responseID)
 
-	if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
-		s.updateCodexUsageSnapshot(ctx, account.ID, snapshot, upstreamPassthroughModel)
+	if snapshot := ParseCodexRateLimitHeadersForModel(resp.Header, upstreamSnapshotModel); snapshot != nil {
+		s.updateCodexUsageSnapshot(ctx, account.ID, snapshot, upstreamSnapshotModel)
 	}
 
 	if usage == nil {
@@ -3431,7 +3428,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		ResponseID:      responseID,
 		Usage:           *usage,
 		Model:           reqModel,
-		UpstreamModel:   upstreamPassthroughModel,
+		UpstreamModel:   upstreamSnapshotModel,
 		ServiceTier:     serviceTier,
 		ReasoningEffort: reasoningEffort,
 		Stream:          reqStream,
@@ -3447,6 +3444,18 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		forwardResult.BillingModel = imageBillingModel
 	}
 	return forwardResult, nil
+}
+
+func openAIPassthroughSnapshotModel(body []byte, upstreamPassthroughModel string, reqModel string) string {
+	model := strings.TrimSpace(upstreamPassthroughModel)
+	if model != "" {
+		return model
+	}
+	model = strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	if model != "" {
+		return model
+	}
+	return strings.TrimSpace(reqModel)
 }
 
 func logOpenAIPassthroughInstructionsRejected(
@@ -4331,6 +4340,45 @@ func (s *OpenAIGatewayService) openAIOAuthCodexResponsesURL() string {
 		}
 	}
 	return chatgptCodexURL
+}
+
+func (s *OpenAIGatewayService) openAICodexHTTPProxyURL(account *Account, req *http.Request) string {
+	if account == nil || account.ProxyID == nil || account.Proxy == nil {
+		return ""
+	}
+	proxyURL := account.Proxy.URL()
+	if account.Type != AccountTypeOAuth || !isOpenAIInternalCodexOverrideRequest(req) {
+		return proxyURL
+	}
+	return ""
+}
+
+func isOpenAIInternalCodexOverrideRequest(req *http.Request) bool {
+	if req == nil || req.URL == nil {
+		return false
+	}
+	if !strings.EqualFold(req.URL.Scheme, "http") && !strings.EqualFold(req.URL.Scheme, "ws") {
+		return false
+	}
+	return isInternalCodexOverrideHost(req.URL.Hostname())
+}
+
+func isInternalCodexOverrideHost(host string) bool {
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate()
+	}
+	if strings.Contains(host, ".") {
+		return false
+	}
+	_, err := url.Parse("http://" + host)
+	return err == nil
 }
 
 func (s *OpenAIGatewayService) applyOpenAIOAuthCodexHost(req *http.Request) {
@@ -6205,11 +6253,14 @@ func (s *OpenAIGatewayService) resolveOpenAIChannelPricing(ctx context.Context, 
 	return nil
 }
 
-// ParseCodexRateLimitHeaders extracts Codex usage limits from response headers.
-// Exported for use in ratelimit_service when handling OpenAI 429 responses.
-func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
+func parseCodexRateLimitHeadersWithPrefix(headers http.Header, keyPrefix string) *OpenAICodexUsageSnapshot {
 	snapshot := &OpenAICodexUsageSnapshot{}
 	hasData := false
+
+	keyPrefix = strings.Trim(strings.ToLower(strings.TrimSpace(keyPrefix)), "-")
+	if keyPrefix == "" {
+		return nil
+	}
 
 	normalizeHeaderValue := func(v string) string {
 		v = strings.TrimSpace(v)
@@ -6239,35 +6290,35 @@ func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 	}
 
 	// Primary (weekly) limits
-	if v := parseFloat("x-codex-primary-used-percent"); v != nil {
+	if v := parseFloat(keyPrefix + "-primary-used-percent"); v != nil {
 		snapshot.PrimaryUsedPercent = v
 		hasData = true
 	}
-	if v := parseInt("x-codex-primary-reset-after-seconds"); v != nil {
+	if v := parseInt(keyPrefix + "-primary-reset-after-seconds"); v != nil {
 		snapshot.PrimaryResetAfterSeconds = v
 		hasData = true
 	}
-	if v := parseInt("x-codex-primary-window-minutes"); v != nil {
+	if v := parseInt(keyPrefix + "-primary-window-minutes"); v != nil {
 		snapshot.PrimaryWindowMinutes = v
 		hasData = true
 	}
 
 	// Secondary (5h) limits
-	if v := parseFloat("x-codex-secondary-used-percent"); v != nil {
+	if v := parseFloat(keyPrefix + "-secondary-used-percent"); v != nil {
 		snapshot.SecondaryUsedPercent = v
 		hasData = true
 	}
-	if v := parseInt("x-codex-secondary-reset-after-seconds"); v != nil {
+	if v := parseInt(keyPrefix + "-secondary-reset-after-seconds"); v != nil {
 		snapshot.SecondaryResetAfterSeconds = v
 		hasData = true
 	}
-	if v := parseInt("x-codex-secondary-window-minutes"); v != nil {
+	if v := parseInt(keyPrefix + "-secondary-window-minutes"); v != nil {
 		snapshot.SecondaryWindowMinutes = v
 		hasData = true
 	}
 
 	// Overflow ratio
-	if v := parseFloat("x-codex-primary-over-secondary-limit-percent"); v != nil {
+	if v := parseFloat(keyPrefix + "-primary-over-secondary-limit-percent"); v != nil {
 		snapshot.PrimaryOverSecondaryPercent = v
 		hasData = true
 	}
@@ -6278,6 +6329,52 @@ func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 
 	snapshot.UpdatedAt = time.Now().Format(time.RFC3339)
 	return snapshot
+}
+
+// ParseCodexRateLimitHeaders extracts Codex usage limits from response headers.
+// Exported for use in ratelimit_service when handling OpenAI 429 responses.
+func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
+	return parseCodexRateLimitHeadersWithPrefix(headers, "x-codex")
+}
+
+func codexActiveLimitHeaderPrefix(headers http.Header) string {
+	if headers == nil {
+		return ""
+	}
+	activeLimit := strings.ToLower(strings.TrimSpace(headers.Get("x-codex-active-limit")))
+	if activeLimit == "" {
+		return ""
+	}
+	activeLimit = strings.TrimPrefix(activeLimit, "codex_")
+	activeLimit = strings.TrimPrefix(activeLimit, "codex-")
+	activeLimit = strings.ReplaceAll(activeLimit, "_", "-")
+	activeLimit = strings.Trim(activeLimit, "-")
+	if activeLimit == "" {
+		return ""
+	}
+	for _, r := range activeLimit {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			continue
+		}
+		return ""
+	}
+	return "x-codex-" + activeLimit
+}
+
+func parseCodexActiveLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
+	if prefix := codexActiveLimitHeaderPrefix(headers); prefix != "" {
+		return parseCodexRateLimitHeadersWithPrefix(headers, prefix)
+	}
+	return nil
+}
+
+func ParseCodexRateLimitHeadersForModel(headers http.Header, model string) *OpenAICodexUsageSnapshot {
+	if isCodexSparkModel(model) {
+		if snapshot := parseCodexActiveLimitHeaders(headers); snapshot != nil {
+			return snapshot
+		}
+	}
+	return ParseCodexRateLimitHeaders(headers)
 }
 
 func codexSnapshotBaseTime(snapshot *OpenAICodexUsageSnapshot, fallback time.Time) time.Time {
@@ -6341,27 +6438,29 @@ func buildCodexUsageExtraUpdatesForFamily(snapshot *OpenAICodexUsageSnapshot, fa
 	baseTime := codexSnapshotBaseTime(snapshot, fallbackNow)
 	updates := make(map[string]any)
 
-	// 保存原始 primary/secondary 字段，便于排查问题
-	if snapshot.PrimaryUsedPercent != nil {
-		updates["codex_primary_used_percent"] = *snapshot.PrimaryUsedPercent
-	}
-	if snapshot.PrimaryResetAfterSeconds != nil {
-		updates["codex_primary_reset_after_seconds"] = *snapshot.PrimaryResetAfterSeconds
-	}
-	if snapshot.PrimaryWindowMinutes != nil {
-		updates["codex_primary_window_minutes"] = *snapshot.PrimaryWindowMinutes
-	}
-	if snapshot.SecondaryUsedPercent != nil {
-		updates["codex_secondary_used_percent"] = *snapshot.SecondaryUsedPercent
-	}
-	if snapshot.SecondaryResetAfterSeconds != nil {
-		updates["codex_secondary_reset_after_seconds"] = *snapshot.SecondaryResetAfterSeconds
-	}
-	if snapshot.SecondaryWindowMinutes != nil {
-		updates["codex_secondary_window_minutes"] = *snapshot.SecondaryWindowMinutes
-	}
-	if snapshot.PrimaryOverSecondaryPercent != nil {
-		updates["codex_primary_over_secondary_percent"] = *snapshot.PrimaryOverSecondaryPercent
+	// Raw primary/secondary keys are the Spark snapshot fallback used by routing/UI.
+	if family == openAICodexUsageFamilySpark {
+		if snapshot.PrimaryUsedPercent != nil {
+			updates["codex_primary_used_percent"] = *snapshot.PrimaryUsedPercent
+		}
+		if snapshot.PrimaryResetAfterSeconds != nil {
+			updates["codex_primary_reset_after_seconds"] = *snapshot.PrimaryResetAfterSeconds
+		}
+		if snapshot.PrimaryWindowMinutes != nil {
+			updates["codex_primary_window_minutes"] = *snapshot.PrimaryWindowMinutes
+		}
+		if snapshot.SecondaryUsedPercent != nil {
+			updates["codex_secondary_used_percent"] = *snapshot.SecondaryUsedPercent
+		}
+		if snapshot.SecondaryResetAfterSeconds != nil {
+			updates["codex_secondary_reset_after_seconds"] = *snapshot.SecondaryResetAfterSeconds
+		}
+		if snapshot.SecondaryWindowMinutes != nil {
+			updates["codex_secondary_window_minutes"] = *snapshot.SecondaryWindowMinutes
+		}
+		if snapshot.PrimaryOverSecondaryPercent != nil {
+			updates["codex_primary_over_secondary_percent"] = *snapshot.PrimaryOverSecondaryPercent
+		}
 	}
 	updatedAtKey := "codex_usage_updated_at"
 	if family == openAICodexUsageFamilyMain {
@@ -6429,12 +6528,12 @@ func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, acc
 	}()
 }
 
-func (s *OpenAIGatewayService) UpdateCodexUsageSnapshotFromHeaders(ctx context.Context, accountID int64, headers http.Header) {
+func (s *OpenAIGatewayService) UpdateCodexUsageSnapshotFromHeaders(ctx context.Context, accountID int64, headers http.Header, model string) {
 	if accountID <= 0 || headers == nil {
 		return
 	}
-	if snapshot := ParseCodexRateLimitHeaders(headers); snapshot != nil {
-		s.updateCodexUsageSnapshot(ctx, accountID, snapshot)
+	if snapshot := ParseCodexRateLimitHeadersForModel(headers, model); snapshot != nil {
+		s.updateCodexUsageSnapshot(ctx, accountID, snapshot, model)
 	}
 }
 

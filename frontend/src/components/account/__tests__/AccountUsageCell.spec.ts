@@ -214,7 +214,7 @@ describe('AccountUsageCell', () => {
   it('OpenAI OAuth 主套餐和 Spark 套餐分开展示', async () => {
     getUsage.mockResolvedValue({
       five_hour: {
-        utilization: 18,
+        utilization: 91,
         resets_at: '2099-03-07T12:00:00Z',
         remaining_seconds: 3600,
         window_stats: {
@@ -226,7 +226,7 @@ describe('AccountUsageCell', () => {
         }
       },
       seven_day: {
-        utilization: 36,
+        utilization: 95,
         resets_at: '2099-03-13T12:00:00Z',
         remaining_seconds: 3600,
         window_stats: {
@@ -239,11 +239,11 @@ describe('AccountUsageCell', () => {
       },
       codex_main_5h_used_percent: 18,
       codex_main_5h_reset_at: '2099-03-07T12:00:00Z',
-      codex_main_7d_used_percent: 36,
+      codex_main_7d_used_percent: 22,
       codex_main_7d_reset_at: '2099-03-13T12:00:00Z',
       codex_5h_used_percent: 5,
       codex_5h_reset_at: '2099-03-07T13:00:00Z',
-      codex_7d_used_percent: 95,
+      codex_7d_used_percent: 0,
       codex_7d_reset_at: '2099-03-14T13:00:00Z'
     })
 
@@ -282,10 +282,102 @@ describe('AccountUsageCell', () => {
     expect(wrapper.get('button[aria-expanded="false"]')).toBeTruthy()
     await wrapper.get('button[aria-expanded="false"]').trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('5h|18|900')
-    expect(wrapper.text()).toContain('7d|36|900')
+    expect(wrapper.text()).toContain('5h|18|')
+    expect(wrapper.text()).toContain('7d|22|')
     expect(wrapper.text()).toContain('5h|5')
-    expect(wrapper.text()).toContain('7d|95')
+    expect(wrapper.text()).toContain('7d|0')
+    expect(wrapper.text()).not.toContain('7d|95')
+  })
+
+  it('OpenAI OAuth raw codex 头没有 Spark 快照时间时不显示 Spark 展开区', async () => {
+    getUsage.mockResolvedValue({
+      five_hour: {
+        utilization: 1,
+        resets_at: '2099-03-07T12:00:00Z',
+        remaining_seconds: 3600,
+        window_stats: null
+      },
+      seven_day: {
+        utilization: 22,
+        resets_at: '2099-03-13T12:00:00Z',
+        remaining_seconds: 3600,
+        window_stats: null
+      },
+      codex_main_5h_used_percent: 1,
+      codex_main_5h_reset_at: '2099-03-07T12:00:00Z',
+      codex_main_7d_used_percent: 22,
+      codex_main_7d_reset_at: '2099-03-13T12:00:00Z',
+      codex_primary_used_percent: 1,
+      codex_primary_window_minutes: 300,
+      codex_secondary_used_percent: 22,
+      codex_secondary_window_minutes: 10080
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 2012,
+          platform: 'openai',
+          type: 'oauth',
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'resetsAt', 'windowStats', 'color'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ windowStats?.tokens }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('5h|1')
+    expect(wrapper.text()).toContain('7d|22')
+    expect(wrapper.text()).not.toContain('admin.accounts.usageWindow.openaiCodexSparkShow')
+  })
+
+  it('OpenAI OAuth Spark raw 头按 window_minutes 映射而不是固定 primary/secondary 顺序', async () => {
+    getUsage.mockResolvedValue({
+      codex_usage_updated_at: '2099-03-07T10:00:00Z',
+      codex_primary_used_percent: 6,
+      codex_primary_window_minutes: 300,
+      codex_primary_reset_at: '2099-03-07T13:00:00Z',
+      codex_secondary_used_percent: 42,
+      codex_secondary_window_minutes: 10080,
+      codex_secondary_reset_at: '2099-03-14T13:00:00Z'
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 2013,
+          platform: 'openai',
+          type: 'oauth',
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'resetsAt', 'windowStats', 'color'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ resetsAt }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.accounts.usageWindow.openaiCodexSparkShow')
+    await wrapper.get('button[aria-expanded="false"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('5h|6|2099-03-07T13:00:00Z')
+    expect(wrapper.text()).toContain('7d|42|2099-03-14T13:00:00Z')
   })
 
   it('OpenAI OAuth 有现成快照时，手动刷新信号会触发 usage 重拉', async () => {
@@ -354,6 +446,7 @@ describe('AccountUsageCell', () => {
     // 手动刷新再拉一次
     expect(getUsage).toHaveBeenCalledTimes(2)
     expect(getUsage.mock.calls.some(([accountId]) => accountId === 2010)).toBe(true)
+    expect(getUsage.mock.calls[1]).toEqual([2010, undefined, true])
     // 单一数据源：始终使用 /usage API 值
     expect(wrapper.text()).toContain('5h|18|900')
   })
@@ -591,6 +684,7 @@ describe('AccountUsageCell', () => {
 
 	await flushPromises()
 	expect(getUsage).toHaveBeenCalledTimes(2)
+	expect(getUsage.mock.calls[1]).toEqual([2003, undefined, true])
 	expect(wrapper.text()).toContain('5h|0|200')
   })
 

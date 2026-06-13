@@ -24,10 +24,11 @@ import (
 func f64p(v float64) *float64 { return &v }
 
 type httpUpstreamRecorder struct {
-	lastReq  *http.Request
-	lastBody []byte
-	requests []*http.Request
-	bodies   [][]byte
+	lastReq      *http.Request
+	lastBody     []byte
+	lastProxyURL string
+	requests     []*http.Request
+	bodies       [][]byte
 
 	resp      *http.Response
 	responses []*http.Response
@@ -36,6 +37,7 @@ type httpUpstreamRecorder struct {
 
 func (u *httpUpstreamRecorder) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
 	u.lastReq = req
+	u.lastProxyURL = proxyURL
 	if req != nil && req.Body != nil {
 		b, _ := io.ReadAll(req.Body)
 		u.lastBody = b
@@ -143,6 +145,57 @@ func TestOpenAIGatewayService_OAuthCodexResponsesURLCanBeOverridden(t *testing.T
 	require.Equal(t, "http://headroom-a2:8787/v1/responses", upstream.lastReq.URL.String())
 	require.Equal(t, "headroom-a2:8787", upstream.lastReq.Host)
 	require.Equal(t, "chatgpt-acc", upstream.lastReq.Header.Get("chatgpt-account-id"))
+}
+
+func TestOpenAIGatewayService_OAuthCodexHeadroomOverrideBypassesAccountProxy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	originalBody := []byte(`{"model":"gpt-5.3-codex-spark","stream":true,"instructions":"test","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(originalBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_headroom_proxy"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"stop after capture"}}`)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Gateway: config.GatewayConfig{
+			OpenAIOAuthCodexResponsesURL: "http://headroom-a2:8787/v1/responses",
+		}},
+		httpUpstream: upstream,
+	}
+	proxyID := int64(1)
+	account := &Account{
+		ID:          123,
+		Name:        "acc",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		ProxyID:     &proxyID,
+		Proxy: &Proxy{
+			ID:       proxyID,
+			Protocol: "socks5h",
+			Host:     "172.17.0.1",
+			Port:     40001,
+			Status:   StatusActive,
+		},
+		Credentials: map[string]any{
+			"access_token":       "oauth-token",
+			"chatgpt_account_id": "chatgpt-acc",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "http://headroom-a2:8787/v1/responses", upstream.lastReq.URL.String())
+	require.Empty(t, upstream.lastProxyURL)
 }
 
 func TestOpenAIGatewayService_NativeResponsesBodyModificationPreservesHTMLChars(t *testing.T) {
