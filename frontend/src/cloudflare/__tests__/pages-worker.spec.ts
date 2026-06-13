@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import worker from '../../../public/_worker.js'
 
@@ -12,6 +12,10 @@ function createEnv() {
 }
 
 describe('Cloudflare Pages worker', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('serves static assets from Pages instead of proxying to the VPS', async () => {
     const env = createEnv()
 
@@ -70,6 +74,126 @@ describe('Cloudflare Pages worker', () => {
     expect((fetchMock.mock.calls[1][0] as Request).url).toBe(
       'https://ap2.upit.top/51Token/v1/chat/completions'
     )
+
+    fetchMock.mockRestore()
+  })
+
+  it('keeps the a2 custom domain on ap2 even when SUB2API_ORIGIN is set globally', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('ok'))
+    const env = {
+      ...createEnv(),
+      SUB2API_ORIGIN: 'https://api.upit.top',
+    }
+
+    await worker.fetch(new Request('https://a2.upit.top/api/v1/settings/public'), env)
+
+    expect((fetchMock.mock.calls[0][0] as Request).url).toBe(
+      'https://ap2.upit.top/api/v1/settings/public'
+    )
+
+    fetchMock.mockRestore()
+  })
+
+  it('caches public settings at the edge for GET requests', async () => {
+    const originResponse = new Response(JSON.stringify({ code: 0 }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(originResponse)
+    const cachePut = vi.fn(async () => undefined)
+    vi.stubGlobal('caches', {
+      default: {
+        match: vi.fn(async () => undefined),
+        put: cachePut,
+      },
+    })
+
+    const response = await worker.fetch(
+      new Request('https://a2.upit.top/api/v1/settings/public', {
+        headers: {
+          Authorization: 'Bearer user-token',
+          Cookie: 'auth_token=user-token',
+        },
+      }),
+      createEnv()
+    )
+
+    expect(response.headers.get('X-Sub2API-Edge-Cache')).toBe('MISS')
+    expect((fetchMock.mock.calls[0][0] as Request).url).toBe(
+      'https://ap2.upit.top/api/v1/settings/public'
+    )
+    expect((fetchMock.mock.calls[0][0] as Request).headers.get('Authorization')).toBeNull()
+    expect((fetchMock.mock.calls[0][0] as Request).headers.get('Cookie')).toBeNull()
+    expect(cachePut).toHaveBeenCalledOnce()
+
+    fetchMock.mockRestore()
+  })
+
+  it('serves cached public settings without hitting the origin', async () => {
+    const cached = new Response(JSON.stringify({ code: 0, cached: true }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('origin'))
+    vi.stubGlobal('caches', {
+      default: {
+        match: vi.fn(async () => cached),
+        put: vi.fn(async () => undefined),
+      },
+    })
+
+    const response = await worker.fetch(
+      new Request('https://a2.upit.top/api/v1/settings/public'),
+      createEnv()
+    )
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(response.headers.get('X-Sub2API-Edge-Cache')).toBe('HIT')
+    expect(await response.json()).toEqual({ code: 0, cached: true })
+
+    fetchMock.mockRestore()
+  })
+
+  it('does not edge-cache mutating or gateway requests', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
+    const cachePut = vi.fn(async () => undefined)
+    vi.stubGlobal('caches', {
+      default: {
+        match: vi.fn(async () => undefined),
+        put: cachePut,
+      },
+    })
+
+    await worker.fetch(
+      new Request('https://a2.upit.top/api/v1/auth/login', { method: 'POST' }),
+      createEnv()
+    )
+    await worker.fetch(new Request('https://a2.upit.top/51Token/v1/models'), createEnv())
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(cachePut).not.toHaveBeenCalled()
+
+    fetchMock.mockRestore()
+  })
+
+  it('does not edge-cache HEAD requests because the origin does not serve public settings with HEAD', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('not found', { status: 404 }))
+    const cacheMatch = vi.fn(async () => undefined)
+    const cachePut = vi.fn(async () => undefined)
+    vi.stubGlobal('caches', {
+      default: {
+        match: cacheMatch,
+        put: cachePut,
+      },
+    })
+
+    const response = await worker.fetch(
+      new Request('https://a2.upit.top/api/v1/settings/public', { method: 'HEAD' }),
+      createEnv()
+    )
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(cacheMatch).not.toHaveBeenCalled()
+    expect(cachePut).not.toHaveBeenCalled()
+    expect(response.headers.get('X-Sub2API-Edge-Cache')).toBeNull()
 
     fetchMock.mockRestore()
   })

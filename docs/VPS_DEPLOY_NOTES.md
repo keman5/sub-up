@@ -195,16 +195,39 @@ chmod +x new-api
 
 ### 3.1 sub2api 本地构建产物的 gzip 分块上传与远端解压方案
 
-当前 sub2api 嵌入前端后的 Linux amd64 二进制约 86 MB。VPS 出口和本地到 VPS 链路不稳定时，不要直接 `scp` 原始二进制，也不要在 VPS 上重新拉取 npm / Go / apt 依赖。标准流程是：
+当前 sub2api 嵌入前端后的 Linux amd64 二进制约 86 MB。VPS 出口和本地到 VPS 链路不稳定时，不要直接 `scp` 原始二进制，也不要在 VPS 上重新拉取 npm / Go / apt 依赖。gzip 分块上传流程是：
 
-1. 本机构建前端。
-2. 本机交叉编译 Linux amd64 后端。
-3. 本地使用 `gzip -c` 生成 `.gz` 产物。
-4. 将 `.gz` 切成 1 MB 小块，通过 SSH 标准输入逐块写入远端 `/tmp/sub2api-upload-<timestamp>`。
-5. 远端按文件名顺序拼接为临时 `.gz`，执行 `gzip -t` 校验。
-6. 远端解压到临时可执行文件。
-7. `chmod +x` 后原子 `mv` 为 `/opt/sub2api-runtime-build/sub2api`。
-8. 基于上一版运行镜像只替换 `/app/sub2api`，再按 ap1、primary 顺序滚动。
+1. 本机交叉编译 Linux amd64 后端。
+2. 本地使用 `gzip -c` 生成 `.gz` 产物。
+3. 将 `.gz` 切成 1 MB 小块，通过 SSH 标准输入逐块写入远端 `/tmp/sub2api-upload-<timestamp>`。
+4. 远端按文件名顺序拼接为临时 `.gz`，执行 `gzip -t` 校验。
+5. 远端解压到临时可执行文件。
+6. `chmod +x` 后原子 `mv` 为 `/opt/sub2api-runtime-build/sub2api`。
+7. 基于上一版运行镜像只替换 `/app/sub2api`，再按 ap1、primary 顺序滚动。
+
+2026-06-13 起，`a2.upit.top` 前台静态资源已迁到 Cloudflare Pages。以后如果只是后端/API 变更，VPS 发布不需要重新构建前台，使用 `--skip-frontend-build`。前台改动应走 Cloudflare Pages 发布流程：
+
+```bash
+pnpm --dir frontend exec vitest run \
+  src/cloudflare/__tests__/pages-worker.spec.ts \
+  src/cloudflare/__tests__/pages-config-injection.spec.ts
+pnpm --dir frontend run build
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://ap2.upit.top/api/v1/settings/public \
+  --html backend/internal/web/dist/index.html
+pnpm dlx wrangler pages deploy backend/internal/web/dist --project-name sub2api-frontend
+```
+
+注意：Pages 只托管静态 HTML，不会执行 VPS 内嵌前台的 Go 注入逻辑。部署前必须把对应环境的 `/api/v1/settings/public` 公开 `data` 字段写入 `backend/internal/web/dist/index.html` 的 `window.__APP_CONFIG__`，否则站点标题、logo、Turnstile 开关、模型 API base URL 等线上配置会退回构建默认值。不要把 `.env`、后台配置或密钥写入静态文件。
+
+多环境前台发布边界：
+
+- 运行时 public settings 可以在发布前注入到各环境自己的 `index.html`。
+- 构建期配置如果会进入 Vite/JS/CSS bundle，必须按环境分别打包，不要用一套 bundle 覆盖多套服务。
+- 当前 a2 前台使用独立 Cloudflare Pages 静态产物，不依赖 Worker 动态 HTML 注入。未来新增服务域名时，可以按服务建立独立 Pages 项目或独立 Direct Upload 产物。
+- 只有在确认差异全是运行时公开配置时，才可以复用同一次 build 的 assets，复制产物目录后分别 inject；只要差异包含构建期变量，就必须重新 build。
+
+注意：当前 VPS 后端二进制仍使用 `go build -tags embed`，会把 `backend/internal/web/dist` 中已有的前端产物嵌入作为 primary/ap1 回滚和源站兜底。不要现在默认去掉 `-tags embed`；等 primary / ap1 也完成 Pages 迁移并确认不再需要 VPS 内嵌前台兜底后，再评估增加 no-embed 后端发布模式。
 
 说明：2026-06-01 线上重部署时，单条 gzip 管道和单文件 scp 在当前 VPS SSH 链路上都出现过中途停住；脚本已改为小块短连接上传，并带 5 次退避重试。
 
@@ -217,10 +240,13 @@ deploy/local-gzip-binary-deploy.sh
 # 使用已有本地产物做 dry-run
 deploy/local-gzip-binary-deploy.sh --skip-frontend-build --skip-backend-build
 
-# 构建、gzip 上传、远端解压、打镜像，但不重启服务
-deploy/local-gzip-binary-deploy.sh --apply
+# 后端/API 常规发布：跳过前台构建，gzip 上传、远端解压、打镜像，但不重启服务
+deploy/local-gzip-binary-deploy.sh --apply --skip-frontend-build
 
-# 构建、gzip 上传、远端解压、打镜像，并滚动部署 ap1 + primary
+# 后端/API 常规发布：跳过前台构建，并滚动部署 ap1 + primary
+deploy/local-gzip-binary-deploy.sh --apply --deploy --skip-frontend-build
+
+# 只有在需要刷新 VPS 内嵌前台兜底时，才省略 --skip-frontend-build
 deploy/local-gzip-binary-deploy.sh --apply --deploy
 ```
 
@@ -230,7 +256,7 @@ deploy/local-gzip-binary-deploy.sh --apply --deploy
 HOST=51token-vps \
 BASE_IMAGE=sub2api:subapi-6b800b77-logo-dbterms-20260530222347 \
 IMAGE_TAG=sub2api:subapi-$(git rev-parse --short HEAD)-gzip-$(date +%Y%m%d%H%M%S) \
-deploy/local-gzip-binary-deploy.sh --apply --deploy
+deploy/local-gzip-binary-deploy.sh --apply --deploy --skip-frontend-build
 ```
 
 脚本关键安全点：
@@ -456,7 +482,76 @@ ssh 51token-vps '
 - `sub2api_ap1`、`sub2api_ap2` 各恢复出 86 张 public 表。
 - 稳定后 `sar -u 1 5` 平均 CPU idle 约 58%，比迁移前持续 idle 0% 明显下降。
 
-#### 3.4.1 snapd 移除与 sysstat 历史监控
+#### 3.4.1 2026-06-13 连接池按环境分档
+
+三套实例都是线上环境，但流量和用途不同。1 vCPU / 约 2 GiB 内存 VPS 上不要继续使用默认大连接池，否则三套应用会长期保留过多 PostgreSQL / Redis 连接，增加共享数据层常驻开销。
+
+当前分档：
+
+| 环境 | 定位 | `DATABASE_MAX_OPEN_CONNS` | `DATABASE_MAX_IDLE_CONNS` | `REDIS_POOL_SIZE` | `REDIS_MIN_IDLE_CONNS` |
+| --- | --- | ---: | ---: | ---: | ---: |
+| primary | 线上环境 | `12` | `2` | `128` | `2` |
+| ap1 / a1 | 线上环境 | `12` | `2` | `128` | `2` |
+| ap2 / a2 | 内测环境 | `4` | `1` | `32` | `1` |
+
+调整和回滚前必须先备份 `.env`：
+
+```bash
+ssh 51token-vps '
+  stamp=$(date +%Y%m%d%H%M%S)
+  for d in /opt/sub2api-deploy /opt/sub2api-ap1-deploy /opt/sub2api-ap2-deploy; do
+    cp "$d/.env" "$d/.env.bak-pool-tuning-$stamp"
+  done
+'
+```
+
+修改后按低风险顺序滚动重启：先内测 `ap2`，再 `ap1`，最后 `primary`。每个容器健康后再继续下一个：
+
+```bash
+ssh 51token-vps '
+  cd /opt/sub2api-ap2-deploy && docker compose up -d --no-deps sub2api-ap2
+  curl -fsS http://127.0.0.1:8083/health
+  docker inspect -f "{{.State.Health.Status}}" sub2api-ap2
+
+  cd /opt/sub2api-ap1-deploy && docker compose up -d --no-deps sub2api
+  curl -fsS http://127.0.0.1:8082/health
+  docker inspect -f "{{.State.Health.Status}}" sub2api-ap1
+
+  cd /opt/sub2api-deploy && docker compose up -d --no-deps sub2api
+  curl -fsS http://127.0.0.1:8081/health
+  docker inspect -f "{{.State.Health.Status}}" sub2api
+'
+```
+
+验证运行时环境变量和 PostgreSQL idle 连接数：
+
+```bash
+ssh 51token-vps '
+  for c in sub2api sub2api-ap1 sub2api-ap2; do
+    echo "### $c"
+    docker exec "$c" sh -c "env | grep -E \"^(DATABASE_MAX_OPEN_CONNS|DATABASE_MAX_IDLE_CONNS|REDIS_POOL_SIZE|REDIS_MIN_IDLE_CONNS)=\" | sort"
+  done
+
+  docker exec sub2api-postgres psql -U sub2api -d postgres -Atc "
+    select datname,state,count(*)
+    from pg_stat_activity
+    where datname in ('\''sub2api'\'','\''sub2api_ap1'\'','\''sub2api_ap2'\'')
+    group by datname,state
+    order by datname,state;
+  "
+'
+```
+
+2026-06-13 实测结果：
+
+- 运行环境变量已生效：primary / ap1 为 `12/2/128/2`，ap2 为 `4/1/32/1`。
+- PostgreSQL idle 连接从每套约 `10` 条降为：`sub2api=2`、`sub2api_ap1=2`、`sub2api_ap2=1`。
+- `8081`、`8082`、`8083` 的 `/health` 均返回 `{"status":"ok"}`，`sub2api`、`sub2api-ap1`、`sub2api-ap2` 均为 `healthy`。
+- 公网验证：`https://api.upit.top/health`、`https://ai.upit.top/health`、`https://a1.upit.top/health`、`https://ap2.upit.top/health`、`https://a2.upit.top/health` 均返回 ok。
+
+后续重部署或重建 compose 时，必须保留上述分档。除非升级 VPS 或明确评估并发压力，不要把三套环境恢复成 `DATABASE_MAX_OPEN_CONNS=50`、`DATABASE_MAX_IDLE_CONNS=10`、`REDIS_POOL_SIZE=512`、`REDIS_MIN_IDLE_CONNS=10`。
+
+#### 3.4.2 snapd 移除与 sysstat 历史监控
 
 当前 VPS 不使用 snapd / LXD。为减少后台 watchdog 和无用服务，已移除：
 
@@ -644,7 +739,123 @@ curl -I --max-time 10 http://127.0.0.1:3000/
 
 ***
 
-## 七、多站点 Caddy 静态资源路由
+## 七、Cloudflare Pages 前台与 VPS 旧入口关闭
+
+2026-06-13 已将 `a2.upit.top` 前台静态资源迁到 Cloudflare Pages。VPS 继续保留 `ap2.upit.top` 作为 API 回源，`sub2api-ap2` 后端容器仍承载登录、后台、支付回调、Turnstile secret 校验、模型网关、`/api/*`、`/health` 和 `/51Token/*` 等服务。
+
+当前 a2 边界：
+
+| 域名 / 服务 | 当前职责 | 是否可关闭 |
+| --- | --- | --- |
+| `a2.upit.top` | Cloudflare Pages 前台域名，提供 HTML / JS / CSS | VPS 上的旧 origin 入口已关闭 |
+| `ap2.upit.top` | Pages Worker API 回源域名 | 不可关闭 |
+| `sub2api-ap2` | a2 后端/API 容器，监听 `127.0.0.1:8083` | 不可关闭 |
+| `cf-origin-ssl` | VPS origin TLS / Caddy 入口 | 不可关闭 |
+
+本次关闭的不是后端容器，而是 `/opt/cf-origin-ssl/Caddyfile` 里 `a2.upit.top` 的旧前台 origin server label。
+
+变更前：
+
+```caddyfile
+ap2.upit.top:443, a2.upit.top:443 {
+    ...
+}
+```
+
+变更后：
+
+```caddyfile
+ap2.upit.top:443 {
+    ...
+}
+```
+
+线上备份：
+
+```text
+/opt/cf-origin-ssl/Caddyfile.bak-disable-a2-origin-20260613081656
+```
+
+验证命令：
+
+```bash
+curl -sSIL --max-time 15 https://a2.upit.top/login | sed -n '1,30p'
+curl -fsS --max-time 15 https://a2.upit.top/health
+curl -fsS --max-time 15 https://ap2.upit.top/health
+curl -fsS --max-time 15 https://a2.upit.top/api/v1/settings/public
+
+ssh 51token-vps '
+  docker inspect -f "{{.State.Health.Status}}" sub2api-ap2
+  grep -n "ap2.upit.top\|a2.upit.top" /opt/cf-origin-ssl/Caddyfile
+'
+```
+
+2026-06-13 实测结果：
+
+- `a2.upit.top/login` 继续由 Cloudflare Pages 返回，并加载 `assets/index-D26Z13h8.js`。
+- `a2.upit.top/health`、`ap2.upit.top/health` 均返回 `{"status":"ok"}`。
+- `a2.upit.top/api/v1/settings/public` 返回 `code=0`。
+- `sub2api-ap2` 为 `healthy`。
+- `/opt/cf-origin-ssl/Caddyfile` 中只保留 `ap2.upit.top:443`，不再包含 `a2.upit.top:443`。
+
+回滚：
+
+```bash
+ssh 51token-vps '
+  cp /opt/cf-origin-ssl/Caddyfile.bak-disable-a2-origin-20260613081656 /opt/cf-origin-ssl/Caddyfile
+  docker exec cf-origin-ssl caddy validate --config /etc/caddy/Caddyfile
+  docker exec cf-origin-ssl caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+'
+```
+
+注意：Cloudflare Pages 迁移只适合前台静态资源。不要把 `api.upit.top`、`ap1.upit.top`、`ap2.upit.top` 等 API 回源域名切到 Pages；不要停止 `sub2api`、`sub2api-ap1`、`sub2api-ap2` 来“关闭前台”，这些容器仍提供 API 和网关能力。
+
+### Pages Worker 公开接口短缓存
+
+为了进一步降低 VPS 的公开配置请求压力，`frontend/public/_worker.js` 对以下公开只读接口启用 Cloudflare Cache API 短缓存：
+
+| 路径 | 方法 | TTL | 回源 |
+| --- | --- | ---: | --- |
+| `/api/v1/settings/public` | `GET` | `60s` | `a2.upit.top` 回 `https://ap2.upit.top`，其它域名默认回 `https://api.upit.top` |
+| `/api/status` | `GET` | `60s` | 同上 |
+| `/api/home_page_content` | `GET` | `60s` | 同上 |
+
+缓存状态响应头：
+
+```text
+X-Sub2API-Edge-Cache: HIT | MISS | BYPASS | UNAVAILABLE
+```
+
+安全边界：
+
+- 仅精确匹配上述公开只读路径；不缓存 `/api/v1/auth/*`、`/api/v1/admin/*`、支付/OAuth 回调、用户资料等接口。
+- 不缓存 `/51Token/*`、`/v1/*`、`/responses/*`、`/images/*` 等模型网关和长流式接口。
+- 缓存回源请求会移除 `Authorization` 和 `Cookie`，防止公开配置缓存混入用户态请求头。
+- 请求头包含 `Cache-Control: no-cache/no-store` 或 `Pragma: no-cache` 时会绕过边缘缓存并回源。
+
+部署验证：
+
+```bash
+pnpm --dir frontend exec vitest run \
+  src/cloudflare/__tests__/pages-worker.spec.ts \
+  src/cloudflare/__tests__/pages-config-injection.spec.ts
+pnpm --dir frontend run build
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://ap2.upit.top/api/v1/settings/public \
+  --html backend/internal/web/dist/index.html
+pnpm dlx wrangler pages deploy backend/internal/web/dist --project-name sub2api-frontend
+
+curl -fsSL --max-time 15 https://a2.upit.top/login \
+  | rg "window\\.__APP_CONFIG__|https://ap2.upit.top/51Token/v1|<title>"
+curl -sSi --max-time 15 https://a2.upit.top/api/v1/settings/public \
+  | grep -Ei 'HTTP/|x-sub2api-edge-cache|cache-control|cf-cache-status'
+curl -fsS --max-time 15 https://a2.upit.top/health
+curl -fsS --max-time 15 https://ap2.upit.top/health
+```
+
+***
+
+## 八、多站点 Caddy 静态资源路由
 
 ### 现象
 
@@ -740,7 +951,7 @@ done
 
 ***
 
-## 八、Turnstile 前端脚本与 CSP
+## 九、Turnstile 前端脚本与 CSP
 
 ### 现象
 
