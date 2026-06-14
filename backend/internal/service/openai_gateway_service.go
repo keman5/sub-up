@@ -64,6 +64,8 @@ const (
 	codexCLIVersion                    = "0.125.0"
 	// Codex 限额快照仅用于后台展示/诊断，不需要每个成功请求都立即落库。
 	openAICodexSnapshotPersistMinInterval = 30 * time.Second
+	openAICodexHeadroomBypassReasonSize   = "body_size"
+	openAICodexHeadroomBypassReasonError  = "compression_refused"
 	// 配额自动暂停时，超过该时长仍未刷新的 used% 快照视为陈旧，不再据此暂停账号。
 	// 被暂停的账号收不到流量，其快照永远不会从上游响应头刷新；该兜底让账号在快照
 	// 陈旧时放行一次请求，从而通过正常响应头自愈，而无需等待整个窗口（5h/7d）重置。
@@ -375,6 +377,7 @@ type OpenAIGatewayService struct {
 	openaiWSRetryMetrics                openAIWSRetryMetrics
 	responseHeaderFilter                *responseheaders.CompiledHeaderFilter
 	codexSnapshotThrottle               *accountWriteThrottle
+	openaiCodexHeadroomBypassUntil      sync.Map
 	openaiCompatSessionResponses        sync.Map
 	openaiCompatAnthropicDigestSessions sync.Map
 }
@@ -3068,13 +3071,18 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	httpInvalidEncryptedContentRetryTried := false
+	headroomCompressionRefusedRetryTried := false
 	for {
+		bypassOAuthCodexOverride, bypassReason := s.shouldBypassOpenAIOAuthCodexResponsesOverride(account, upstreamModel, body)
 		// Build upstream request
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
-		upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, body, token, reqStream, promptCacheKey, isCodexCLI)
+		upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, body, token, reqStream, promptCacheKey, isCodexCLI, bypassOAuthCodexOverride)
 		releaseUpstreamCtx()
 		if err != nil {
 			return nil, err
+		}
+		if bypassOAuthCodexOverride && bypassReason != "" {
+			logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Bypassing OAuth Codex responses override for account=%d model=%s reason=%s body_bytes=%d", account.ID, upstreamModel, bypassReason, len(body))
 		}
 
 		// Get proxy URL
@@ -3100,6 +3108,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 			upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 			upstreamCode := extractUpstreamErrorCode(respBody)
+			if !headroomCompressionRefusedRetryTried && isOpenAIHeadroomCompressionRefused(resp.StatusCode, respBody, upstreamMsg, upstreamCode) && isOpenAIInternalCodexOverrideRequest(upstreamReq) {
+				headroomCompressionRefusedRetryTried = true
+				s.rememberOpenAICodexHeadroomBypass(account, upstreamModel)
+				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying OAuth Codex request directly after headroom compression_refused (account=%d model=%s body_bytes=%d)", account.ID, upstreamModel, len(body))
+				continue
+			}
 			if !httpInvalidEncryptedContentRetryTried && resp.StatusCode == http.StatusBadRequest && upstreamCode == "invalid_encrypted_content" {
 				decoded, decodeErr := ensureReqBody()
 				if decodeErr != nil {
@@ -3353,97 +3367,116 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		return nil, err
 	}
 
-	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
-	upstreamReq, err := s.buildUpstreamRequestOpenAIPassthrough(upstreamCtx, c, account, body, token)
-	releaseUpstreamCtx()
-	if err != nil {
-		return nil, err
-	}
-
-	proxyURL := s.openAICodexHTTPProxyURL(account, upstreamReq)
-
-	if c != nil {
-		c.Set("openai_passthrough", true)
-	}
-
-	upstreamStart := time.Now()
-	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
-	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
-	if err != nil {
-		// Transport-level failure (proxy/DNS/TCP/TLS — no HTTP response). Convert to
-		// a failover so the handler switches to a healthy account, and temporarily
-		// unschedule the account on durable faults (e.g. rejected proxy credentials).
-		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 400 {
-		// 透传模式默认保持原样代理；但 429/529 属于网关必须兜底的
-		// 上游容量类错误，应先触发多账号 failover 以维持基础 SLA。
-		if shouldFailoverOpenAIPassthroughResponse(resp.StatusCode) {
-			return nil, s.handleFailoverErrorResponsePassthrough(ctx, resp, c, account, body)
-		}
-		return nil, s.handleErrorResponsePassthrough(ctx, resp, c, account, body)
-	}
-
-	serviceTier := extractOpenAIServiceTierFromBody(body)
-
-	var usage *OpenAIUsage
-	var firstTokenMs *int
-	responseID := ""
-	imageCount := 0
-	var imageOutputSizes []string
-	if reqStream {
-		result, err := s.handleStreamingResponsePassthrough(ctx, resp, c, account, startTime, reqModel, upstreamPassthroughModel)
+	headroomCompressionRefusedRetryTried := false
+	for {
+		bypassOAuthCodexOverride, bypassReason := s.shouldBypassOpenAIOAuthCodexResponsesOverride(account, upstreamSnapshotModel, body)
+		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+		upstreamReq, err := s.buildUpstreamRequestOpenAIPassthrough(upstreamCtx, c, account, body, token, bypassOAuthCodexOverride)
+		releaseUpstreamCtx()
 		if err != nil {
 			return nil, err
 		}
-		usage = result.usage
-		firstTokenMs = result.firstTokenMs
-		responseID = strings.TrimSpace(result.responseID)
-		imageCount = result.imageCount
-		imageOutputSizes = result.imageOutputSizes
-	} else {
-		result, err := s.handleNonStreamingResponsePassthrough(ctx, resp, c, reqModel, upstreamPassthroughModel)
-		if err != nil {
-			return nil, err
+		if bypassOAuthCodexOverride && bypassReason != "" {
+			logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Bypassing OAuth Codex responses override for account=%d model=%s reason=%s body_bytes=%d", account.ID, upstreamSnapshotModel, bypassReason, len(body))
 		}
-		usage = result.usage
-		responseID = strings.TrimSpace(result.responseID)
-		imageCount = result.imageCount
-		imageOutputSizes = result.imageOutputSizes
-	}
-	s.bindHTTPResponseAccount(ctx, c, account, responseID)
 
-	if snapshot := ParseCodexRateLimitHeadersForModel(resp.Header, upstreamSnapshotModel); snapshot != nil {
-		s.updateCodexUsageSnapshot(ctx, account.ID, snapshot, upstreamSnapshotModel)
-	}
+		proxyURL := s.openAICodexHTTPProxyURL(account, upstreamReq)
 
-	if usage == nil {
-		usage = &OpenAIUsage{}
-	}
+		if c != nil {
+			c.Set("openai_passthrough", true)
+		}
 
-	forwardResult := &OpenAIForwardResult{
-		RequestID:       resp.Header.Get("x-request-id"),
-		ResponseID:      responseID,
-		Usage:           *usage,
-		Model:           reqModel,
-		UpstreamModel:   upstreamSnapshotModel,
-		ServiceTier:     serviceTier,
-		ReasoningEffort: reasoningEffort,
-		Stream:          reqStream,
-		OpenAIWSMode:    false,
-		Duration:        time.Since(startTime),
-		FirstTokenMs:    firstTokenMs,
+		upstreamStart := time.Now()
+		resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
+		if err != nil {
+			// Transport-level failure (proxy/DNS/TCP/TLS — no HTTP response). Convert to
+			// a failover so the handler switches to a healthy account, and temporarily
+			// unschedule the account on durable faults (e.g. rejected proxy credentials).
+			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
+		}
+
+		if resp.StatusCode >= 400 {
+			respBody := s.readUpstreamErrorBody(resp)
+			_ = resp.Body.Close()
+			resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
+			upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+			upstreamCode := extractUpstreamErrorCode(respBody)
+			if !headroomCompressionRefusedRetryTried && isOpenAIHeadroomCompressionRefused(resp.StatusCode, respBody, upstreamMsg, upstreamCode) && isOpenAIInternalCodexOverrideRequest(upstreamReq) {
+				headroomCompressionRefusedRetryTried = true
+				s.rememberOpenAICodexHeadroomBypass(account, upstreamSnapshotModel)
+				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Retrying OAuth Codex request directly after headroom compression_refused (account=%d model=%s body_bytes=%d)", account.ID, upstreamSnapshotModel, len(body))
+				continue
+			}
+			// 透传模式默认保持原样代理；但 429/529 属于网关必须兜底的
+			// 上游容量类错误，应先触发多账号 failover 以维持基础 SLA。
+			if shouldFailoverOpenAIPassthroughResponse(resp.StatusCode) {
+				return nil, s.handleFailoverErrorResponsePassthrough(ctx, resp, c, account, body)
+			}
+			return nil, s.handleErrorResponsePassthrough(ctx, resp, c, account, body)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		serviceTier := extractOpenAIServiceTierFromBody(body)
+
+		var usage *OpenAIUsage
+		var firstTokenMs *int
+		responseID := ""
+		imageCount := 0
+		var imageOutputSizes []string
+		if reqStream {
+			result, err := s.handleStreamingResponsePassthrough(ctx, resp, c, account, startTime, reqModel, upstreamPassthroughModel)
+			if err != nil {
+				return nil, err
+			}
+			usage = result.usage
+			firstTokenMs = result.firstTokenMs
+			responseID = strings.TrimSpace(result.responseID)
+			imageCount = result.imageCount
+			imageOutputSizes = result.imageOutputSizes
+		} else {
+			result, err := s.handleNonStreamingResponsePassthrough(ctx, resp, c, reqModel, upstreamPassthroughModel)
+			if err != nil {
+				return nil, err
+			}
+			usage = result.usage
+			responseID = strings.TrimSpace(result.responseID)
+			imageCount = result.imageCount
+			imageOutputSizes = result.imageOutputSizes
+		}
+		s.bindHTTPResponseAccount(ctx, c, account, responseID)
+
+		if snapshot := ParseCodexRateLimitHeadersForModel(resp.Header, upstreamSnapshotModel); snapshot != nil {
+			s.updateCodexUsageSnapshot(ctx, account.ID, snapshot, upstreamSnapshotModel)
+		}
+
+		if usage == nil {
+			usage = &OpenAIUsage{}
+		}
+
+		forwardResult := &OpenAIForwardResult{
+			RequestID:       resp.Header.Get("x-request-id"),
+			ResponseID:      responseID,
+			Usage:           *usage,
+			Model:           reqModel,
+			UpstreamModel:   upstreamSnapshotModel,
+			ServiceTier:     serviceTier,
+			ReasoningEffort: reasoningEffort,
+			Stream:          reqStream,
+			OpenAIWSMode:    false,
+			Duration:        time.Since(startTime),
+			FirstTokenMs:    firstTokenMs,
+		}
+		if imageCount > 0 {
+			forwardResult.ImageCount = imageCount
+			forwardResult.ImageSize = imageSizeTier
+			forwardResult.ImageInputSize = imageInputSize
+			forwardResult.ImageOutputSizes = imageOutputSizes
+			forwardResult.BillingModel = imageBillingModel
+		}
+		return forwardResult, nil
 	}
-	if imageCount > 0 {
-		forwardResult.ImageCount = imageCount
-		forwardResult.ImageSize = imageSizeTier
-		forwardResult.ImageInputSize = imageInputSize
-		forwardResult.ImageOutputSizes = imageOutputSizes
-		forwardResult.BillingModel = imageBillingModel
-	}
-	return forwardResult, nil
 }
 
 func openAIPassthroughSnapshotModel(body []byte, upstreamPassthroughModel string, reqModel string) string {
@@ -3495,11 +3528,13 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	account *Account,
 	body []byte,
 	token string,
+	bypassOAuthCodexOverride ...bool,
 ) (*http.Request, error) {
 	targetURL := openaiPlatformAPIURL
 	switch account.Type {
 	case AccountTypeOAuth:
-		targetURL = s.openAIOAuthCodexResponsesURL()
+		bypassOverride := len(bypassOAuthCodexOverride) > 0 && bypassOAuthCodexOverride[0]
+		targetURL = s.openAIOAuthCodexResponsesURL(bypassOverride)
 	case AccountTypeAPIKey:
 		baseURL := account.GetOpenAIBaseURL()
 		if baseURL != "" {
@@ -4223,13 +4258,14 @@ func writeOpenAIPassthroughResponseHeaders(dst http.Header, src http.Header, fil
 	}
 }
 
-func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
+func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool, bypassOAuthCodexOverride ...bool) (*http.Request, error) {
 	// Determine target URL based on account type
 	var targetURL string
 	switch account.Type {
 	case AccountTypeOAuth:
 		// OAuth accounts use ChatGPT internal API
-		targetURL = s.openAIOAuthCodexResponsesURL()
+		bypassOverride := len(bypassOAuthCodexOverride) > 0 && bypassOAuthCodexOverride[0]
+		targetURL = s.openAIOAuthCodexResponsesURL(bypassOverride)
 	case AccountTypeAPIKey:
 		// API Key accounts use Platform API or custom base URL
 		baseURL := account.GetOpenAIBaseURL()
@@ -4333,13 +4369,94 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	return req, nil
 }
 
-func (s *OpenAIGatewayService) openAIOAuthCodexResponsesURL() string {
-	if s != nil && s.cfg != nil {
+func (s *OpenAIGatewayService) openAIOAuthCodexResponsesURL(bypassOverride ...bool) string {
+	if len(bypassOverride) > 0 && bypassOverride[0] {
+		return chatgptCodexURL
+	}
+	if s != nil && s.cfg != nil && s.isOpenAIHeadroomEnabled(context.Background()) {
 		if override := strings.TrimSpace(s.cfg.Gateway.OpenAIOAuthCodexResponsesURL); override != "" {
 			return override
 		}
 	}
 	return chatgptCodexURL
+}
+
+func openAICodexHeadroomBypassKey(account *Account, model string) string {
+	accountID := int64(0)
+	if account != nil {
+		accountID = account.ID
+	}
+	model = strings.ToLower(strings.TrimSpace(model))
+	return fmt.Sprintf("%d:%s", accountID, model)
+}
+
+func (s *OpenAIGatewayService) openAICodexHeadroomBypassTTL() time.Duration {
+	if s == nil || s.cfg == nil || s.cfg.Gateway.OpenAIOAuthCodexResponsesBypassTTLSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(s.cfg.Gateway.OpenAIOAuthCodexResponsesBypassTTLSeconds) * time.Second
+}
+
+func (s *OpenAIGatewayService) rememberOpenAICodexHeadroomBypass(account *Account, model string) {
+	ttl := s.openAICodexHeadroomBypassTTL()
+	if ttl <= 0 || account == nil || account.Type != AccountTypeOAuth {
+		return
+	}
+	s.openaiCodexHeadroomBypassUntil.Store(openAICodexHeadroomBypassKey(account, model), time.Now().Add(ttl))
+}
+
+func (s *OpenAIGatewayService) hasOpenAICodexHeadroomBypass(account *Account, model string) bool {
+	if s == nil || account == nil || account.Type != AccountTypeOAuth {
+		return false
+	}
+	raw, ok := s.openaiCodexHeadroomBypassUntil.Load(openAICodexHeadroomBypassKey(account, model))
+	if !ok {
+		return false
+	}
+	until, ok := raw.(time.Time)
+	if !ok || time.Now().After(until) {
+		s.openaiCodexHeadroomBypassUntil.Delete(openAICodexHeadroomBypassKey(account, model))
+		return false
+	}
+	return true
+}
+
+func (s *OpenAIGatewayService) shouldBypassOpenAIOAuthCodexResponsesOverride(account *Account, model string, body []byte) (bool, string) {
+	if s == nil || s.cfg == nil || account == nil || account.Type != AccountTypeOAuth {
+		return false, ""
+	}
+	if !s.isOpenAIHeadroomEnabled(context.Background()) {
+		return false, ""
+	}
+	if strings.TrimSpace(s.cfg.Gateway.OpenAIOAuthCodexResponsesURL) == "" {
+		return false, ""
+	}
+	if threshold := s.cfg.Gateway.OpenAIOAuthCodexResponsesBypassBodyBytes; threshold > 0 && int64(len(body)) > threshold {
+		return true, openAICodexHeadroomBypassReasonSize
+	}
+	if s.hasOpenAICodexHeadroomBypass(account, model) {
+		return true, openAICodexHeadroomBypassReasonError
+	}
+	return false, ""
+}
+
+func isOpenAIHeadroomCompressionRefused(statusCode int, body []byte, message, code string) bool {
+	if statusCode != http.StatusRequestEntityTooLarge {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(code), "compression_refused") {
+		return true
+	}
+	lowerMessage := strings.ToLower(message)
+	if strings.Contains(lowerMessage, "compression_refused") || (strings.Contains(lowerMessage, "headroom") && strings.Contains(lowerMessage, "compression timeout")) {
+		return true
+	}
+	rawType := strings.TrimSpace(gjson.GetBytes(body, "detail.error.type").String())
+	if strings.EqualFold(rawType, "compression_refused") {
+		return true
+	}
+	rawMessage := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "detail.error.message").String()))
+	return strings.Contains(rawMessage, "headroom") && strings.Contains(rawMessage, "compression timeout")
 }
 
 func (s *OpenAIGatewayService) openAICodexHTTPProxyURL(account *Account, req *http.Request) string {

@@ -395,6 +395,7 @@ gzip -c /tmp/sub2api-build-output/sub2api | ssh 51token-vps '
 - `sub2api-redis`：唯一 Redis 容器。
 - `sub2api-deploy_sub2api-network`：共享 Docker network；`ap1` / `ap2` compose 通过 `external: true` 接入。
 - `headroom-a2`：仅供 `ap2` 使用，保留在 `/opt/sub2api-ap2-deploy`，内部服务地址为 `http://headroom-a2:8787`。
+- `ap2` 的 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL=http://headroom-a2:8787/v1/responses` 只表示 sidecar URL 已配置；实际是否让 OpenAI OAuth Codex 请求经过 Headroom，由后台全局设置 `openai_headroom_enabled` / “Headroom 压缩代理” 开关决定，默认应为关闭。
 
 已废弃并移除的容器：
 
@@ -462,6 +463,8 @@ ssh 51token-vps '
 
   docker exec headroom-a2 curl -fsS --max-time 5 http://127.0.0.1:8787/readyz
 
+  docker exec sub2api-postgres psql -U sub2api -d sub2api_ap2 -Atc "SELECT value FROM settings WHERE key = '\''openai_headroom_enabled'\'';"
+
   for db in sub2api sub2api_ap1 sub2api_ap2; do
     echo -n "$db "
     docker exec sub2api-postgres psql -U sub2api -d "$db" -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema = '\''public'\'';"
@@ -478,6 +481,7 @@ ssh 51token-vps '
 
 - `8081`、`8082`、`8083` 的 `/health` 均返回 `{"status":"ok"}`。
 - `headroom-a2` `/readyz` 返回 `ready=true`。
+- `sub2api_ap2.settings.openai_headroom_enabled` 默认应为 `false`；只有需要灰度 Headroom 转发时，才在后台全局设置页显式打开 “Headroom 压缩代理”。
 - `sub2api`、`sub2api-ap1`、`sub2api-ap2`、`headroom-a2`、`sub2api-postgres`、`sub2api-redis` 均为 `healthy`。
 - `sub2api_ap1`、`sub2api_ap2` 各恢复出 86 张 public 表。
 - 稳定后 `sar -u 1 5` 平均 CPU idle 约 58%，比迁移前持续 idle 0% 明显下降。

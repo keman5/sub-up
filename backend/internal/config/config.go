@@ -696,6 +696,10 @@ type GatewayConfig struct {
 	// OpenAIOAuthCodexResponsesURL: OAuth/Codex responses 上游完整 URL 覆盖。
 	// 为空时保持默认直连 ChatGPT；用于环境级 sidecar 代理（如 headroom）。
 	OpenAIOAuthCodexResponsesURL string `mapstructure:"openai_oauth_codex_responses_url"`
+	// OpenAIOAuthCodexResponsesBypassBodyBytes: 请求体超过该字节数时绕过 OpenAIOAuthCodexResponsesURL，0 表示不按大小绕过。
+	OpenAIOAuthCodexResponsesBypassBodyBytes int64 `mapstructure:"openai_oauth_codex_responses_bypass_body_bytes"`
+	// OpenAIOAuthCodexResponsesBypassTTLSeconds: sidecar 压缩拒绝后，同账号/模型短期绕过 override 的秒数，0 表示不记忆。
+	OpenAIOAuthCodexResponsesBypassTTLSeconds int `mapstructure:"openai_oauth_codex_responses_bypass_ttl_seconds"`
 	// 请求体最大字节数，用于网关请求体大小限制
 	MaxBodySize int64 `mapstructure:"max_body_size"`
 	// 非流式上游响应体读取上限（字节），用于防止无界读取导致内存放大
@@ -1869,6 +1873,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
 	viper.SetDefault("gateway.openai_oauth_codex_responses_url", "")
+	viper.SetDefault("gateway.openai_oauth_codex_responses_bypass_body_bytes", 0)
+	viper.SetDefault("gateway.openai_oauth_codex_responses_bypass_ttl_seconds", 0)
 	viper.SetDefault("gateway.log_upstream_error_body", true)
 	viper.SetDefault("gateway.log_upstream_error_body_max_bytes", 2048)
 	viper.SetDefault("gateway.inject_beta_for_apikey", false)
@@ -2526,6 +2532,12 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("gateway.openai_oauth_codex_responses_url invalid: %w", err)
 		}
 		warnIfInsecureURL("gateway.openai_oauth_codex_responses_url", c.Gateway.OpenAIOAuthCodexResponsesURL)
+	}
+	if c.Gateway.OpenAIOAuthCodexResponsesBypassBodyBytes < 0 {
+		return fmt.Errorf("gateway.openai_oauth_codex_responses_bypass_body_bytes must be non-negative")
+	}
+	if c.Gateway.OpenAIOAuthCodexResponsesBypassTTLSeconds < 0 {
+		return fmt.Errorf("gateway.openai_oauth_codex_responses_bypass_ttl_seconds must be non-negative")
 	}
 	if strings.TrimSpace(c.Gateway.ConnectionPoolIsolation) != "" {
 		switch c.Gateway.ConnectionPoolIsolation {

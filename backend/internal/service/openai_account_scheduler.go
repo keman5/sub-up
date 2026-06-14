@@ -27,6 +27,8 @@ const (
 const (
 	openAIAdvancedSchedulerSettingCacheTTL  = 5 * time.Second
 	openAIAdvancedSchedulerSettingDBTimeout = 2 * time.Second
+	openAIHeadroomSettingCacheTTL           = 5 * time.Second
+	openAIHeadroomSettingDBTimeout          = 2 * time.Second
 )
 
 type cachedOpenAIAdvancedSchedulerSetting struct {
@@ -36,6 +38,14 @@ type cachedOpenAIAdvancedSchedulerSetting struct {
 
 var openAIAdvancedSchedulerSettingCache atomic.Value // *cachedOpenAIAdvancedSchedulerSetting
 var openAIAdvancedSchedulerSettingSF singleflight.Group
+
+type cachedOpenAIHeadroomSetting struct {
+	enabled   bool
+	expiresAt int64
+}
+
+var openAIHeadroomSettingCache atomic.Value // *cachedOpenAIHeadroomSetting
+var openAIHeadroomSettingSF singleflight.Group
 
 type OpenAIAccountScheduleRequest struct {
 	GroupID                 *int64
@@ -1147,6 +1157,42 @@ func (s *OpenAIGatewayService) isOpenAIAdvancedSchedulerEnabled(ctx context.Cont
 	return enabled
 }
 
+func (s *OpenAIGatewayService) isOpenAIHeadroomEnabled(ctx context.Context) bool {
+	if cached, ok := openAIHeadroomSettingCache.Load().(*cachedOpenAIHeadroomSetting); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cached.enabled
+		}
+	}
+
+	result, _, _ := openAIHeadroomSettingSF.Do(SettingKeyOpenAIHeadroomEnabled, func() (any, error) {
+		if cached, ok := openAIHeadroomSettingCache.Load().(*cachedOpenAIHeadroomSetting); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return cached.enabled, nil
+			}
+		}
+
+		enabled := false
+		if repo := s.openAIAdvancedSchedulerSettingRepo(); repo != nil {
+			dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), openAIHeadroomSettingDBTimeout)
+			defer cancel()
+
+			value, err := repo.GetValue(dbCtx, SettingKeyOpenAIHeadroomEnabled)
+			if err == nil {
+				enabled = strings.EqualFold(strings.TrimSpace(value), "true")
+			}
+		}
+
+		openAIHeadroomSettingCache.Store(&cachedOpenAIHeadroomSetting{
+			enabled:   enabled,
+			expiresAt: time.Now().Add(openAIHeadroomSettingCacheTTL).UnixNano(),
+		})
+		return enabled, nil
+	})
+
+	enabled, _ := result.(bool)
+	return enabled
+}
+
 func (s *OpenAIGatewayService) getOpenAIAccountScheduler(ctx context.Context) OpenAIAccountScheduler {
 	if s == nil {
 		return nil
@@ -1168,6 +1214,11 @@ func (s *OpenAIGatewayService) getOpenAIAccountScheduler(ctx context.Context) Op
 func resetOpenAIAdvancedSchedulerSettingCacheForTest() {
 	openAIAdvancedSchedulerSettingCache = atomic.Value{}
 	openAIAdvancedSchedulerSettingSF = singleflight.Group{}
+}
+
+func resetOpenAIHeadroomSettingCacheForTest() {
+	openAIHeadroomSettingCache = atomic.Value{}
+	openAIHeadroomSettingSF = singleflight.Group{}
 }
 
 func (s *OpenAIGatewayService) SelectAccountWithScheduler(

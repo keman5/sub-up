@@ -2172,6 +2172,14 @@ func TestOpenAIBuildOpenAIResponsesWSURLUsesOAuthCodexOverride(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
 		OpenAIOAuthCodexResponsesURL: "http://headroom-a2:8787/v1/responses",
 	}}}
+	disabledURL, err := svc.buildOpenAIResponsesWSURL(account)
+	require.NoError(t, err)
+	require.Equal(t, "wss://chatgpt.com/backend-api/codex/responses", disabledURL)
+
+	svc.rateLimitService = newOpenAIAdvancedSchedulerRateLimitServiceWithSettings(map[string]string{
+		SettingKeyOpenAIHeadroomEnabled: "true",
+	})
+	t.Cleanup(resetOpenAIHeadroomSettingCacheForTest)
 	overrideURL, err := svc.buildOpenAIResponsesWSURL(account)
 	require.NoError(t, err)
 	require.Equal(t, "ws://headroom-a2:8787/v1/responses", overrideURL)

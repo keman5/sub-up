@@ -219,10 +219,14 @@ func TestLoadOpenAIResponseHeaderTimeoutFromEnv(t *testing.T) {
 func TestLoadOpenAIOAuthCodexResponsesURLFromEnv(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	t.Setenv("GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL", "http://headroom-a2:8787/v1/responses")
+	t.Setenv("GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_BODY_BYTES", "524288")
+	t.Setenv("GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_TTL_SECONDS", "600")
 
 	cfg, err := Load()
 	require.NoError(t, err)
 	require.Equal(t, "http://headroom-a2:8787/v1/responses", cfg.Gateway.OpenAIOAuthCodexResponsesURL)
+	require.EqualValues(t, 524288, cfg.Gateway.OpenAIOAuthCodexResponsesBypassBodyBytes)
+	require.Equal(t, 600, cfg.Gateway.OpenAIOAuthCodexResponsesBypassTTLSeconds)
 }
 
 func TestLoadHeadroomStatsFromEnv(t *testing.T) {
@@ -249,6 +253,14 @@ func TestValidateOpenAIOAuthCodexResponsesURL(t *testing.T) {
 
 	cfg.Gateway.OpenAIOAuthCodexResponsesURL = "/backend-api/codex/responses"
 	require.ErrorContains(t, cfg.Validate(), "gateway.openai_oauth_codex_responses_url invalid")
+
+	cfg.Gateway.OpenAIOAuthCodexResponsesURL = "http://headroom-a2:8787/v1/responses"
+	cfg.Gateway.OpenAIOAuthCodexResponsesBypassBodyBytes = -1
+	require.ErrorContains(t, cfg.Validate(), "gateway.openai_oauth_codex_responses_bypass_body_bytes must be non-negative")
+
+	cfg.Gateway.OpenAIOAuthCodexResponsesBypassBodyBytes = 0
+	cfg.Gateway.OpenAIOAuthCodexResponsesBypassTTLSeconds = -1
+	require.ErrorContains(t, cfg.Validate(), "gateway.openai_oauth_codex_responses_bypass_ttl_seconds must be non-negative")
 }
 
 func TestValidateHeadroomStatsConfig(t *testing.T) {

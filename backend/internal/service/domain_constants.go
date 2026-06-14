@@ -434,6 +434,8 @@ const (
 	// SettingKeyOpenAIAllowClaudeCodeCodexPlugin 全局开关：是否额外放行 Claude Code 的 Codex 插件（默认 false）。
 	// 仅在账号 codex_cli_only 开启时生效；开启后无需逐账号配置 codex_cli_only_allowed_clients。
 	SettingKeyOpenAIAllowClaudeCodeCodexPlugin = "openai_allow_claude_code_codex_plugin"
+	// SettingKeyOpenAIHeadroomEnabled 全局开关：是否允许 OpenAI OAuth Codex 请求使用已配置的 Headroom sidecar（默认 false）。
+	SettingKeyOpenAIHeadroomEnabled = "openai_headroom_enabled"
 
 	// 余额不足提醒
 	SettingKeyBalanceLowNotifyEnabled     = "balance_low_notify_enabled"      // 全局开关

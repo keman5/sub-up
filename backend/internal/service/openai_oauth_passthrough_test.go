@@ -23,6 +23,22 @@ import (
 
 func f64p(v float64) *float64 { return &v }
 
+func openAITestOAuthAccount() *Account {
+	return &Account{
+		ID:          123,
+		Name:        "acc",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token":       "oauth-token",
+			"chatgpt_account_id": "chatgpt-acc",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+}
+
 type httpUpstreamRecorder struct {
 	lastReq      *http.Request
 	lastBody     []byte
@@ -123,7 +139,11 @@ func TestOpenAIGatewayService_OAuthCodexResponsesURLCanBeOverridden(t *testing.T
 			OpenAIOAuthCodexResponsesURL: "http://headroom-a2:8787/v1/responses",
 		}},
 		httpUpstream: upstream,
+		rateLimitService: newOpenAIAdvancedSchedulerRateLimitServiceWithSettings(map[string]string{
+			SettingKeyOpenAIHeadroomEnabled: "true",
+		}),
 	}
+	t.Cleanup(resetOpenAIHeadroomSettingCacheForTest)
 	account := &Account{
 		ID:          123,
 		Name:        "acc",
@@ -147,6 +167,35 @@ func TestOpenAIGatewayService_OAuthCodexResponsesURLCanBeOverridden(t *testing.T
 	require.Equal(t, "chatgpt-acc", upstream.lastReq.Header.Get("chatgpt-account-id"))
 }
 
+func TestOpenAIGatewayService_OAuthCodexHeadroomOverrideDisabledByDefault(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	originalBody := []byte(`{"model":"gpt-5.5","stream":false,"input":[{"type":"text","text":"hi"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(originalBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_headroom_disabled"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"stop after capture"}}`)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Gateway: config.GatewayConfig{
+			OpenAIOAuthCodexResponsesURL: "http://headroom-a2:8787/v1/responses",
+		}},
+		httpUpstream: upstream,
+	}
+	account := openAITestOAuthAccount()
+
+	result, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "https://chatgpt.com/backend-api/codex/responses", upstream.lastReq.URL.String())
+}
+
 func TestOpenAIGatewayService_OAuthCodexHeadroomOverrideBypassesAccountProxy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -166,7 +215,11 @@ func TestOpenAIGatewayService_OAuthCodexHeadroomOverrideBypassesAccountProxy(t *
 			OpenAIOAuthCodexResponsesURL: "http://headroom-a2:8787/v1/responses",
 		}},
 		httpUpstream: upstream,
+		rateLimitService: newOpenAIAdvancedSchedulerRateLimitServiceWithSettings(map[string]string{
+			SettingKeyOpenAIHeadroomEnabled: "true",
+		}),
 	}
+	t.Cleanup(resetOpenAIHeadroomSettingCacheForTest)
 	proxyID := int64(1)
 	account := &Account{
 		ID:          123,
@@ -196,6 +249,135 @@ func TestOpenAIGatewayService_OAuthCodexHeadroomOverrideBypassesAccountProxy(t *
 	require.NotNil(t, upstream.lastReq)
 	require.Equal(t, "http://headroom-a2:8787/v1/responses", upstream.lastReq.URL.String())
 	require.Empty(t, upstream.lastProxyURL)
+}
+
+func TestOpenAIGatewayService_OAuthCodexResponsesLargeBodyBypassesHeadroomOverride(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	originalBody := []byte(`{"model":"gpt-5.5","stream":false,"input":[{"type":"text","text":"this body is intentionally larger than the configured threshold"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(originalBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_large_bypass"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"stop after capture"}}`)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Gateway: config.GatewayConfig{
+			OpenAIOAuthCodexResponsesURL:             "http://headroom-a2:8787/v1/responses",
+			OpenAIOAuthCodexResponsesBypassBodyBytes: int64(len(originalBody) - 1),
+		}},
+		httpUpstream: upstream,
+		rateLimitService: newOpenAIAdvancedSchedulerRateLimitServiceWithSettings(map[string]string{
+			SettingKeyOpenAIHeadroomEnabled: "true",
+		}),
+	}
+	t.Cleanup(resetOpenAIHeadroomSettingCacheForTest)
+	account := openAITestOAuthAccount()
+
+	result, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "https://chatgpt.com/backend-api/codex/responses", upstream.lastReq.URL.String())
+}
+
+func TestOpenAIGatewayService_OAuthCodexHeadroomCompressionRefusedRetriesDirectAndRemembersBypass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	compressionRefused := `{"detail":{"error":{"type":"compression_refused","message":"headroom: compression timeout on a large request"}}}`
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusRequestEntityTooLarge,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_headroom_refused"}},
+			Body:       io.NopCloser(strings.NewReader(compressionRefused)),
+		},
+		{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_direct_retry"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"stop after direct retry"}}`)),
+		},
+		{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_next_request"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"stop after next request"}}`)),
+		},
+	}}
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Gateway: config.GatewayConfig{
+			OpenAIOAuthCodexResponsesURL:              "http://headroom-a2:8787/v1/responses",
+			OpenAIOAuthCodexResponsesBypassTTLSeconds: 600,
+		}},
+		httpUpstream: upstream,
+		rateLimitService: newOpenAIAdvancedSchedulerRateLimitServiceWithSettings(map[string]string{
+			SettingKeyOpenAIHeadroomEnabled: "true",
+		}),
+	}
+	t.Cleanup(resetOpenAIHeadroomSettingCacheForTest)
+	account := openAITestOAuthAccount()
+	originalBody := []byte(`{"model":"gpt-5.5","stream":false,"input":[{"type":"text","text":"hi"}]}`)
+
+	rec1 := httptest.NewRecorder()
+	c1, _ := gin.CreateTestContext(rec1)
+	c1.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(originalBody))
+	c1.Request.Header.Set("Content-Type", "application/json")
+	result, err := svc.Forward(context.Background(), c1, account, originalBody)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "http://headroom-a2:8787/v1/responses", upstream.requests[0].URL.String())
+	require.Equal(t, "https://chatgpt.com/backend-api/codex/responses", upstream.requests[1].URL.String())
+
+	rec2 := httptest.NewRecorder()
+	c2, _ := gin.CreateTestContext(rec2)
+	c2.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(originalBody))
+	c2.Request.Header.Set("Content-Type", "application/json")
+	result, err = svc.Forward(context.Background(), c2, account, originalBody)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Len(t, upstream.requests, 3)
+	require.Equal(t, "https://chatgpt.com/backend-api/codex/responses", upstream.requests[2].URL.String())
+}
+
+func TestOpenAIGatewayService_OAuthCodexPassthroughLargeBodyBypassesHeadroomOverride(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	originalBody := []byte(`{"model":"gpt-5.5","stream":false,"instructions":"test","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"this body is intentionally larger than the configured threshold"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(originalBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_passthrough_large_bypass"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"stop after capture"}}`)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{Gateway: config.GatewayConfig{
+			OpenAIOAuthCodexResponsesURL:             "http://headroom-a2:8787/v1/responses",
+			OpenAIOAuthCodexResponsesBypassBodyBytes: int64(len(originalBody) - 1),
+		}},
+		httpUpstream: upstream,
+		rateLimitService: newOpenAIAdvancedSchedulerRateLimitServiceWithSettings(map[string]string{
+			SettingKeyOpenAIHeadroomEnabled: "true",
+		}),
+	}
+	t.Cleanup(resetOpenAIHeadroomSettingCacheForTest)
+	account := openAITestOAuthAccount()
+	account.Extra = map[string]any{
+		"openai_passthrough":                        true,
+		"openai_oauth_responses_websockets_v2_mode": OpenAIWSIngressModeOff,
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "https://chatgpt.com/backend-api/codex/responses", upstream.lastReq.URL.String())
 }
 
 func TestOpenAIGatewayService_NativeResponsesBodyModificationPreservesHTMLChars(t *testing.T) {

@@ -227,12 +227,21 @@ func (s *openAIAdvancedSchedulerSettingRepoStub) Delete(context.Context, string)
 }
 
 func newOpenAIAdvancedSchedulerRateLimitService(enabled string) *RateLimitService {
+	values := map[string]string{}
+	if enabled != "" {
+		values[openAIAdvancedSchedulerSettingKey] = enabled
+	}
+	return newOpenAIAdvancedSchedulerRateLimitServiceWithSettings(values)
+}
+
+func newOpenAIAdvancedSchedulerRateLimitServiceWithSettings(values map[string]string) *RateLimitService {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	resetOpenAIHeadroomSettingCacheForTest()
 	repo := &openAIAdvancedSchedulerSettingRepoStub{
 		values: map[string]string{},
 	}
-	if enabled != "" {
-		repo.values[openAIAdvancedSchedulerSettingKey] = enabled
+	for key, value := range values {
+		repo.values[key] = value
 	}
 	return &RateLimitService{
 		settingService: NewSettingService(repo, &config.Config{}),

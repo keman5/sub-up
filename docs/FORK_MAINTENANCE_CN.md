@@ -845,6 +845,70 @@ git diff --check
 - 如果官方后续也支持 Codex OAuth sidecar / local proxy，要确认内网 sidecar 第一跳不走账号 SOCKS；但直接 `chatgpt.com` 或外部 override URL 仍应保留账号 proxy 能力。
 - a2 灰度验证时，用绑定 WARP SOCKS 的 OpenAI OAuth 账号请求 `gpt-5.3-codex-spark`，确认 `/51Token/v1/responses` 不再因 `headroom-a2` 第一跳返回 502。
 
+### 2026-06-14 Headroom 转发增加后台运行开关
+
+背景：a2 需要保留 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL=http://headroom-a2:8787/v1/responses` 作为 sidecar 能力配置，但不能因为环境变量存在就自动把所有 OpenAI OAuth Codex 请求切到 Headroom。此前排查大请求 502、压缩超时和动态调度时，运维需要一个可以从后台即时关闭 Headroom 路由的开关。
+
+本地补丁：
+
+- 新增全局设置 `openai_headroom_enabled`，默认 `false`。
+- `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL` 继续只表示“本环境具备 Headroom sidecar URL”；只有后台全局设置页的 “Headroom 压缩代理” 开关为 `true` 时，OpenAI OAuth Codex Responses 才会使用该 override URL。
+- 开关为 `false` 时，即使 env 已配置 Headroom URL，普通 Forward、passthrough Forward 和 WS v2 URL 都回到 `https://chatgpt.com/backend-api/codex/responses` / `wss://chatgpt.com/backend-api/codex/responses`。
+- 大请求旁路和 `compression_refused` 后短 TTL 直连记忆只在 Headroom 开关已启用时生效；关闭 Headroom 时不会产生无意义的旁路日志。
+- 管理端“系统设置 -> 调度”中，在 “OpenAI 实验调度策略” 下方新增 “Headroom 压缩代理” 开关，并随保存请求写入 `openai_headroom_enabled`。
+
+验证：
+
+```bash
+go test ./internal/service -run 'TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler|TestOpenAIBuildOpenAIResponsesWSURLUsesOAuthCodexOverride|TestOpenAIGatewayService_OAuthCodex' -count=1
+pnpm --dir frontend test:run src/views/admin/__tests__/SettingsView.spec.ts
+```
+
+同步官方后的复查：
+
+- 搜索 `SettingKeyOpenAIHeadroomEnabled`、`openai_headroom_enabled`、`isOpenAIHeadroomEnabled`、`openAIOAuthCodexResponsesURL`、`openaiHeadroom`。
+- 继续保持“环境变量提供能力、后台开关决定运行启用”的边界；同步或部署后不要仅凭 `.env` 中存在 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL` 就认为 Headroom 已启用。
+- a2 灰度时先在后台确认 `openai_headroom_enabled=false` 是否可直连上游，再显式打开开关验证 Headroom 路径；如出现 502/压缩超时，可直接关闭该开关回退，不需要移除 compose/env。
+
+## 2026-06-13 未 push 提交梳理
+
+当前 `subapi` 分支相对 `origin/subapi` 仍有本地提交未 push。这些提交都属于当前 fork 的运行策略、a2 Pages/Headroom 灰度和 OpenAI Codex/Spark 用量修正，后续同步官方、rebase 或部署前需要按下面清单复查，避免被上游覆盖或误删。
+
+### 本地未推送提交
+
+1. `9d440fc4 fix: avoid oauth refresh loop for short tokens`
+
+   - 修复前台短有效期 access token 导致的后台 refresh 循环：短 token 不再安排主动刷新定时器，恢复已过期 token 时不立即后台 refresh，用户真实请求遇到 401 时仍由 axios 拦截器刷新并重放。
+   - `frontend/src/api/client.ts` 增加 `auth-token-refreshed` 事件，确保 axios 刷新成功后 Pinia auth store 同步新 token 和过期时间。
+   - `frontend/src/components/layout/AuthLayout.vue` 保留站点配置 logo，但补白色圆角背景，避免透明 logo 在登录页背景上不可辨认。
+   - 同步官方后继续搜索 `scheduleTokenRefresh`、`startAutoRefresh`、`isAccessTokenExpired`、`auth-token-refreshed`、`AuthLayout.vue`。重点确认登录成功后空闲页面不会持续刷 `/api/v1/auth/refresh`，真实 401 仍能刷新重放。
+
+2. `57be2738 feat: inject pages public settings`
+
+   - Cloudflare Pages 前台发布前新增 public settings 注入流程：`scripts/cloudflare-pages-config.mjs` 从对应环境 `/api/v1/settings/public` 只取公开 `data` 字段，`scripts/inject-pages-public-settings.mjs` 写入 `backend/internal/web/dist/index.html` 的 `window.__APP_CONFIG__` 并替换 `<title>`。
+   - `frontend/public/_worker.js` 和 Pages Worker 测试补齐 a2 / ap2 回源与公开只读接口边缘短缓存，保证 `/api/*`、`/health`、`/51Token/*` 等需要回源的路径继续走 VPS API 域名。
+   - 部署文档明确 Pages 静态前台不再执行 VPS Go 内嵌注入；不同服务可以使用多套前台产物，运行时公开配置发布前注入，构建期配置仍要按环境分别打包。
+   - 同步官方后继续搜索 `inject-pages-public-settings.mjs`、`cloudflare-pages-config.mjs`、`window.__APP_CONFIG__`、`EDGE_CACHEABLE_PUBLIC_PATHS`、`X-Sub2API-Edge-Cache`。不得把 `.env`、后台配置、Token secret、Turnstile secret 等私有配置写入静态文件。
+
+3. `c78042fb fix: separate OpenAI main usage from Spark display`
+
+   - 将 OpenAI Codex 用量显示拆成主套餐和 Spark 两套来源：主套餐优先读 `codex_main_*`，Spark 展开区只读明确 Spark 字段 `codex_*`，避免 Spark 快照被通用 `five_hour/seven_day` 或 raw fallback 污染。
+   - OpenAI header 快照更新时保留真实上游模型归属，按模型族写入不同字段；普通用户响应和普通用量记录继续隐藏真实上游模型。
+   - 账号管理表补默认可见账号 ID，便于排查账号 17 这类具体 OAuth 账号的用量错位。
+   - 同步官方后继续搜索 `codex_main_5h`、`codex_main_7d`、`codex_usage_updated_at`、`openAIMainFiveHour`、`openAICodexSparkWindows`、`result.UpstreamModel`、`ResponseHeaders`。必须保持“主套餐不吃 Spark 快照，Spark 不吃主套餐或 raw 兜底”的边界。
+
+4. `feat: show Headroom stats and bypass large Codex requests`
+
+   - 管理端运维面板新增 Headroom 统计卡片 `OpsHeadroomStatsCard.vue`，展示 Headroom token 节省、请求数、节省率、命中情况等指标，便于前台直接查看使用 Headroom 后节省了多少 token。
+   - `frontend/src/api/admin/ops.ts` 扩展 Headroom 统计类型与接口消费，`OpsDashboard.vue` 挂载卡片，中英文文案和 Vitest 测试同步补齐。
+   - 增加 Headroom / Codex 大请求旁路配置和相关测试，确保大 payload 或复杂 streaming 请求可绕过 Headroom 并在短 TTL 内保持同一 session 后续请求直连，降低 Headroom 对大请求的 502/超时风险。
+   - 同步官方后继续搜索 `OpsHeadroomStatsCard`、`headroom`、`HeadroomStats`、`getHeadroomStats`、`GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_BODY_BYTES`、`GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_TTL_SECONDS`。如果官方调整 Ops dashboard 或 OpenAI OAuth 转发结构，继续保留“管理员可直接查看 Headroom 节省统计”和“大请求可绕过 Headroom”的入口。
+
+### 复查建议
+
+- 推送前建议重新执行：`git log --oneline origin/subapi..HEAD`、`git status --short`、`git diff --check`。
+- 若要部署 a2，继续按 `/opt/sub2api-ap2-deploy/.env` + `sub2api-ap2` 独立 compose 流程，不要把 ap2 误切到 primary/standby 滚动脚本。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：
