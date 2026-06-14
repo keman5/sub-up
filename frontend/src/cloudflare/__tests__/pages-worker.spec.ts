@@ -62,6 +62,22 @@ describe('Cloudflare Pages worker', () => {
     fetchMock.mockRestore()
   })
 
+  it('proxies a1 frontend and model API requests to the ap1 origin', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
+
+    await worker.fetch(new Request('https://a1.upit.top/api/v1/settings/public'), createEnv())
+    await worker.fetch(new Request('https://a1.upit.top/51Token/v1/chat/completions'), createEnv())
+
+    expect((fetchMock.mock.calls[0][0] as Request).url).toBe(
+      'https://ap1.upit.top/api/v1/settings/public'
+    )
+    expect((fetchMock.mock.calls[1][0] as Request).url).toBe(
+      'https://ap1.upit.top/51Token/v1/chat/completions'
+    )
+
+    fetchMock.mockRestore()
+  })
+
   it('proxies a2 frontend and model API requests to the ap2 origin', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
 
@@ -73,6 +89,22 @@ describe('Cloudflare Pages worker', () => {
     )
     expect((fetchMock.mock.calls[1][0] as Request).url).toBe(
       'https://ap2.upit.top/51Token/v1/chat/completions'
+    )
+
+    fetchMock.mockRestore()
+  })
+
+  it('keeps the a1 custom domain on ap1 even when SUB2API_ORIGIN is set globally', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('ok'))
+    const env = {
+      ...createEnv(),
+      SUB2API_ORIGIN: 'https://api.upit.top',
+    }
+
+    await worker.fetch(new Request('https://a1.upit.top/api/v1/settings/public'), env)
+
+    expect((fetchMock.mock.calls[0][0] as Request).url).toBe(
+      'https://ap1.upit.top/api/v1/settings/public'
     )
 
     fetchMock.mockRestore()

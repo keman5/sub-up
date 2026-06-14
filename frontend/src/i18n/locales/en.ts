@@ -5461,7 +5461,6 @@ export default {
         cpu: 'CPU usage percentage, showing system processor load.',
         memory: 'Memory usage, including used and total available memory.',
         disk: 'Root filesystem disk usage and capacity.',
-        gpu: 'GPU usage percentage (empty if no GPU is detected or nvidia-smi is unavailable).',
         db: 'Database connection pool status, including active, idle, and waiting connections.',
         redis: 'Redis connection pool status, showing active and idle connections.',
         jobs: 'Background job execution status, including last run time, success time, and error information.',

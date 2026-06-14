@@ -6,13 +6,14 @@
 
 - 静态资源：由 Cloudflare Pages 提供。
 - API：通过 `frontend/public/_worker.js` 代理回 VPS。
-- `ai.upit.top` 的 API 回源默认是 `https://api.upit.top`。
-- `a2.upit.top` 的 API 回源默认是 `https://ap2.upit.top`。
+- `ai.upit.top` 的 API 回源固定是 `https://api.upit.top`。
+- `a1.upit.top` 的 API 回源固定是 `https://ap1.upit.top`。
+- `a2.upit.top` 的 API 回源固定是 `https://ap2.upit.top`。
 - Pages 预览域名可通过环境变量 `SUB2API_ORIGIN` 指定回源。
-- 当前部署可先切 `a2.upit.top` 做灰度。线上实测 `ap2.upit.top` 可承载 `/api/v1/*`、`/health` 和 `/51Token/v1/*`。
-- `a1.upit.top` 暂不建议直接切。线上实测 `ap1.upit.top` 可承载 `/51Token/v1/*`，但不承载前台 `/api/v1/*` 和 `/health`；直接把 `a1.upit.top` 切到 Pages 会导致登录、公开设置和后台 API 断开。
+- 三套正式前台都迁到 Cloudflare Pages：`ai.upit.top`、`a1.upit.top`、`a2.upit.top`。
+- 线上 API 回源域名继续留在 VPS：`api.upit.top`、`ap1.upit.top`、`ap2.upit.top`。
 - 前台改动走 Pages 发布；后端/API 改动走 VPS 发布并默认加 `--skip-frontend-build`，避免重复为 VPS 构建前台。
-- VPS 后端暂时继续使用 `go build -tags embed`，保留已有 `backend/internal/web/dist` 作为 primary/ap1 和回滚兜底；等 primary/ap1 也迁到 Pages 后，再评估 no-embed 后端发布模式。
+- VPS 后端暂时继续使用 `go build -tags embed`，保留已有 `backend/internal/web/dist` 作为回滚兜底；三套前台正式流量迁到 Pages 后，后端/API 常规发布不再需要为 VPS 重新打前台产物。
 
 被代理回源的路径：
 
@@ -70,23 +71,38 @@ pnpm --dir frontend exec vitest run \
   src/cloudflare/__tests__/pages-worker.spec.ts \
   src/cloudflare/__tests__/pages-config-injection.spec.ts
 pnpm --dir frontend run build
+
+rm -rf /tmp/sub2api-pages-main /tmp/sub2api-pages-a1 /tmp/sub2api-pages-a2
+cp -R backend/internal/web/dist /tmp/sub2api-pages-main
+cp -R backend/internal/web/dist /tmp/sub2api-pages-a1
+cp -R backend/internal/web/dist /tmp/sub2api-pages-a2
+
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://api.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-main/index.html
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://ap1.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-a1/index.html
 node scripts/inject-pages-public-settings.mjs \
   --settings-url https://ap2.upit.top/api/v1/settings/public \
-  --html backend/internal/web/dist/index.html
+  --html /tmp/sub2api-pages-a2/index.html
 ```
 
 确认产物包含 Pages Worker：
 
 ```bash
-test -f backend/internal/web/dist/_worker.js
-rg -n "window\\.__APP_CONFIG__|api_base_url|<title>" backend/internal/web/dist/index.html
-find backend/internal/web/dist -maxdepth 2 -type f | sort | sed -n '1,80p'
+test -f /tmp/sub2api-pages-main/_worker.js
+test -f /tmp/sub2api-pages-a1/_worker.js
+test -f /tmp/sub2api-pages-a2/_worker.js
+rg -n "window\\.__APP_CONFIG__|api_base_url|<title>" /tmp/sub2api-pages-main/index.html
+rg -n "window\\.__APP_CONFIG__|api_base_url|<title>" /tmp/sub2api-pages-a1/index.html
+rg -n "window\\.__APP_CONFIG__|api_base_url|<title>" /tmp/sub2api-pages-a2/index.html
 ```
 
 说明：
 
 - VPS 内嵌前台由 Go 在返回 `index.html` 前注入 `window.__APP_CONFIG__` 和站点标题；Cloudflare Pages 只托管静态 HTML，不会自动执行这段后端注入。
-- Pages 发布前必须从对应环境的公开设置接口拉取配置，并写入本环境产物的 `index.html`。a2 使用 `--settings-url https://ap2.upit.top/api/v1/settings/public`，避免被 Pages 全局 `SUB2API_ORIGIN` 影响。
+- Pages 发布前必须从对应环境的公开设置接口拉取配置，并写入本环境产物的 `index.html`。主环境使用 `https://api.upit.top/api/v1/settings/public`，a1 使用 `https://ap1.upit.top/api/v1/settings/public`，a2 使用 `https://ap2.upit.top/api/v1/settings/public`。
 - 只能注入 `/api/v1/settings/public` 返回的公开 `data` 字段，不要把后台 admin 配置、`.env`、数据库连接、密钥或其它私有配置写入静态文件。
 - 如果线上 public settings 改了，需要重新执行 build、inject、Pages deploy；否则首屏会继续使用上一次写入的静态配置。
 
@@ -99,7 +115,15 @@ find backend/internal/web/dist -maxdepth 2 -type f | sort | sed -n '1,80p'
 
 ## 二、创建 Cloudflare Pages 项目
 
-推荐先用预览项目，不要一开始切 `ai.upit.top`。
+三套前台使用三个 Pages 项目，避免不同环境共享同一个 `index.html` 里的 `window.__APP_CONFIG__`：
+
+| 环境 | 前台域名 | Pages 项目 | API 回源 |
+| --- | --- | --- | --- |
+| primary | `ai.upit.top` | `sub2api-frontend-main` | `https://api.upit.top` |
+| a1 | `a1.upit.top` | `sub2api-frontend-a1` | `https://ap1.upit.top` |
+| a2 | `a2.upit.top` | `sub2api-frontend-a2` | `https://ap2.upit.top` |
+
+旧的 `sub2api-frontend` 项目可以作为历史/预览项目保留，不再作为三套正式前台的配置来源。
 
 ### 方式 A：Dashboard Direct Upload
 
@@ -108,24 +132,30 @@ find backend/internal/web/dist -maxdepth 2 -type f | sort | sed -n '1,80p'
 3. 点击 `Create application`。
 4. 选择 `Pages`。
 5. 选择 `Direct Upload`。
-6. 项目名填：
+6. 项目名分别填：
 
 ```text
-sub2api-frontend
+sub2api-frontend-main
+sub2api-frontend-a1
+sub2api-frontend-a2
 ```
 
-7. 上传目录：
+7. 上传目录分别选择：
 
 ```text
-/Users/okk/git-projects/sub2api/backend/internal/web/dist
+/tmp/sub2api-pages-main
+/tmp/sub2api-pages-a1
+/tmp/sub2api-pages-a2
 ```
 
 8. 部署完成后，先使用 Cloudflare 分配的 `*.pages.dev` 地址验证。
 
-如果是预览域名，进入项目设置添加环境变量：
+如果是预览域名，进入项目设置添加环境变量。正式域名的 host 映射写在 `_worker.js`，预览域名才依赖 `SUB2API_ORIGIN`：
 
 ```text
-SUB2API_ORIGIN=https://api.upit.top
+sub2api-frontend-main: SUB2API_ORIGIN=https://api.upit.top
+sub2api-frontend-a1:   SUB2API_ORIGIN=https://ap1.upit.top
+sub2api-frontend-a2:   SUB2API_ORIGIN=https://ap2.upit.top
 ```
 
 ### 方式 B：Wrangler
@@ -141,13 +171,32 @@ pnpm dlx wrangler login
 ```bash
 cd /Users/okk/git-projects/sub2api
 pnpm --dir frontend run build
+
+rm -rf /tmp/sub2api-pages-main /tmp/sub2api-pages-a1 /tmp/sub2api-pages-a2
+cp -R backend/internal/web/dist /tmp/sub2api-pages-main
+cp -R backend/internal/web/dist /tmp/sub2api-pages-a1
+cp -R backend/internal/web/dist /tmp/sub2api-pages-a2
+
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://api.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-main/index.html
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://ap1.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-a1/index.html
 node scripts/inject-pages-public-settings.mjs \
   --settings-url https://ap2.upit.top/api/v1/settings/public \
-  --html backend/internal/web/dist/index.html
-pnpm dlx wrangler pages deploy backend/internal/web/dist --project-name sub2api-frontend
+  --html /tmp/sub2api-pages-a2/index.html
+
+pnpm dlx wrangler pages project create sub2api-frontend-main --production-branch subapi
+pnpm dlx wrangler pages project create sub2api-frontend-a1 --production-branch subapi
+pnpm dlx wrangler pages project create sub2api-frontend-a2 --production-branch subapi
+
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-main --project-name sub2api-frontend-main --branch subapi
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a1 --project-name sub2api-frontend-a1 --branch subapi
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a2 --project-name sub2api-frontend-a2 --branch subapi
 ```
 
-仓库根目录的 `wrangler.toml` 已设置：
+仓库根目录的 `wrangler.toml` 仍保留给单项目/预览命令使用：
 
 ```toml
 name = "sub2api-frontend"
@@ -159,7 +208,7 @@ pages_build_output_dir = "backend/internal/web/dist"
 把下面的 `PAGES_URL` 换成 Cloudflare 给出的预览地址。
 
 ```bash
-PAGES_URL="https://sub2api-frontend.pages.dev"
+PAGES_URL="https://<project>.pages.dev"
 
 curl -sSIL --max-time 15 "$PAGES_URL/" | sed -n '1,30p'
 curl -sSIL --max-time 15 "$PAGES_URL/assets/" | sed -n '1,20p'
@@ -180,28 +229,12 @@ curl -fsS --max-time 15 "$PAGES_URL/health"
 
 ## 四、绑定正式域名
 
-建议先绑定灰度域名：
+正式域名绑定关系：
 
 ```text
-a2.upit.top
-```
-
-通过后再切主域名：
-
-```text
-ai.upit.top
-```
-
-`a1.upit.top` 不建议在本轮直接切。要迁 a1，需要先准备一个不会被 Pages 覆盖的前台 API origin，例如：
-
-```text
-ap1-admin.upit.top -> sub2api-ap1 的 /api/v1 和 /health
-```
-
-然后为 a1 单独设置 Pages 环境变量：
-
-```text
-SUB2API_ORIGIN=https://ap1-admin.upit.top
+ai.upit.top -> sub2api-frontend-main
+a1.upit.top -> sub2api-frontend-a1
+a2.upit.top -> sub2api-frontend-a2
 ```
 
 注意：`api.upit.top`、`ap1.upit.top`、`ap2.upit.top` 不要切到 Pages，它们继续指向 VPS 后端。
@@ -213,11 +246,13 @@ curl -sSIL --max-time 15 https://ai.upit.top/ | sed -n '1,30p'
 curl -sSIL --max-time 15 https://ai.upit.top/assets/ | sed -n '1,20p'
 curl -sSIL --max-time 15 https://ai.upit.top/api/v1/settings/public | sed -n '1,30p'
 curl -fsS --max-time 15 https://ai.upit.top/health
-```
 
-如果先切 a2：
+curl -sSIL --max-time 15 https://a1.upit.top/ | sed -n '1,30p'
+curl -sSi --max-time 15 https://a1.upit.top/api/v1/settings/public | sed -n '1,30p'
+curl -sSi --max-time 15 https://a1.upit.top/api/v1/settings/public | grep -Ei 'HTTP/|x-sub2api-edge-cache|cache-control|cf-cache-status'
+curl -fsSL --max-time 15 https://a1.upit.top/login | rg "window\\.__APP_CONFIG__|https://ap1.upit.top/51Token/v1|<title>"
+curl -fsS --max-time 15 https://a1.upit.top/health
 
-```bash
 curl -sSIL --max-time 15 https://a2.upit.top/ | sed -n '1,30p'
 curl -sSi --max-time 15 https://a2.upit.top/api/v1/settings/public | sed -n '1,30p'
 curl -sSi --max-time 15 https://a2.upit.top/api/v1/settings/public | grep -Ei 'HTTP/|x-sub2api-edge-cache|cache-control|cf-cache-status'
@@ -226,34 +261,43 @@ curl -fsS --max-time 15 https://a2.upit.top/health
 curl -sSIL --max-time 15 https://a2.upit.top/51Token/v1/models | sed -n '1,30p'
 ```
 
-如果后续单独切了 a1：
-
-```bash
-curl -sSIL --max-time 15 https://a1.upit.top/api/v1/settings/public | sed -n '1,30p'
-curl -fsS --max-time 15 https://a1.upit.top/health
-```
-
 ## 五、关闭 VPS 上的旧前台入口
 
 确认正式域名已经由 Cloudflare Pages 承载静态资源后，可以关闭 VPS 上对应域名的旧前台入口，避免误命中 VPS 内嵌前端。但不要关闭 API 回源域名和后端容器。
 
-当前 a2 边界：
+三套边界：
 
-- `a2.upit.top`：Cloudflare Pages 自定义域名，承载前台 HTML / JS / CSS。
-- `ap2.upit.top`：VPS API 回源域名，继续指向 `sub2api-ap2`。
-- `sub2api-ap2`：后端/API 容器，不能关闭；Pages Worker 的 `/api/*`、`/health`、`/51Token/*` 等路径仍回源到它。
+- `ai.upit.top` / `a1.upit.top` / `a2.upit.top`：Cloudflare Pages 自定义域名，承载前台 HTML / JS / CSS。
+- `api.upit.top` / `ap1.upit.top` / `ap2.upit.top`：VPS API 回源域名，继续指向对应 sub2api 后端。
+- `sub2api` / `sub2api-ap1` / `sub2api-ap2`：后端/API 容器，不能关闭；Pages Worker 的 `/api/*`、`/health`、`/51Token/*` 等路径仍回源到它们。
 
-VPS 上的旧写法曾把 `a2` 和 `ap2` 合并在同一个 Caddy server block：
+VPS 上如果存在前台域名 server block 或把前台和 API 域名合并在同一个 Caddy server block，需要移除前台域名，只保留 API 回源域名：
 
 ```caddyfile
+ai.upit.top:443, api.upit.top:443 {
+    ...
+}
+
+a1.upit.top:443, ap1.upit.top:443 {
+    ...
+}
+
 ap2.upit.top:443, a2.upit.top:443 {
     ...
 }
 ```
 
-前台切到 Pages 后，应只保留 API 回源域名：
+前台切到 Pages 后，应只保留：
 
 ```caddyfile
+api.upit.top:443 {
+    ...
+}
+
+ap1.upit.top:443 {
+    ...
+}
+
 ap2.upit.top:443 {
     ...
 }
@@ -262,8 +306,8 @@ ap2.upit.top:443 {
 操作前先备份并校验：
 
 ```bash
-ssh 51token-vps '
-  cp /opt/cf-origin-ssl/Caddyfile /opt/cf-origin-ssl/Caddyfile.bak-disable-a2-origin-$(date +%Y%m%d%H%M%S)
+ssh 51tokens '
+  cp /opt/cf-origin-ssl/Caddyfile /opt/cf-origin-ssl/Caddyfile.bak-disable-frontends-$(date +%Y%m%d%H%M%S)
   docker exec cf-origin-ssl caddy validate --config /etc/caddy/Caddyfile
 '
 ```
@@ -271,7 +315,7 @@ ssh 51token-vps '
 修改 `/opt/cf-origin-ssl/Caddyfile` 后重载：
 
 ```bash
-ssh 51token-vps '
+ssh 51tokens '
   docker exec cf-origin-ssl caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 '
 ```
@@ -279,23 +323,34 @@ ssh 51token-vps '
 验证：
 
 ```bash
+curl -sSIL --max-time 15 https://ai.upit.top/login | sed -n '1,30p'
+curl -sSIL --max-time 15 https://a1.upit.top/login | sed -n '1,30p'
 curl -sSIL --max-time 15 https://a2.upit.top/login | sed -n '1,30p'
-curl -fsS --max-time 15 https://a2.upit.top/health
+curl -fsS --max-time 15 https://api.upit.top/health
+curl -fsS --max-time 15 https://ap1.upit.top/health
 curl -fsS --max-time 15 https://ap2.upit.top/health
-curl -fsS --max-time 15 https://a2.upit.top/api/v1/settings/public
+curl -fsS --max-time 15 https://ai.upit.top/health
+curl -fsS --max-time 15 https://a1.upit.top/health
+curl -fsS --max-time 15 https://a2.upit.top/health
 
-ssh 51token-vps '
+ssh 51tokens '
+  docker inspect -f "{{.State.Health.Status}}" sub2api
+  docker inspect -f "{{.State.Health.Status}}" sub2api-ap1
   docker inspect -f "{{.State.Health.Status}}" sub2api-ap2
+  grep -n "ai.upit.top\\|a1.upit.top\\|a2.upit.top\\|api.upit.top\\|ap1.upit.top\\|ap2.upit.top" /opt/cf-origin-ssl/Caddyfile
+  curl -k -sSIL --resolve ai.upit.top:443:127.0.0.1 https://ai.upit.top/login | sed -n "1,12p" || true
+  curl -k -sSIL --resolve a1.upit.top:443:127.0.0.1 https://a1.upit.top/login | sed -n "1,12p" || true
   curl -k -sSIL --resolve a2.upit.top:443:127.0.0.1 https://a2.upit.top/login | sed -n "1,12p" || true
 '
 ```
 
 预期：
 
-- `a2.upit.top/login` 仍返回 Cloudflare Pages 页面。
-- `a2.upit.top/health` 与 `ap2.upit.top/health` 均返回 ok。
-- `sub2api-ap2` 保持 `healthy`。
-- VPS 本地直连 `a2.upit.top` 不再返回旧前台页面。
+- `ai/a1/a2` 的 `/login` 仍返回 Cloudflare Pages 页面。
+- `ai/a1/a2` 的 `/health` 均经 Worker 回源返回 ok。
+- `api/ap1/ap2` 的 `/health` 均直接返回 ok。
+- `sub2api`、`sub2api-ap1`、`sub2api-ap2` 保持 `healthy`。
+- VPS 本地直连 `ai/a1/a2` 不再返回旧前台页面。
 
 2026-06-13 已执行：
 

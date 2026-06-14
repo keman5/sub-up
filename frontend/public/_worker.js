@@ -1,5 +1,12 @@
 const PRIMARY_API_ORIGIN = 'https://api.upit.top'
+const A1_API_ORIGIN = 'https://ap1.upit.top'
 const A2_API_ORIGIN = 'https://ap2.upit.top'
+
+const PRODUCTION_API_ORIGINS_BY_HOST = new Map([
+  ['ai.upit.top', PRIMARY_API_ORIGIN],
+  ['a1.upit.top', A1_API_ORIGIN],
+  ['a2.upit.top', A2_API_ORIGIN],
+])
 
 const API_PATH_PREFIXES = [
   '/api/',
@@ -37,8 +44,9 @@ function shouldProxyToOrigin(pathname) {
 }
 
 function originForRequest(url, env) {
-  if (url.hostname === 'a2.upit.top') {
-    return A2_API_ORIGIN
+  const productionOrigin = PRODUCTION_API_ORIGINS_BY_HOST.get(url.hostname)
+  if (productionOrigin) {
+    return productionOrigin
   }
 
   const configuredOrigin = normalizeOrigin(env.SUB2API_ORIGIN)

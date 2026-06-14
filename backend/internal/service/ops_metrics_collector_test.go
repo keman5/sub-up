@@ -12,36 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseNvidiaSMIUtilizationCSV(t *testing.T) {
-	t.Run("single gpu", func(t *testing.T) {
-		got, err := parseNvidiaSMIUtilizationCSV("34\n")
-		require.NoError(t, err)
-		require.Equal(t, 34.0, got)
-	})
-
-	t.Run("multi gpu average", func(t *testing.T) {
-		got, err := parseNvidiaSMIUtilizationCSV("20\n40\n")
-		require.NoError(t, err)
-		require.Equal(t, 30.0, got)
-	})
-
-	t.Run("clamp out of range", func(t *testing.T) {
-		got, err := parseNvidiaSMIUtilizationCSV("-20\n160\n")
-		require.NoError(t, err)
-		require.Equal(t, 50.0, got)
-	})
-
-	t.Run("invalid number", func(t *testing.T) {
-		_, err := parseNvidiaSMIUtilizationCSV("abc\n")
-		require.Error(t, err)
-	})
-
-	t.Run("empty output", func(t *testing.T) {
-		_, err := parseNvidiaSMIUtilizationCSV("\n \n")
-		require.Error(t, err)
-	})
-}
-
 func TestWriteOpenAIFastPolicyBlockedResponseMarksBusinessLimited(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

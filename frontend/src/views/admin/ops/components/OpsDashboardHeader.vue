@@ -683,19 +683,6 @@ const diskPercentClass = computed(() => {
   return 'text-emerald-600 dark:text-emerald-400'
 })
 
-const gpuPercentValue = computed<number | null>(() => {
-  const v = systemMetrics.value?.gpu_usage_percent
-  return typeof v === 'number' && Number.isFinite(v) ? v : null
-})
-
-const gpuPercentClass = computed(() => {
-  const v = gpuPercentValue.value
-  if (v == null) return 'text-gray-900 dark:text-white'
-  if (v >= 95) return 'text-rose-600 dark:text-rose-400'
-  if (v >= 80) return 'text-yellow-600 dark:text-yellow-400'
-  return 'text-emerald-600 dark:text-emerald-400'
-})
-
 const dbConnActiveValue = computed<number | null>(() => {
   const v = systemMetrics.value?.db_conn_active
   return typeof v === 'number' && Number.isFinite(v) ? v : null
@@ -1507,20 +1494,6 @@ function handleToolbarRefresh() {
                 ? '-'
                 : `${formatNumber(systemMetrics.disk_used_gb)} / ${formatNumber(systemMetrics.disk_total_gb)} GB`
             }}
-          </div>
-        </div>
-
-        <!-- GPU -->
-        <div class="rounded-xl bg-gray-50 p-3 dark:bg-dark-900">
-          <div class="flex items-center gap-1">
-            <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400">GPU</div>
-            <HelpTooltip v-if="!props.fullscreen" :content="t('admin.ops.tooltips.gpu')" />
-          </div>
-          <div class="mt-1 text-lg font-black" :class="gpuPercentClass">
-            {{ gpuPercentValue == null ? '-' : `${gpuPercentValue.toFixed(1)}%` }}
-          </div>
-          <div v-if="!props.fullscreen" class="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
-            {{ t('common.warning') }} 80% · {{ t('common.critical') }} 95%
           </div>
         </div>
 

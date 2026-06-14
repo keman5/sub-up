@@ -68,7 +68,6 @@ INSERT INTO ops_system_metrics (
   disk_used_gb,
   disk_total_gb,
   disk_usage_percent,
-  gpu_usage_percent,
 
   db_ok,
   redis_ok,
@@ -89,11 +88,11 @@ INSERT INTO ops_system_metrics (
   $12,$13,$14,$15,
   $16,$17,$18,$19,$20,$21,
   $22,$23,$24,$25,$26,$27,
-  $28,$29,$30,$31,$32,$33,$34,$35,
-  $36,$37,
-  $38,$39,
-  $40,$41,$42,
-  $43,$44
+  $28,$29,$30,$31,$32,$33,$34,
+  $35,$36,
+  $37,$38,
+  $39,$40,$41,
+  $42,$43
 )`
 
 	_, err := r.db.ExecContext(
@@ -139,7 +138,6 @@ INSERT INTO ops_system_metrics (
 		opsNullInt(input.DiskUsedGB),
 		opsNullInt(input.DiskTotalGB),
 		opsNullFloat64(input.DiskUsagePercent),
-		opsNullFloat64(input.GPUUsagePercent),
 
 		opsNullBool(input.DBOK),
 		opsNullBool(input.RedisOK),
@@ -178,7 +176,6 @@ SELECT
   disk_used_gb,
   disk_total_gb,
   disk_usage_percent,
-  gpu_usage_percent,
 
   db_ok,
   redis_ok,
@@ -208,7 +205,6 @@ LIMIT 1`
 	var diskUsed sql.NullInt64
 	var diskTotal sql.NullInt64
 	var diskPct sql.NullFloat64
-	var gpuPct sql.NullFloat64
 	var dbOK sql.NullBool
 	var redisOK sql.NullBool
 	var redisTotal sql.NullInt64
@@ -231,7 +227,6 @@ LIMIT 1`
 		&diskUsed,
 		&diskTotal,
 		&diskPct,
-		&gpuPct,
 		&dbOK,
 		&redisOK,
 		&redisTotal,
@@ -273,10 +268,6 @@ LIMIT 1`
 	if diskPct.Valid {
 		v := diskPct.Float64
 		out.DiskUsagePercent = &v
-	}
-	if gpuPct.Valid {
-		v := gpuPct.Float64
-		out.GPUUsagePercent = &v
 	}
 	if dbOK.Valid {
 		v := dbOK.Bool

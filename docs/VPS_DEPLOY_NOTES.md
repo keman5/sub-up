@@ -205,17 +205,32 @@ chmod +x new-api
 6. `chmod +x` 后原子 `mv` 为 `/opt/sub2api-runtime-build/sub2api`。
 7. 基于上一版运行镜像只替换 `/app/sub2api`，再按 ap1、primary 顺序滚动。
 
-2026-06-13 起，`a2.upit.top` 前台静态资源已迁到 Cloudflare Pages。以后如果只是后端/API 变更，VPS 发布不需要重新构建前台，使用 `--skip-frontend-build`。前台改动应走 Cloudflare Pages 发布流程：
+2026-06-14 起，`ai.upit.top`、`a1.upit.top`、`a2.upit.top` 三套前台静态资源都按 Cloudflare Pages 发布。以后如果只是后端/API 变更，VPS 发布不需要重新构建前台，使用 `--skip-frontend-build`。前台改动应走 Cloudflare Pages 发布流程：
 
 ```bash
 pnpm --dir frontend exec vitest run \
   src/cloudflare/__tests__/pages-worker.spec.ts \
   src/cloudflare/__tests__/pages-config-injection.spec.ts
 pnpm --dir frontend run build
+
+rm -rf /tmp/sub2api-pages-main /tmp/sub2api-pages-a1 /tmp/sub2api-pages-a2
+cp -R backend/internal/web/dist /tmp/sub2api-pages-main
+cp -R backend/internal/web/dist /tmp/sub2api-pages-a1
+cp -R backend/internal/web/dist /tmp/sub2api-pages-a2
+
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://api.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-main/index.html
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://ap1.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-a1/index.html
 node scripts/inject-pages-public-settings.mjs \
   --settings-url https://ap2.upit.top/api/v1/settings/public \
-  --html backend/internal/web/dist/index.html
-pnpm dlx wrangler pages deploy backend/internal/web/dist --project-name sub2api-frontend
+  --html /tmp/sub2api-pages-a2/index.html
+
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-main --project-name sub2api-frontend-main --branch subapi
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a1 --project-name sub2api-frontend-a1 --branch subapi
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a2 --project-name sub2api-frontend-a2 --branch subapi
 ```
 
 注意：Pages 只托管静态 HTML，不会执行 VPS 内嵌前台的 Go 注入逻辑。部署前必须把对应环境的 `/api/v1/settings/public` 公开 `data` 字段写入 `backend/internal/web/dist/index.html` 的 `window.__APP_CONFIG__`，否则站点标题、logo、Turnstile 开关、模型 API base URL 等线上配置会退回构建默认值。不要把 `.env`、后台配置或密钥写入静态文件。
@@ -224,10 +239,10 @@ pnpm dlx wrangler pages deploy backend/internal/web/dist --project-name sub2api-
 
 - 运行时 public settings 可以在发布前注入到各环境自己的 `index.html`。
 - 构建期配置如果会进入 Vite/JS/CSS bundle，必须按环境分别打包，不要用一套 bundle 覆盖多套服务。
-- 当前 a2 前台使用独立 Cloudflare Pages 静态产物，不依赖 Worker 动态 HTML 注入。未来新增服务域名时，可以按服务建立独立 Pages 项目或独立 Direct Upload 产物。
+- 当前三套正式前台使用独立 Cloudflare Pages 静态产物，不依赖 Worker 动态 HTML 注入。项目名分别是 `sub2api-frontend-main`、`sub2api-frontend-a1`、`sub2api-frontend-a2`。
 - 只有在确认差异全是运行时公开配置时，才可以复用同一次 build 的 assets，复制产物目录后分别 inject；只要差异包含构建期变量，就必须重新 build。
 
-注意：当前 VPS 后端二进制仍使用 `go build -tags embed`，会把 `backend/internal/web/dist` 中已有的前端产物嵌入作为 primary/ap1 回滚和源站兜底。不要现在默认去掉 `-tags embed`；等 primary / ap1 也完成 Pages 迁移并确认不再需要 VPS 内嵌前台兜底后，再评估增加 no-embed 后端发布模式。
+注意：当前 VPS 后端二进制仍使用 `go build -tags embed`，会把 `backend/internal/web/dist` 中已有的前端产物嵌入作为回滚和源站兜底。不要现在默认去掉 `-tags embed`；等三套前台 Pages 迁移稳定并确认不再需要 VPS 内嵌前台兜底后，再评估增加 no-embed 后端发布模式。
 
 说明：2026-06-01 线上重部署时，单条 gzip 管道和单文件 scp 在当前 VPS SSH 链路上都出现过中途停住；脚本已改为小块短连接上传，并带 5 次退避重试。
 
@@ -555,7 +570,147 @@ ssh 51token-vps '
 
 后续重部署或重建 compose 时，必须保留上述分档。除非升级 VPS 或明确评估并发压力，不要把三套环境恢复成 `DATABASE_MAX_OPEN_CONNS=50`、`DATABASE_MAX_IDLE_CONNS=10`、`REDIS_POOL_SIZE=512`、`REDIS_MIN_IDLE_CONNS=10`。
 
-#### 3.4.2 snapd 移除与 sysstat 历史监控
+#### 3.4.2 2026-06-14 Headroom 压缩 worker 限制
+
+迁移到新 VPS 后，主环境和 `ap1/a1` 保留 Headroom sidecar 能力，`ap2/a2` 不启用 Headroom。实际请求是否经过 Headroom 由后台全局设置 `openai_headroom_enabled` / “Headroom 压缩代理”决定；如果后台开关关闭，即使 compose 中保留 sidecar URL，也会直连官方 Codex endpoint。
+
+| 环境 | sub2api 容器 | Headroom 容器 | OpenAI OAuth Codex override |
+| --- | --- | --- | --- |
+| primary | `sub2api` | `headroom-main` | `http://headroom-main:8787/v1/responses` |
+| ap1 / a1 | `sub2api-ap1` | `headroom-a1` | `http://headroom-a1:8787/v1/responses` |
+| ap2 / a2 | `sub2api-ap2` | 无 | 不设置 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL` |
+
+注意不要把 `HEADROOM_WORKERS` 和压缩 worker 混淆：
+
+- `HEADROOM_WORKERS` 是 Uvicorn worker 进程数。当前保持 `1`，不要为了限 CPU 把它改成 `2`。
+- Headroom 压缩实际使用 `compression_executor.max_workers`。当前镜像默认会按 CPU 自动算到 `8`，在 2 核 4G VPS 上遇到大请求压缩时容易产生瞬时 CPU 尖峰。
+- 当前镜像代码里已有 `ProxyConfig.compression_max_workers` 字段，但 `headroom proxy` CLI 没有暴露 `--compression-max-workers`，也没有把 `HEADROOM_COMPRESSION_MAX_WORKERS` 灌进运行配置。单纯在 compose 里加环境变量后，`/health` 仍会显示 `source=auto`、`max_workers=8`。
+
+线上采用一个很小的启动 wrapper，把环境变量显式传入 `ProxyConfig`，然后继续执行原来的 `headroom proxy` 参数解析。wrapper 放在新 VPS：
+
+```bash
+/opt/headroom_start_with_compression_workers.py
+```
+
+内容模板：
+
+```python
+#!/usr/bin/env python3
+import os
+import sys
+
+from headroom.proxy import server
+
+_original_proxy_config = server.ProxyConfig
+
+
+def _patched_proxy_config(*args, **kwargs):
+    raw = os.environ.get("HEADROOM_COMPRESSION_MAX_WORKERS", "2").strip()
+    try:
+        workers = int(raw)
+    except ValueError:
+        workers = 2
+    kwargs.setdefault("compression_max_workers", workers)
+    return _original_proxy_config(*args, **kwargs)
+
+
+server.ProxyConfig = _patched_proxy_config
+
+from headroom.cli.proxy import proxy
+
+if __name__ == "__main__":
+    proxy.main(args=sys.argv[1:], prog_name="headroom proxy", standalone_mode=True)
+```
+
+`/opt/sub2api-deploy/docker-compose.yml` 的 `headroom-main` 和 `/opt/sub2api-ap1-deploy/docker-compose.yml` 的 `headroom-a1` 都要保留以下配置：
+
+```yaml
+restart: unless-stopped
+mem_limit: 1200m
+memswap_limit: 1400m
+entrypoint:
+  - python
+  - /opt/headroom_start_with_compression_workers.py
+volumes:
+  - /opt/headroom_start_with_compression_workers.py:/opt/headroom_start_with_compression_workers.py:ro
+environment:
+  - HEADROOM_WORKERS=1
+  - HEADROOM_COMPRESSION_MAX_WORKERS=2
+  - HEADROOM_LIMIT_CONCURRENCY=50
+  - HEADROOM_MAX_CONNECTIONS=80
+  - HEADROOM_MAX_KEEPALIVE=20
+```
+
+调整前先备份 compose：
+
+```bash
+ssh 51token-vps '
+  stamp=$(date +%Y%m%d%H%M%S)
+  cp /opt/sub2api-deploy/docker-compose.yml /opt/sub2api-deploy/docker-compose.yml.bak-headroom-limits-$stamp
+  cp /opt/sub2api-ap1-deploy/docker-compose.yml /opt/sub2api-ap1-deploy/docker-compose.yml.bak-headroom-limits-$stamp
+'
+```
+
+修改后先验证 compose，再只重建两个 Headroom 容器，不要重启 `sub2api`、`sub2api-ap1`、`sub2api-ap2`：
+
+```bash
+ssh 51token-vps '
+  cd /opt/sub2api-deploy && docker compose config --quiet
+  cd /opt/sub2api-ap1-deploy && docker compose config --quiet
+
+  cd /opt/sub2api-deploy && docker compose up -d --force-recreate headroom-main
+  cd /opt/sub2api-ap1-deploy && docker compose up -d --force-recreate headroom-a1
+'
+```
+
+验证必须看 `/health` 的 `compression_executor`，不能只看容器 env：
+
+```bash
+ssh 51token-vps '
+  docker exec headroom-main python -c '\''import json,urllib.request; h=json.load(urllib.request.urlopen("http://127.0.0.1:8787/health")); print(h["runtime"]["compression_executor"])'\''
+  docker exec headroom-a1 python -c '\''import json,urllib.request; h=json.load(urllib.request.urlopen("http://127.0.0.1:8787/health")); print(h["runtime"]["compression_executor"])'\''
+
+  for c in sub2api sub2api-ap1 sub2api-ap2; do
+    echo "[$c]"
+    docker inspect "$c" --format "{{range .Config.Env}}{{println .}}{{end}}" | grep "GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL" || true
+  done
+
+  docker ps --format "table {{.Names}}\t{{.Status}}" | egrep "headroom|sub2api|NAMES"
+  docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" headroom-main headroom-a1 sub2api sub2api-ap1 sub2api-ap2
+'
+```
+
+期望结果：
+
+- `headroom-main` 和 `headroom-a1` 的 `compression_executor.max_workers` 为 `2`。
+- `compression_executor.source` 为 `explicit`；如果还是 `auto`，说明 wrapper 或 entrypoint 没生效。
+- `HEADROOM_WORKERS` 仍为 `1`。
+- `HEADROOM_LIMIT_CONCURRENCY=50`、`HEADROOM_MAX_CONNECTIONS=80`、`HEADROOM_MAX_KEEPALIVE=20`。
+- Docker inspect 中 `HostConfig.Memory=1258291200`、`HostConfig.MemorySwap=1468006400`，对应 compose 的 `mem_limit: 1200m`、`memswap_limit: 1400m`。
+- `sub2api` 指向 `headroom-main`，`sub2api-ap1` 指向 `headroom-a1`，`sub2api-ap2` 不应出现 Headroom override。
+- `headroom-main`、`headroom-a1`、三套 sub2api 容器都为 `healthy`。
+
+2026-06-14 实测：两个 Headroom 容器从默认 `max_workers=8/source=auto` 调整为 `max_workers=2/source=explicit`，`HEADROOM_WORKERS=1` 保持不变；短窗口 `docker stats` 中 `headroom-main` 和 `headroom-a1` 约为 `0.3% - 0.4%` CPU。后续如果升级 Headroom 镜像后 CLI 原生支持 `--compression-max-workers` 或正确读取 `HEADROOM_COMPRESSION_MAX_WORKERS`，可以移除 wrapper，但必须先用 `/health` 验证 `source=explicit`。
+
+2026-06-14 23:48 追加内存与连接上限：`headroom-main` 和 `headroom-a1` 均设置 `mem_limit: 1200m`、`memswap_limit: 1400m`，并将 `HEADROOM_LIMIT_CONCURRENCY` 从 `200` 降为 `50`，`HEADROOM_MAX_CONNECTIONS` 从 `200` 降为 `80`，`HEADROOM_MAX_KEEPALIVE` 从 `50` 降为 `20`。远端备份文件为：
+
+```text
+/opt/sub2api-deploy/docker-compose.yml.bak-headroom-limits-20260614234850
+/opt/sub2api-ap1-deploy/docker-compose.yml.bak-headroom-limits-20260614234850
+```
+
+重建命令只针对两个 Headroom 容器：
+
+```bash
+ssh 51tokens '
+  cd /opt/sub2api-deploy && docker compose up -d --force-recreate --no-deps headroom-main
+  cd /opt/sub2api-ap1-deploy && docker compose up -d --force-recreate --no-deps headroom-a1
+'
+```
+
+实测重建后两个 Headroom 均为 `healthy`，三套 sub2api 容器保持 `healthy`；`docker stats` 中 `headroom-main` 约 `164MiB / 1.172GiB`、`headroom-a1` 约 `130MiB / 1.172GiB`，整机 `free -h` 可用内存从约 `850MiB` 回升到约 `2.4GiB`，swap 已用从约 `536MiB` 降到约 `177MiB`。
+
+#### 3.4.3 snapd 移除与 sysstat 历史监控
 
 当前 VPS 不使用 snapd / LXD。为减少后台 watchdog 和无用服务，已移除：
 
@@ -745,22 +900,44 @@ curl -I --max-time 10 http://127.0.0.1:3000/
 
 ## 七、Cloudflare Pages 前台与 VPS 旧入口关闭
 
-2026-06-13 已将 `a2.upit.top` 前台静态资源迁到 Cloudflare Pages。VPS 继续保留 `ap2.upit.top` 作为 API 回源，`sub2api-ap2` 后端容器仍承载登录、后台、支付回调、Turnstile secret 校验、模型网关、`/api/*`、`/health` 和 `/51Token/*` 等服务。
+2026-06-14 起，三套正式前台域名都迁到 Cloudflare Pages：
 
-当前 a2 边界：
+| 前台域名 | Pages 项目 | API 回源 | 后端容器 |
+| --- | --- | --- | --- |
+| `ai.upit.top` | `sub2api-frontend-main` | `https://api.upit.top` | `sub2api` |
+| `a1.upit.top` | `sub2api-frontend-a1` | `https://ap1.upit.top` | `sub2api-ap1` |
+| `a2.upit.top` | `sub2api-frontend-a2` | `https://ap2.upit.top` | `sub2api-ap2` |
+
+VPS 继续保留 `api.upit.top`、`ap1.upit.top`、`ap2.upit.top` 作为 API 回源。`sub2api`、`sub2api-ap1`、`sub2api-ap2` 后端容器仍承载登录、后台、支付回调、Turnstile secret 校验、模型网关、`/api/*`、`/health` 和 `/51Token/*` 等服务，不能因为前台迁 Pages 而停止。
+
+当前边界：
 
 | 域名 / 服务 | 当前职责 | 是否可关闭 |
 | --- | --- | --- |
+| `ai.upit.top` | Cloudflare Pages 前台域名，提供 HTML / JS / CSS | VPS 上的旧 origin 入口应关闭 |
+| `a1.upit.top` | Cloudflare Pages 前台域名，提供 HTML / JS / CSS | VPS 上的旧 origin 入口应关闭 |
 | `a2.upit.top` | Cloudflare Pages 前台域名，提供 HTML / JS / CSS | VPS 上的旧 origin 入口已关闭 |
+| `api.upit.top` | Pages Worker API 回源域名 | 不可关闭 |
+| `ap1.upit.top` | Pages Worker API 回源域名 | 不可关闭 |
 | `ap2.upit.top` | Pages Worker API 回源域名 | 不可关闭 |
+| `sub2api` | primary 后端/API 容器，监听 `127.0.0.1:8081` | 不可关闭 |
+| `sub2api-ap1` | a1 后端/API 容器，监听 `127.0.0.1:8082` | 不可关闭 |
 | `sub2api-ap2` | a2 后端/API 容器，监听 `127.0.0.1:8083` | 不可关闭 |
 | `cf-origin-ssl` | VPS origin TLS / Caddy 入口 | 不可关闭 |
 
-本次关闭的不是后端容器，而是 `/opt/cf-origin-ssl/Caddyfile` 里 `a2.upit.top` 的旧前台 origin server label。
+本次关闭的不是后端容器，而是 `/opt/cf-origin-ssl/Caddyfile` 里 `ai.upit.top`、`a1.upit.top`、`a2.upit.top` 的旧前台 origin server label。Caddy 应只保留 API 回源域名。
 
 变更前：
 
 ```caddyfile
+api.upit.top:443, ai.upit.top:443 {
+    ...
+}
+
+ap1.upit.top:443, a1.upit.top:443 {
+    ...
+}
+
 ap2.upit.top:443, a2.upit.top:443 {
     ...
 }
@@ -769,12 +946,20 @@ ap2.upit.top:443, a2.upit.top:443 {
 变更后：
 
 ```caddyfile
+api.upit.top:443 {
+    ...
+}
+
+ap1.upit.top:443 {
+    ...
+}
+
 ap2.upit.top:443 {
     ...
 }
 ```
 
-线上备份：
+历史 a2 备份：
 
 ```text
 /opt/cf-origin-ssl/Caddyfile.bak-disable-a2-origin-20260613081656
@@ -783,14 +968,21 @@ ap2.upit.top:443 {
 验证命令：
 
 ```bash
+curl -sSIL --max-time 15 https://ai.upit.top/login | sed -n '1,30p'
+curl -sSIL --max-time 15 https://a1.upit.top/login | sed -n '1,30p'
 curl -sSIL --max-time 15 https://a2.upit.top/login | sed -n '1,30p'
-curl -fsS --max-time 15 https://a2.upit.top/health
+curl -fsS --max-time 15 https://api.upit.top/health
+curl -fsS --max-time 15 https://ap1.upit.top/health
 curl -fsS --max-time 15 https://ap2.upit.top/health
-curl -fsS --max-time 15 https://a2.upit.top/api/v1/settings/public
+curl -fsS --max-time 15 https://ai.upit.top/health
+curl -fsS --max-time 15 https://a1.upit.top/health
+curl -fsS --max-time 15 https://a2.upit.top/health
 
-ssh 51token-vps '
+ssh 51tokens '
+  docker inspect -f "{{.State.Health.Status}}" sub2api
+  docker inspect -f "{{.State.Health.Status}}" sub2api-ap1
   docker inspect -f "{{.State.Health.Status}}" sub2api-ap2
-  grep -n "ap2.upit.top\|a2.upit.top" /opt/cf-origin-ssl/Caddyfile
+  grep -n "ai.upit.top\|a1.upit.top\|a2.upit.top\|api.upit.top\|ap1.upit.top\|ap2.upit.top" /opt/cf-origin-ssl/Caddyfile
 '
 ```
 
@@ -802,7 +994,7 @@ ssh 51token-vps '
 - `sub2api-ap2` 为 `healthy`。
 - `/opt/cf-origin-ssl/Caddyfile` 中只保留 `ap2.upit.top:443`，不再包含 `a2.upit.top:443`。
 
-回滚：
+回滚时，只把确实需要从 Pages 回退到 VPS 的前台域名加回 Caddy；不要移除 API 回源域名。a2 的历史回滚示例：
 
 ```bash
 ssh 51token-vps '
@@ -820,7 +1012,7 @@ ssh 51token-vps '
 
 | 路径 | 方法 | TTL | 回源 |
 | --- | --- | ---: | --- |
-| `/api/v1/settings/public` | `GET` | `60s` | `a2.upit.top` 回 `https://ap2.upit.top`，其它域名默认回 `https://api.upit.top` |
+| `/api/v1/settings/public` | `GET` | `60s` | `ai.upit.top` 回 `https://api.upit.top`，`a1.upit.top` 回 `https://ap1.upit.top`，`a2.upit.top` 回 `https://ap2.upit.top` |
 | `/api/status` | `GET` | `60s` | 同上 |
 | `/api/home_page_content` | `GET` | `60s` | 同上 |
 
@@ -844,10 +1036,39 @@ pnpm --dir frontend exec vitest run \
   src/cloudflare/__tests__/pages-worker.spec.ts \
   src/cloudflare/__tests__/pages-config-injection.spec.ts
 pnpm --dir frontend run build
+
+rm -rf /tmp/sub2api-pages-main /tmp/sub2api-pages-a1 /tmp/sub2api-pages-a2
+cp -R backend/internal/web/dist /tmp/sub2api-pages-main
+cp -R backend/internal/web/dist /tmp/sub2api-pages-a1
+cp -R backend/internal/web/dist /tmp/sub2api-pages-a2
+
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://api.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-main/index.html
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://ap1.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-a1/index.html
 node scripts/inject-pages-public-settings.mjs \
   --settings-url https://ap2.upit.top/api/v1/settings/public \
-  --html backend/internal/web/dist/index.html
-pnpm dlx wrangler pages deploy backend/internal/web/dist --project-name sub2api-frontend
+  --html /tmp/sub2api-pages-a2/index.html
+
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-main --project-name sub2api-frontend-main --branch subapi
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a1 --project-name sub2api-frontend-a1 --branch subapi
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a2 --project-name sub2api-frontend-a2 --branch subapi
+
+curl -fsSL --max-time 15 https://ai.upit.top/login \
+  | rg "window\\.__APP_CONFIG__|https://api.upit.top/51Token/v1|<title>"
+curl -sSi --max-time 15 https://ai.upit.top/api/v1/settings/public \
+  | grep -Ei 'HTTP/|x-sub2api-edge-cache|cache-control|cf-cache-status'
+curl -fsS --max-time 15 https://ai.upit.top/health
+curl -fsS --max-time 15 https://api.upit.top/health
+
+curl -fsSL --max-time 15 https://a1.upit.top/login \
+  | rg "window\\.__APP_CONFIG__|https://ap1.upit.top/51Token/v1|<title>"
+curl -sSi --max-time 15 https://a1.upit.top/api/v1/settings/public \
+  | grep -Ei 'HTTP/|x-sub2api-edge-cache|cache-control|cf-cache-status'
+curl -fsS --max-time 15 https://a1.upit.top/health
+curl -fsS --max-time 15 https://ap1.upit.top/health
 
 curl -fsSL --max-time 15 https://a2.upit.top/login \
   | rg "window\\.__APP_CONFIG__|https://ap2.upit.top/51Token/v1|<title>"
@@ -1169,4 +1390,232 @@ docker run --rm --network container:sub2api curlimages/curl:8.16.0 \
 new-api   51token:<tag>   Up
 HTTP/1.1 200 OK
 New API started
+```
+
+***
+
+## 十一、2026-06-13 线上相关改动记录
+
+### 1. a2 前台迁 Cloudflare Pages 后关闭 VPS 旧前台入口
+
+2026-06-13 已执行：
+
+- Cloudflare Pages 承载 `a2.upit.top` 前台静态资源。
+- Pages Worker 将 `/api/*`、`/health`、`/51Token/*` 等回源到 `https://ap2.upit.top`。
+- VPS Caddy 备份：`/opt/cf-origin-ssl/Caddyfile.bak-disable-a2-origin-20260613081656`。
+- Caddy server label 从 `ap2.upit.top:443, a2.upit.top:443` 改为 `ap2.upit.top:443`，只关闭旧前台 origin，不关闭 `ap2.upit.top` 和 `sub2api-ap2`。
+- 验证：`a2.upit.top/login` 加载 Cloudflare Pages 资产；`a2.upit.top/health`、`ap2.upit.top/health` 均返回 ok；`sub2api-ap2` 为 `healthy`。
+
+后续不要把 `a2.upit.top` 加回 VPS origin，除非明确回滚 Pages。
+
+### 2. Pages public settings 注入和公开只读接口短缓存
+
+2026-06-13 已落地：
+
+- 新增 `scripts/cloudflare-pages-config.mjs` 和 `scripts/inject-pages-public-settings.mjs`，发布前把对应环境 `/api/v1/settings/public` 的公开 `data` 注入到 Pages 静态 `index.html`。
+- `frontend/public/_worker.js` 对公开只读 GET 接口启用 Cloudflare Cache API 短缓存：`/api/v1/settings/public`、`/api/status`、`/api/home_page_content`。
+- 认证、后台、支付/OAuth、模型网关、`/51Token/*`、长流式接口不缓存，只代理回 VPS。
+- 部署前需要运行 `pages-worker.spec.ts` 和 `pages-config-injection.spec.ts`，部署后验证 `X-Sub2API-Edge-Cache`。
+
+发布时只能注入公开 settings `data` 字段，不得把 `.env`、数据库连接、后台配置、Token secret、Turnstile secret 写进静态文件。
+
+### 3. 连接池按环境分档
+
+2026-06-13 已记录并执行过连接池分档，减少共享数据层常驻连接：
+
+| 环境 | `DATABASE_MAX_OPEN_CONNS` | `DATABASE_MAX_IDLE_CONNS` | `REDIS_POOL_SIZE` | `REDIS_MIN_IDLE_CONNS` |
+| --- | ---: | ---: | ---: | ---: |
+| primary | `12` | `2` | `128` | `2` |
+| ap1 / a1 | `12` | `2` | `128` | `2` |
+| ap2 / a2 | `4` | `1` | `32` | `1` |
+
+实测 PostgreSQL idle 连接降为：`sub2api=2`、`sub2api_ap1=2`、`sub2api_ap2=1`。后续重建 compose 或迁移时不要恢复默认大连接池。
+
+## 十二、2026-06-14 线上相关改动记录
+
+### 1. 三套正式前台全部迁 Cloudflare Pages
+
+2026-06-14 起，三套正式前台都按 Cloudflare Pages 发布：
+
+| 前台域名 | Pages 项目 | API 回源域名 | 后端容器 |
+| --- | --- | --- | --- |
+| `ai.upit.top` | `sub2api-frontend-main` | `https://api.upit.top` | `sub2api` |
+| `a1.upit.top` | `sub2api-frontend-a1` | `https://ap1.upit.top` | `sub2api-ap1` |
+| `a2.upit.top` | `sub2api-frontend-a2` | `https://ap2.upit.top` | `sub2api-ap2` |
+
+边界：
+
+- `ai/a1/a2` 只承载前台 HTML / JS / CSS。
+- `api/ap1/ap2` 继续承载登录、后台、支付、Turnstile secret 校验、模型网关、`/api/*`、`/health`、`/51Token/*`。
+- 前台改动走 Pages 发布；后端/API 常规发布默认 `--skip-frontend-build`。
+- VPS 内嵌前台继续作为回滚兜底，但常规发布不再为 VPS 重新打前台产物。
+
+前台发布流程：
+
+```bash
+pnpm --dir frontend exec vitest run \
+  src/cloudflare/__tests__/pages-worker.spec.ts \
+  src/cloudflare/__tests__/pages-config-injection.spec.ts
+pnpm --dir frontend run build
+
+rm -rf /tmp/sub2api-pages-main /tmp/sub2api-pages-a1 /tmp/sub2api-pages-a2
+cp -R backend/internal/web/dist /tmp/sub2api-pages-main
+cp -R backend/internal/web/dist /tmp/sub2api-pages-a1
+cp -R backend/internal/web/dist /tmp/sub2api-pages-a2
+
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://api.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-main/index.html
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://ap1.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-a1/index.html
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://ap2.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-a2/index.html
+
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-main --project-name sub2api-frontend-main --branch subapi
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a1 --project-name sub2api-frontend-a1 --branch subapi
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a2 --project-name sub2api-frontend-a2 --branch subapi
+```
+
+### 2. 新 VPS 迁移和共享数据层状态
+
+2026-06-14 新 VPS 当前承载三套 sub2api：
+
+| 环境 | compose 目录 | 容器 | 本机端口 | PostgreSQL database | Redis DB |
+| --- | --- | --- | --- | --- | --- |
+| primary | `/opt/sub2api-deploy` | `sub2api` | `127.0.0.1:8081` | `sub2api` | `0` |
+| a1 / ap1 | `/opt/sub2api-ap1-deploy` | `sub2api-ap1` | `127.0.0.1:8082` | `sub2api_ap1` | `1` |
+| a2 / ap2 | `/opt/sub2api-ap2-deploy` | `sub2api-ap2` | `127.0.0.1:8083` | `sub2api_ap2` | `2` |
+
+共享基础设施：
+
+- PostgreSQL：`sub2api-postgres`
+- Redis：`sub2api-redis`
+- Caddy：`cf-origin-ssl`
+- Docker network：`sub2api-deploy_sub2api-network`
+
+当前没有三套独立 Redis/PostgreSQL。三套环境已经共用一组数据库和缓存容器，以不同 PostgreSQL database 和 Redis DB 隔离。不要再把 `sub2api-ap1-postgres`、`sub2api-ap1-redis`、`sub2api-ap2-postgres`、`sub2api-ap2-redis` 加回 compose。
+
+### 3. 旧 VPS 备份和下线边界
+
+2026-06-14 旧 VPS 最终备份已放在新 VPS：
+
+```text
+/opt/migration-backups/old-vps-final-20260614-210956/
+```
+
+包含：
+
+```text
+old-vps-final-20260614-210956.tar.zst
+old-vps-final-20260614-210956.tar.zst.sha256
+```
+
+已在新 VPS 手工比对 sha256，压缩包大小约 `315M`。用户明确要求不需要下载到本地；本地临时 rsync 目录已移除。
+
+旧 VPS 下线前仍需确认：
+
+- Cloudflare DNS 已全部指向新路径。
+- `api/ap1/ap2` 健康检查均通过。
+- `ai/a1/a2` 登录页均由 Pages 返回。
+- 新 VPS 上 `sub2api`、`sub2api-ap1`、`sub2api-ap2`、`sub2api-postgres`、`sub2api-redis`、`cf-origin-ssl` 状态正常。
+- 旧 VPS 没有残留必须继续提供服务的 cron、Caddy、sidecar、备份任务或数据写入。
+
+不要在没有上述证据时直接销毁旧 VPS。
+
+### 4. Headroom 启用范围和压缩 worker 限制
+
+2026-06-14 当前只保留两套 Headroom sidecar 能力：
+
+| 环境 | Headroom 容器 | sub2api override |
+| --- | --- | --- |
+| primary | `headroom-main` | `http://headroom-main:8787/v1/responses`，后台 Headroom 开关关闭时不会实际转发 |
+| a1 / ap1 | `headroom-a1` | `http://headroom-a1:8787/v1/responses` |
+| a2 / ap2 | 无 | 无 |
+
+`HEADROOM_WORKERS=1` 保持不变，它只代表 Uvicorn worker 进程数。真正限制压缩并发的是 `/health` 里的 `runtime.compression_executor.max_workers`。
+
+当前 Headroom 镜像虽然有 `ProxyConfig.compression_max_workers` 字段，但 `headroom proxy` CLI 没有把 `HEADROOM_COMPRESSION_MAX_WORKERS` 灌进运行配置。单纯设置 env 后 `/health` 仍显示 `max_workers=8/source=auto`。
+
+线上新增 wrapper：
+
+```text
+/opt/headroom_start_with_compression_workers.py
+```
+
+compose 挂载该 wrapper 并改 entrypoint，在执行原 `headroom proxy` 前把 `HEADROOM_COMPRESSION_MAX_WORKERS=2` 显式传入 `ProxyConfig`。验证期望：
+
+```text
+compression_executor.max_workers=2
+compression_executor.source=explicit
+HEADROOM_WORKERS=1
+```
+
+如果 `source=auto`，说明 wrapper 或 entrypoint 没生效。
+
+2026-06-14 23:48 已追加 Docker 资源保护：
+
+```yaml
+mem_limit: 1200m
+memswap_limit: 1400m
+HEADROOM_LIMIT_CONCURRENCY=50
+HEADROOM_MAX_CONNECTIONS=80
+HEADROOM_MAX_KEEPALIVE=20
+```
+
+不要再把 `HEADROOM_LIMIT_CONCURRENCY` 和 `HEADROOM_MAX_CONNECTIONS` 恢复到 `200`。主环境后台开关已关闭时，`headroom-main` 容器可以保留为可回滚 sidecar，但必须保留上述内存上限，避免空闲或异常请求后常驻 RSS 无上限增长。
+
+### 5. Headroom CPU / 内存排查结论
+
+2026-06-14 排查结论：
+
+- PostgreSQL / Redis 已共用，且内存占用不高；继续合并数据库/Redis 对当前内存帮助很小。
+- 当前内存大头是 `headroom-main` 和 `headroom-a1` 两个 Python 进程，合计可能超过 `2GiB`。
+- Headroom `/health` 曾显示 `run_seconds_max` 明显超过 `compression_timeout_seconds=30s`，且 `leaked_threads_total` 增长，说明有压缩任务超时返回后底层线程仍继续跑。
+- 近 15 分钟日志里 primary 和 a1 都有多次 `compression_refused`，请求体常见在数百 KB，随后 sub2api 走直连绕过。
+
+因此当前资源压力主要来自大 Codex 请求进入 Headroom 压缩后产生的 CPU、RSS 和 swap 压力，不是 Redis/PostgreSQL。若要继续降低 VPS 压力，优先考虑：
+
+1. 降低进入 Headroom 的请求体阈值，让更大的请求在 sub2api 层直接绕过。
+2. 只保留 primary 或 a1 其中一套 Headroom，另一套关闭后台 “Headroom 压缩代理”。
+3. 保留 Headroom Docker 内存上限；当前已加 `mem_limit: 1200m`、`memswap_limit: 1400m`。
+4. 升级 VPS 到更高内存规格。
+
+不要把 `HEADROOM_WORKERS` 从 `1` 改成 `2` 来解决压缩性能；那会增加 Uvicorn 进程数，不是压缩 executor 的限制。
+
+### 6. 2026-06-14 快速复查命令
+
+线上状态总览：
+
+```bash
+ssh 51tokens '
+  docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
+  docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" \
+    sub2api sub2api-ap1 sub2api-ap2 sub2api-postgres sub2api-redis headroom-main headroom-a1 cf-origin-ssl
+  free -h
+'
+```
+
+共享数据层：
+
+```bash
+ssh 51tokens '
+  docker exec sub2api-postgres psql -U sub2api -d postgres -Atc "select datname from pg_database where datname like '''sub2api%''' order by datname;"
+  for n in 0 1 2; do
+    echo -n "redis-db$n "
+    docker exec sub2api-redis sh -lc "env -u REDISCLI_AUTH redis-cli -n $n DBSIZE"
+  done
+'
+```
+
+Pages / API 健康：
+
+```bash
+curl -fsS https://api.upit.top/health
+curl -fsS https://ap1.upit.top/health
+curl -fsS https://ap2.upit.top/health
+curl -fsS https://ai.upit.top/health
+curl -fsS https://a1.upit.top/health
+curl -fsS https://a2.upit.top/health
 ```

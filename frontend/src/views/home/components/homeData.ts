@@ -69,7 +69,7 @@ wire_api = "responses"`
 function buildClaudeConfigJson(claudeBaseUrl: string): string {
   return `{
   "env": {
-    "ANTHROPIC_AUTH_TOKEN": "不带sk-开头",
+    "ANTHROPIC_AUTH_TOKEN": "api key",
     "ANTHROPIC_BASE_URL": "${claudeBaseUrl}",
     "ANTHROPIC_MODEL": "gpt-5.5",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.5",
