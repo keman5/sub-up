@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Chart as ChartJS, CategoryScale, Filler, Legend, LineElement, LinearScale, PointElement, Tooltip } from 'chart.js'
+import { Line } from 'vue-chartjs'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { opsAPI, type OpsHostHealthSnapshot } from '@/api/admin/ops'
 
+ChartJS.register(Tooltip, Legend, LineElement, LinearScale, PointElement, CategoryScale, Filler)
+
 interface Props {
   refreshToken: number
 }
+
+const MAX_TREND_POINTS = 30
 
 const props = defineProps<Props>()
 const { t } = useI18n()
@@ -15,6 +21,17 @@ const { t } = useI18n()
 const loading = ref(false)
 const errorMessage = ref('')
 const health = ref<OpsHostHealthSnapshot | null>(null)
+const trendSnapshots = ref<OpsHostHealthSnapshot[]>([])
+
+const isDarkMode = computed(() => document.documentElement.classList.contains('dark'))
+const chartColors = computed(() => ({
+  cpu: '#ef4444',
+  cpuFill: '#ef444420',
+  load: '#2563eb',
+  loadFill: '#2563eb20',
+  grid: isDarkMode.value ? '#374151' : '#e5e7eb',
+  text: isDarkMode.value ? '#9ca3af' : '#6b7280',
+}))
 
 const statusLabel = computed(() => {
   if (!health.value?.available) return t('admin.ops.hostHealth.unavailable')
@@ -38,6 +55,100 @@ const collectedAtLabel = computed(() => {
   return date.toLocaleString()
 })
 
+const trendChartData = computed(() => {
+  if (trendSnapshots.value.length < 2) return null
+  const colors = chartColors.value
+  return {
+    labels: trendSnapshots.value.map((snapshot) => formatTrendLabel(snapshot.collected_at)),
+    datasets: [
+      {
+        label: t('admin.ops.hostHealth.cpuUsageTrend'),
+        data: trendSnapshots.value.map((snapshot) => normalizeNumber(snapshot.cpu?.usage_percent)),
+        borderColor: colors.cpu,
+        backgroundColor: colors.cpuFill,
+        fill: true,
+        tension: 0.35,
+        pointRadius: 2,
+        pointHitRadius: 8,
+        spanGaps: true,
+      },
+      {
+        label: t('admin.ops.hostHealth.loadOneMinute'),
+        data: trendSnapshots.value.map((snapshot) => normalizeNumber(snapshot.load_average?.one)),
+        borderColor: colors.load,
+        backgroundColor: colors.loadFill,
+        fill: false,
+        tension: 0.35,
+        pointRadius: 2,
+        pointHitRadius: 8,
+        yAxisID: 'y1',
+        spanGaps: true,
+      },
+    ],
+  }
+})
+
+const trendChartOptions = computed(() => {
+  const colors = chartColors.value
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { intersect: false, mode: 'index' as const },
+    plugins: {
+      legend: {
+        position: 'top' as const,
+        align: 'end' as const,
+        labels: { color: colors.text, usePointStyle: true, boxWidth: 6, font: { size: 10 } },
+      },
+      tooltip: {
+        backgroundColor: isDarkMode.value ? '#1f2937' : '#ffffff',
+        titleColor: isDarkMode.value ? '#f3f4f6' : '#111827',
+        bodyColor: isDarkMode.value ? '#d1d5db' : '#4b5563',
+        borderColor: colors.grid,
+        borderWidth: 1,
+        padding: 10,
+        displayColors: true,
+        callbacks: {
+          label: (context: any) => {
+            const suffix = context.dataset.yAxisID === 'y1' ? '' : '%'
+            const value = Number(context.parsed.y)
+            const displayValue = Number.isFinite(value) ? value.toFixed(1) : '-'
+            return `${context.dataset.label}: ${displayValue}${suffix}`
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        type: 'category' as const,
+        grid: { display: false },
+        ticks: { color: colors.text, font: { size: 10 }, maxTicksLimit: 8 },
+      },
+      y: {
+        type: 'linear' as const,
+        display: true,
+        position: 'left' as const,
+        min: 0,
+        suggestedMax: 100,
+        grid: { color: colors.grid, borderDash: [4, 4] },
+        ticks: {
+          color: colors.text,
+          font: { size: 10 },
+          callback: (value: string | number) => `${value}%`,
+        },
+      },
+      y1: {
+        type: 'linear' as const,
+        display: true,
+        position: 'right' as const,
+        min: 0,
+        grid: { display: false },
+        ticks: { color: colors.load, font: { size: 10 } },
+      },
+    },
+  }
+})
+
 function formatPercent(value?: number | null): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
   return `${value.toFixed(1)}%`
@@ -53,11 +164,33 @@ function formatMB(value?: number | null): string {
   return `${Math.round(value)} MB`
 }
 
+function normalizeNumber(value?: number | null): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return Number(value.toFixed(2))
+}
+
+function formatTrendLabel(value?: string): string {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function recordTrendSnapshot(snapshot: OpsHostHealthSnapshot | null) {
+  if (!snapshot?.available || !snapshot.collected_at) return
+  trendSnapshots.value = [
+    ...trendSnapshots.value.filter((item) => item.collected_at !== snapshot.collected_at),
+    snapshot,
+  ].slice(-MAX_TREND_POINTS)
+}
+
 async function loadData() {
   loading.value = true
   errorMessage.value = ''
   try {
-    health.value = await opsAPI.getHostHealth()
+    const snapshot = await opsAPI.getHostHealth()
+    health.value = snapshot
+    recordTrendSnapshot(snapshot)
   } catch (err: any) {
     health.value = null
     console.error('[OpsHostHealthCard] Failed to load host health', err)
@@ -149,6 +282,15 @@ watch(
         <div class="rounded-lg border border-gray-200 p-3 dark:border-dark-700">
           <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.ops.hostHealth.swapUsed') }}</div>
           <div class="mt-1 text-xl font-bold text-gray-900 dark:text-white">{{ formatMB(health.memory?.swap_used_mb) }}</div>
+        </div>
+      </div>
+
+      <div v-if="trendChartData" class="rounded-lg border border-gray-200 p-3 dark:border-dark-700">
+        <h4 class="mb-2 text-xs font-semibold text-gray-500 dark:text-gray-400">
+          {{ t('admin.ops.hostHealth.cpuTrend') }}
+        </h4>
+        <div class="h-48 min-h-0">
+          <Line :data="trendChartData" :options="trendChartOptions" />
         </div>
       </div>
 

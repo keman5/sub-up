@@ -13,6 +13,13 @@ vi.mock('@/api/admin/ops', () => ({
   },
 }))
 
+vi.mock('vue-chartjs', () => ({
+  Line: {
+    props: ['data', 'options'],
+    template: '<div class="chart-data">{{ JSON.stringify(data) }}</div>',
+  },
+}))
+
 vi.mock('vue-i18n', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-i18n')>()
   return {
@@ -95,6 +102,41 @@ describe('OpsHostHealthCard', () => {
     await flushPromises()
 
     expect(mockGetHostHealth).toHaveBeenCalledTimes(2)
+  })
+
+  it('renders a CPU trend chart from successful refresh snapshots', async () => {
+    mockGetHostHealth
+      .mockResolvedValueOnce({
+        ...sampleHealth,
+        collected_at: '2026-06-15T01:00:00Z',
+        load_average: { ...sampleHealth.load_average, one: 1.1 },
+        cpu: { ...sampleHealth.cpu, usage_percent: 45.2 },
+      })
+      .mockResolvedValueOnce({
+        ...sampleHealth,
+        collected_at: '2026-06-15T01:01:00Z',
+        load_average: { ...sampleHealth.load_average, one: 5.27 },
+        cpu: { ...sampleHealth.cpu, usage_percent: 96.8 },
+      })
+
+    const wrapper = mount(OpsHostHealthCard, {
+      props: {
+        refreshToken: 0,
+      },
+    })
+    await flushPromises()
+
+    await wrapper.setProps({ refreshToken: 1 })
+    await flushPromises()
+
+    const chartData = JSON.parse(wrapper.find('.chart-data').text())
+    expect(chartData.labels).toHaveLength(2)
+    expect(chartData.datasets.map((dataset: any) => dataset.label)).toEqual([
+      'admin.ops.hostHealth.cpuUsageTrend',
+      'admin.ops.hostHealth.loadOneMinute',
+    ])
+    expect(chartData.datasets[0].data).toEqual([45.2, 96.8])
+    expect(chartData.datasets[1].data).toEqual([1.1, 5.27])
   })
 
   it('shows unavailable state without surfacing an error toast', async () => {
