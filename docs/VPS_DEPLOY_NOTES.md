@@ -1554,6 +1554,36 @@ HEADROOM_WORKERS=1
 
 如果 `source=auto`，说明 wrapper 或 entrypoint 没生效。
 
+2026-06-15 10:28 追加 a1 保守档：`headroom-a1` 仍容易在压缩任务期间打满 CPU，且 `/health` 中 `run_seconds_max=983s`、`leaked_threads_total=17`，说明历史压缩任务存在超时后线程残留。a1 日志同时显示约 `150KB - 230KB` 请求仍进入 Headroom 后触发 `compression_refused`，所以将 a1 调整为更保守配置：
+
+```yaml
+GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_BODY_BYTES=131072
+HEADROOM_COMPRESSION_MAX_WORKERS=1
+```
+
+该调整只作用于 `/opt/sub2api-ap1-deploy`：
+
+- `sub2api-ap1`：大于 128KB 的 OpenAI OAuth Codex 请求直接绕过 `headroom-a1`。
+- `headroom-a1`：压缩 executor 单 worker，减少 2 核 VPS 上的瞬时 CPU 尖峰。
+- primary / a2 不随本次变更。
+
+远端备份：
+
+```text
+/opt/sub2api-ap1-deploy/docker-compose.yml.bak-headroom-a1-cpu-tune-20260615102809
+```
+
+验证结果：
+
+```text
+compression_executor.max_workers=1
+compression_executor.source=explicit
+GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_BODY_BYTES=131072
+HEADROOM_COMPRESSION_MAX_WORKERS=1
+```
+
+短窗口 `docker stats` 中，重建后 `headroom-a1` 从约 `1.05GiB / 1.172GiB`、`22` PIDs 降到约 `162MiB / 1.172GiB`、`4` PIDs，CPU 稳定在约 `0.3%`。公网 `https://a1.upit.top/health`、`https://ap1.upit.top/health` 均为 200，`https://ap1.upit.top/51Token/v1/models` 未带 key 返回 `401 API_KEY_REQUIRED`。
+
 2026-06-14 23:48 已追加 Docker 资源保护：
 
 ```yaml
@@ -1577,14 +1607,141 @@ HEADROOM_MAX_KEEPALIVE=20
 
 因此当前资源压力主要来自大 Codex 请求进入 Headroom 压缩后产生的 CPU、RSS 和 swap 压力，不是 Redis/PostgreSQL。若要继续降低 VPS 压力，优先考虑：
 
-1. 降低进入 Headroom 的请求体阈值，让更大的请求在 sub2api 层直接绕过。
+1. 降低进入 Headroom 的请求体阈值，让更大的请求在 sub2api 层直接绕过；a1 当前已降到 `131072` bytes。
 2. 只保留 primary 或 a1 其中一套 Headroom，另一套关闭后台 “Headroom 压缩代理”。
 3. 保留 Headroom Docker 内存上限；当前已加 `mem_limit: 1200m`、`memswap_limit: 1400m`。
 4. 升级 VPS 到更高内存规格。
 
 不要把 `HEADROOM_WORKERS` 从 `1` 改成 `2` 来解决压缩性能；那会增加 Uvicorn 进程数，不是压缩 executor 的限制。
 
-### 6. 2026-06-14 快速复查命令
+### 6. 2026-06-15 a1 Chat Completions Headroom 502 修复
+
+线上现象：`ap1.upit.top` 在 OpenAI Chat Completions 兼容入口请求 `GPT-5.5` 时返回 Cloudflare 502。外部健康检查仍正常：
+
+```bash
+curl -fsS https://a1.upit.top/health
+curl -fsS https://ap1.upit.top/health
+curl -sS -o /tmp/ap1_models.out -w '%{http_code}\n' https://ap1.upit.top/51Token/v1/models
+```
+
+`/51Token/v1/models` 未带 key 返回 `401 API_KEY_REQUIRED` 属于正常 reachability 信号，说明 Cloudflare / Caddy / backend API 路由是通的。
+
+实际根因在 `sub2api-ap1` 日志：
+
+```text
+path="/v1/chat/completions"
+model="GPT-5.5"
+account_id=47
+upstream request failed: Post "http://headroom-a1:8787/v1/responses": socks connect tcp 172.17.0.1:40001->headroom-a1:8787: unexpected EOF
+```
+
+该请求已经进入 `sub2api-ap1`，并由 Chat Completions 兼容入口转为 Responses 后发往 `headroom-a1`。修复前该路径仍直接使用账号 SOCKS 代理，导致 Docker 内网服务名 `headroom-a1` 被交给代理端解析而失败。
+
+代码修复：
+
+- 提交：`c745d7fd fix: bypass account proxy for headroom chat completions`。
+- `backend/internal/service/openai_gateway_chat_completions.go` 发送上游请求时复用 `openAICodexHTTPProxyURL(account, upstreamReq)`。
+- `backend/internal/service/openai_gateway_chat_completions_test.go` 增加 `TestForwardAsChatCompletions_OAuthHeadroomOverrideBypassesAccountProxy`。
+
+本地验证：
+
+```bash
+cd backend
+go test ./internal/service -run 'TestForwardAsChatCompletions_OAuthHeadroomOverrideBypassesAccountProxy|TestOpenAIGatewayService_OAuthCodexHeadroomOverrideBypassesAccountProxy' -count=1
+go test ./internal/service -run 'TestForwardAsChatCompletions_|TestOpenAIGatewayService_OAuthCodexHeadroom' -count=1
+```
+
+发布注意事项：
+
+- 不要用旧提交 `7a7baea8` 构建此修复镜像。该提交的 `145_add_ops_system_disk_gpu_metrics.sql` checksum 是 `a99a32db3ddc32899dbc42cccd9dadcbb7ce2dcac4925be5911564c6ec5682d1`，与 a1 数据库已记录的 `3c137690c2146d2b3c9332cf87ee63ac6615452cf42c26339fd4551869aad59b` 不一致，会启动失败。
+- 必须基于当前 `subapi` 的 `c745d7fd` 或更新提交构建；该分支的 145 migration checksum 与线上一致。
+- `deploy/local-gzip-binary-deploy.sh --deploy` 会同时滚 `ap1` 和 primary；本次只修 a1，因此只能用脚本构建镜像，再手工改 `/opt/sub2api-ap1-deploy/docker-compose.yml` 并只重启 `sub2api-ap1`。
+
+本次发布镜像：
+
+```text
+sub2api:subapi-c745d7fd-a1-headroom-chat-proxy-202606151012
+```
+
+切换前先用同一 a1 数据库做短预检，确认没有 migration checksum mismatch：
+
+```bash
+ssh 51tokens '
+cd /opt/sub2api-ap1-deploy
+set -a
+. ./.env
+set +a
+docker rm -f sub2api-ap1-preflight >/dev/null 2>&1 || true
+IMAGE="sub2api:subapi-c745d7fd-a1-headroom-chat-proxy-202606151012"
+NETWORK="sub2api-deploy_sub2api-network"
+docker run -d --rm --name sub2api-ap1-preflight --network "$NETWORK" \
+  --env-file ./.env \
+  -e AUTO_SETUP=true -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e RUN_MODE=standard \
+  -e DATABASE_HOST=sub2api-postgres -e DATABASE_PORT=5432 -e DATABASE_USER="${POSTGRES_USER:-sub2api}" -e DATABASE_PASSWORD="$POSTGRES_PASSWORD" -e DATABASE_DBNAME=sub2api_ap1 -e DATABASE_SSLMODE=disable \
+  -e REDIS_HOST=sub2api-redis -e REDIS_PORT=6379 -e REDIS_DB=1 \
+  -e SECURITY_URL_ALLOWLIST_ENABLED=false \
+  -e GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL=http://headroom-a1:8787/v1/responses \
+  -e GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_BODY_BYTES=1048576 \
+  -e GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_TTL_SECONDS=600 \
+  "$IMAGE"
+sleep 10
+docker ps -a --filter name=sub2api-ap1-preflight --format "{{.Names}} {{.Status}}"
+docker logs --tail 80 sub2api-ap1-preflight 2>&1
+IP=$(docker inspect -f "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}" sub2api-ap1-preflight)
+curl -fsS "http://$IP:8080/health"
+docker stop sub2api-ap1-preflight >/dev/null
+'
+```
+
+只滚动 a1：
+
+```bash
+ssh 51tokens '
+set -eu
+IMAGE="sub2api:subapi-c745d7fd-a1-headroom-chat-proxy-202606151012"
+COMPOSE_DIR=/opt/sub2api-ap1-deploy
+COMPOSE_FILE="$COMPOSE_DIR/docker-compose.yml"
+TS=$(date +%Y%m%d%H%M%S)
+cp "$COMPOSE_FILE" "$COMPOSE_FILE.bak-a1-headroom-chat-proxy-current-$TS"
+sed -i -E "0,/image: sub2api:subapi-/s#image: sub2api:subapi-[^[:space:]]+#image: $IMAGE#" "$COMPOSE_FILE"
+cd "$COMPOSE_DIR"
+docker compose config --quiet
+docker compose up -d sub2api
+for i in $(seq 1 40); do
+  s=$(docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" sub2api-ap1)
+  echo "sub2api-ap1=$s"
+  [ "$s" = healthy ] && break
+  sleep 2
+  [ "$i" = 40 ] && exit 1
+done
+curl -fsS http://127.0.0.1:8082/health
+docker exec sub2api-ap1 sh -lc "wget -qO- http://headroom-a1:8787/readyz || curl -fsS http://headroom-a1:8787/readyz"
+'
+```
+
+本次 compose 备份：
+
+```text
+/opt/sub2api-ap1-deploy/docker-compose.yml.bak-a1-headroom-chat-proxy-current-20260615101557
+```
+
+发布后验证：
+
+```bash
+curl -fsS https://a1.upit.top/health
+curl -fsS https://ap1.upit.top/health
+curl -sS -o /tmp/ap1_models.out -w '%{http_code}\n' https://ap1.upit.top/51Token/v1/models
+ssh 51tokens 'docker logs sub2api-ap1 --since 2m 2>&1 | grep -E "migration .*checksum mismatch|socks connect tcp .*headroom-a1|openai_chat_completions.forward_failed" || true'
+```
+
+期望：
+
+- `a1` / `ap1` `/health` 均为 200。
+- `/51Token/v1/models` 未带 key 返回 `401 API_KEY_REQUIRED`。
+- `sub2api-ap1` 使用 `sub2api:subapi-c745d7fd-a1-headroom-chat-proxy-202606151012` 且为 `healthy`。
+- 新日志里没有 `socks connect tcp ... ->headroom-a1`，也没有 migration checksum mismatch。
+
+### 7. 2026-06-14 快速复查命令
 
 线上状态总览：
 

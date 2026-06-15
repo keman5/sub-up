@@ -847,6 +847,43 @@ git diff --check
 - 如果官方后续也支持 Codex OAuth sidecar / local proxy，要确认内网 sidecar 第一跳不走账号 SOCKS；但直接 `chatgpt.com` 或外部 override URL 仍应保留账号 proxy 能力。
 - a2 灰度验证时，用绑定 WARP SOCKS 的 OpenAI OAuth 账号请求 `gpt-5.3-codex-spark`，确认 `/51Token/v1/responses` 不再因 `headroom-a2` 第一跳返回 502。
 
+### 2026-06-15 a1 Chat Completions 转 Headroom 时被账号 SOCKS 代理导致 502
+
+线上现象：a1 / ap1 使用 OpenAI Chat Completions 兼容入口请求 `GPT-5.5` 时，Cloudflare 页面显示 `ap1.upit.top 502 Bad Gateway`。后端日志显示请求已到达 `sub2api-ap1`，路径为 `/v1/chat/completions`，选中 OpenAI OAuth 账号 47 后失败：
+
+```text
+upstream request failed: Post "http://headroom-a1:8787/v1/responses": socks connect tcp 172.17.0.1:40001->headroom-a1:8787: unexpected EOF
+```
+
+根因：2026-06-13 的 a2 修复已覆盖 OpenAI Responses 普通 Forward / passthrough Forward，但 OpenAI Chat Completions 兼容入口会先把 `/v1/chat/completions` 转成 Responses，再调用 `buildUpstreamRequest()` 指向 `http://headroom-a1:8787/v1/responses`。该发送路径仍直接读取 `account.Proxy.URL()`，没有复用 `openAICodexHTTPProxyURL()`，导致 Docker 内网服务名 `headroom-a1` 被交给账号 SOCKS 代理解析，第一跳失败。
+
+本地补丁：
+
+- `backend/internal/service/openai_gateway_chat_completions.go`：发送 OpenAI Chat Completions 转换后的上游请求时，改用 `s.openAICodexHTTPProxyURL(account, upstreamReq)` 选择代理。内网 Headroom override 不走账号 proxy，外部 `chatgpt.com` / 外部 base URL 仍保留账号 proxy。
+- `backend/internal/service/openai_gateway_chat_completions_test.go`：新增 `TestForwardAsChatCompletions_OAuthHeadroomOverrideBypassesAccountProxy`，覆盖 `http://headroom-a1:8787/v1/responses` + OAuth 账号 SOCKS 代理时，传给 HTTP upstream 的 `proxyURL` 必须为空。
+
+验证：
+
+```bash
+go test ./internal/service -run 'TestForwardAsChatCompletions_OAuthHeadroomOverrideBypassesAccountProxy|TestOpenAIGatewayService_OAuthCodexHeadroomOverrideBypassesAccountProxy' -count=1
+go test ./internal/service -run 'TestForwardAsChatCompletions_|TestOpenAIGatewayService_OAuthCodexHeadroom' -count=1
+git diff --check
+```
+
+线上 a1 发布记录：
+
+- 修复提交：`c745d7fd fix: bypass account proxy for headroom chat completions`。
+- 新镜像：`sub2api:subapi-c745d7fd-a1-headroom-chat-proxy-202606151012`。
+- 只滚动 `/opt/sub2api-ap1-deploy` 的 `sub2api-ap1`，未动 primary / a2。
+- compose 备份：`/opt/sub2api-ap1-deploy/docker-compose.yml.bak-a1-headroom-chat-proxy-current-20260615101557`。
+- 验证：`https://a1.upit.top/health`、`https://ap1.upit.top/health` 均为 200；`https://ap1.upit.top/51Token/v1/models` 未带 key 返回 `401 API_KEY_REQUIRED`；新容器日志无 `socks connect tcp ... ->headroom-a1` 和 migration checksum mismatch。
+
+同步官方后的复查：
+
+- 继续搜索 `ForwardAsChatCompletions`、`openAICodexHTTPProxyURL`、`OpenAIOAuthCodexResponsesURL`、`headroom-a1`、`headroom-a2`。
+- 任何新增的 OpenAI OAuth Codex / Responses / Chat Completions 转发路径，只要目标是本机或 Docker 内网 Headroom sidecar，都必须复用同一代理选择规则。
+- 回归验证不能只跑 `/v1/responses`；必须同时覆盖 `/v1/chat/completions` 兼容入口。
+
 ### 2026-06-14 Headroom 转发增加后台运行开关
 
 背景：a2 需要保留 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL=http://headroom-a2:8787/v1/responses` 作为 sidecar 能力配置，但不能因为环境变量存在就自动把所有 OpenAI OAuth Codex 请求切到 Headroom。此前排查大请求 502、压缩超时和动态调度时，运维需要一个可以从后台即时关闭 Headroom 路由的开关。
@@ -949,6 +986,15 @@ pnpm --dir frontend test:run src/views/admin/__tests__/SettingsView.spec.ts
 - 验证：`TestOpenAIGatewayService_OAuthCodexHeadroomOverrideBypassesAccountProxy` 等 OpenAI OAuth passthrough 测试。
 - 同步官方后继续搜索 `openAICodexHTTPProxyURL`、`isOpenAIInternalCodexOverrideRequest`、`OpenAIOAuthCodexResponsesURL`、`headroom-a2`。
 
+### a1 Chat Completions Headroom 第一跳代理修复
+
+- 提交：`c745d7fd fix: bypass account proxy for headroom chat completions`。
+- 现象：a1 / ap1 走 `/v1/chat/completions` 兼容入口请求 `GPT-5.5` 时，后端已选中 OAuth 账号，但转发到 `http://headroom-a1:8787/v1/responses` 报 `socks connect tcp 172.17.0.1:40001->headroom-a1:8787: unexpected EOF`，Cloudflare 表现为 `ap1.upit.top 502`。
+- 根因：2026-06-13 的 Headroom 代理绕过只覆盖 `/v1/responses` 的普通 Forward / passthrough Forward；Chat Completions 转 Responses 的发送路径仍直接使用 `account.Proxy.URL()`。
+- 修复：`backend/internal/service/openai_gateway_chat_completions.go` 发送上游请求时复用 `openAICodexHTTPProxyURL(account, upstreamReq)`。
+- 验证：`TestForwardAsChatCompletions_OAuthHeadroomOverrideBypassesAccountProxy` 与 `TestOpenAIGatewayService_OAuthCodexHeadroomOverrideBypassesAccountProxy`。
+- 同步官方后继续搜索 `ForwardAsChatCompletions`、`openAICodexHTTPProxyURL`、`headroom-a1`、`headroom-a2`；不要只保留 `/v1/responses` 路径的保护，Chat Completions 兼容入口也必须绕过 Docker 内网 Headroom 第一跳的账号 SOCKS。
+
 ## 2026-06-14 相关改动记录
 
 ### Headroom 统计卡片、后台开关与大请求旁路
@@ -986,6 +1032,7 @@ pnpm --dir frontend test:run src/views/admin/__tests__/SettingsView.spec.ts
 - `HEADROOM_WORKERS=1` 保持不变，它只代表 Uvicorn worker 进程数，不是压缩 executor 限制。
 - 实测 `/health`：`headroom-main` 与 `headroom-a1` 的 `compression_executor.max_workers=2`、`source=explicit`；a2 无 Headroom override。
 - 资源排查结论：Redis/PostgreSQL 已共享且占用不高；当前内存大头是 `headroom-main` 与 `headroom-a1` 两个 Python 进程。大 Codex 请求进入 Headroom 后可能出现 `run_seconds_max` 超过 `compression_timeout_seconds=30s`、`leaked_threads_total` 增长和 `compression_refused`，后续应优先降低进入 Headroom 的请求体阈值、只保留一套 Headroom 或加重启/内存保护。
+- 2026-06-15 a1 继续降载：`headroom-a1` 因历史压缩任务出现 `run_seconds_max=983s`、`leaked_threads_total=17`，且 150KB-230KB 请求仍会触发 `compression_refused`。线上将 `/opt/sub2api-ap1-deploy` 调整为 `HEADROOM_COMPRESSION_MAX_WORKERS=1`、`GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_BODY_BYTES=131072`；验证后 `headroom-a1` 约 `162MiB`、`4` PIDs、`0.3%` CPU。同步官方或重建 compose 时不要把 a1 恢复成 `max_workers=2` / `1MB` 阈值，除非重新评估 2 核 4G VPS 余量。
 
 ### 运维监控移除 GPU 指标
 
