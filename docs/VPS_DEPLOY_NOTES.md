@@ -1719,6 +1719,37 @@ docker exec sub2api-ap1 sh -lc "wget -qO- http://headroom-a1:8787/readyz || curl
 '
 ```
 
+### 7. OpenAI OAuth Headroom 代理选择复查
+
+不要按客户端访问路径是否包含 `/v1/` 来决定是否绕过账号 proxy。线上同样是 `/v1/responses` 或 `/v1/chat/completions`，可能最终去外部 OpenAI / 第三方兼容上游，也可能被后端转换后去 `http://headroom-a1:8787/v1/responses`。只有最终 upstream URL 是本机、私网 IP、loopback 或 Docker 内网 service name，并且 scheme 为 `http` / `ws` 时，才允许不走账号 proxy。
+
+当前需要保持同一代理选择规则的 OpenAI OAuth Headroom 路径：
+
+- `/51Token/v1/responses` 普通 Forward / passthrough。
+- `/51Token/v1/chat/completions` 转 Responses。
+- `/51Token/v1/messages` Anthropic Messages bridge。
+- `/51Token/v1/images/generations` / `/51Token/v1/images/edits` 经 Responses 的图片路径。
+- OpenAI Responses WebSocket v2、WS connection pool，以及大帧 HTTP bridge。
+
+本地复查命令：
+
+```bash
+cd backend
+go test ./internal/service -run 'Test.*Headroom.*Proxy|Test.*Headroom.*Override|Test.*OAuthCodex.*Override|TestOpenAIWSHTTPBridge|TestOpenAIGatewayServiceForwardImages_OAuth|TestForwardAsAnthropic_OAuth|TestForwardAsChatCompletions_OAuth' -count=1
+git diff --check
+```
+
+发布后除 `/health` 外，至少验证当前实际使用的入口：
+
+```bash
+curl -fsS https://a1.upit.top/health
+curl -fsS https://ap1.upit.top/health
+# 带真实 token 验证 /51Token/v1/messages；如果本次改动涉及图片或 WS，再补对应入口的真实请求。
+ssh 51tokens 'docker logs sub2api-ap1 --since 5m 2>&1 | grep -E "socks connect tcp .*headroom-a1|migration .*checksum mismatch" || true'
+```
+
+如果日志再次出现 `socks connect tcp ... ->headroom-a1`，优先检查新入口是否绕过了 `openAICodexHTTPProxyURL()` / `openAICodexWSProxyURL()`，不要通过关闭账号 proxy 或按 `/v1/` 全局绕过来修。
+
 本次 compose 备份：
 
 ```text
@@ -1919,3 +1950,58 @@ pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a2 --project-name sub2api-fron
 - 已验证：`https://a1.upit.top/login` 注入 `api_base_url=https://ap1.upit.top/51Token/v1`、`ops_host_health_visible=true`；`https://a2.upit.top/login` 注入 `api_base_url=https://ap2.upit.top/51Token/v1`、`ops_host_health_visible=true`；`https://ai.upit.top/login` 未注入宿主机 CPU 面板显示字段。
 
 2026-06-15 后续调整：CPU 面板是否显示改为只看前台构建变量 `VITE_OPS_HOST_HEALTH_VISIBLE=true`，不再让前台通过 public settings 字段决定显示；a1/a2 Pages 发布时带该变量构建，主环境 Pages 构建不带该变量即可隐藏。
+
+### 6. a1 Claude Messages 经 Headroom 时的代理选择
+
+2026-06-15 发现 a1 的 Claude Code 配置虽然正确指向 `ANTHROPIC_BASE_URL=https://ap1.upit.top/51Token`，但 `/51Token/v1/messages` 仍返回 `502`。`sub2api-ap1` 日志显示实际失败点为：
+
+```text
+upstream request failed: Post "http://headroom-a1:8787/v1/responses": socks connect tcp 172.17.0.1:40001->headroom-a1:8787: unexpected EOF
+```
+
+根因是 `/v1/messages` 兼容入口 `ForwardAsAnthropic()` 已经把请求转成 Responses 并指向 `headroom-a1`，但发送时仍直接使用账号 SOCKS proxy。Docker 内网 Headroom 第一跳必须不走账号 proxy；外部 ChatGPT / OpenAI 上游仍按账号 proxy 规则。
+
+代码修复：
+
+- `backend/internal/service/openai_gateway_messages.go`：改为 `s.openAICodexHTTPProxyURL(account, upstreamReq)` 选择代理。
+- `backend/internal/service/openai_compat_model_test.go`：新增 `TestForwardAsAnthropic_OAuthHeadroomOverrideBypassesAccountProxy`。
+
+本地验证：
+
+```bash
+cd backend
+go test ./internal/service -run 'TestForwardAsAnthropic_OAuthHeadroomOverrideBypassesAccountProxy|TestForwardAsChatCompletions_OAuthHeadroomOverrideBypassesAccountProxy|TestOpenAIBuildOpenAIResponsesWSURLUsesOAuthCodexOverride|TestForwardAsAnthropic_OAuth' -count=1
+git diff --check
+```
+
+发布边界：
+
+- 只滚动 `/opt/sub2api-ap1-deploy` 的 `sub2api-ap1`。
+- 不使用 `deploy/local-gzip-binary-deploy.sh --deploy`，避免同时切 primary。
+- 发布后必须用真实 token 验证 `https://ap1.upit.top/51Token/v1/messages`，再用 Claude CLI 一次性 prompt 验证。
+
+只切 a1 的命令模板：
+
+```bash
+ssh 51tokens '
+set -eu
+IMAGE="sub2api:subapi-<commit>-a1-headroom-messages-proxy-<timestamp>"
+COMPOSE_DIR=/opt/sub2api-ap1-deploy
+COMPOSE_FILE="$COMPOSE_DIR/docker-compose.yml"
+TS=$(date +%Y%m%d%H%M%S)
+cp "$COMPOSE_FILE" "$COMPOSE_FILE.bak-a1-headroom-messages-proxy-$TS"
+sed -i -E "0,/image: sub2api:subapi-/s#image: sub2api:subapi-[^[:space:]]+#image: $IMAGE#" "$COMPOSE_FILE"
+cd "$COMPOSE_DIR"
+docker compose config --quiet
+docker compose up -d sub2api
+for i in $(seq 1 40); do
+  s=$(docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" sub2api-ap1)
+  echo "sub2api-ap1=$s"
+  [ "$s" = healthy ] && break
+  sleep 2
+  [ "$i" = 40 ] && exit 1
+done
+curl -fsS http://127.0.0.1:8082/health
+docker exec sub2api-ap1 sh -lc "wget -qO- http://headroom-a1:8787/readyz || curl -fsS http://headroom-a1:8787/readyz"
+'
+```

@@ -4470,14 +4470,39 @@ func (s *OpenAIGatewayService) openAICodexHTTPProxyURL(account *Account, req *ht
 	return ""
 }
 
+func (s *OpenAIGatewayService) openAICodexWSProxyURL(account *Account, wsURL string) string {
+	if account == nil || account.ProxyID == nil || account.Proxy == nil {
+		return ""
+	}
+	proxyURL := account.Proxy.URL()
+	if account.Type != AccountTypeOAuth {
+		return proxyURL
+	}
+	parsed, err := url.Parse(strings.TrimSpace(wsURL))
+	if err != nil || parsed == nil {
+		return proxyURL
+	}
+	if isOpenAIInternalCodexOverrideURL(parsed) {
+		return ""
+	}
+	return proxyURL
+}
+
 func isOpenAIInternalCodexOverrideRequest(req *http.Request) bool {
 	if req == nil || req.URL == nil {
 		return false
 	}
-	if !strings.EqualFold(req.URL.Scheme, "http") && !strings.EqualFold(req.URL.Scheme, "ws") {
+	return isOpenAIInternalCodexOverrideURL(req.URL)
+}
+
+func isOpenAIInternalCodexOverrideURL(u *url.URL) bool {
+	if u == nil {
 		return false
 	}
-	return isInternalCodexOverrideHost(req.URL.Hostname())
+	if !strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "ws") {
+		return false
+	}
+	return isInternalCodexOverrideHost(u.Hostname())
 }
 
 func isInternalCodexOverrideHost(host string) bool {

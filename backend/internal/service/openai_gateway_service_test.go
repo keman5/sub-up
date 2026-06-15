@@ -2185,6 +2185,25 @@ func TestOpenAIBuildOpenAIResponsesWSURLUsesOAuthCodexOverride(t *testing.T) {
 	require.Equal(t, "ws://headroom-a2:8787/v1/responses", overrideURL)
 }
 
+func TestOpenAIOAuthCodexWSProxyURLBypassesInternalHeadroomOverride(t *testing.T) {
+	proxyID := int64(1)
+	account := &Account{
+		Type:    AccountTypeOAuth,
+		ProxyID: &proxyID,
+		Proxy: &Proxy{
+			ID:       proxyID,
+			Protocol: "socks5h",
+			Host:     "172.17.0.1",
+			Port:     40001,
+			Status:   StatusActive,
+		},
+	}
+	svc := &OpenAIGatewayService{}
+
+	require.Empty(t, svc.openAICodexWSProxyURL(account, "ws://headroom-a1:8787/v1/responses"))
+	require.Equal(t, "socks5h://172.17.0.1:40001", svc.openAICodexWSProxyURL(account, "wss://chatgpt.com/backend-api/codex/responses"))
+}
+
 func TestOpenAIBuildUpstreamRequestOAuthMessagesBridgeUsesSessionOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

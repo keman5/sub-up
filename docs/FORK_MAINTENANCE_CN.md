@@ -1063,6 +1063,51 @@ pnpm --dir frontend test:run src/views/admin/__tests__/SettingsView.spec.ts
 - 线上发布记录：a1/a2 后端切到 `sub2api:subapi-7a7baea8-a1a2-host-health-env-20260615090353`；a1/a2 Pages 使用 `VITE_OPS_HOST_HEALTH_VISIBLE=true` 构建并重新注入各自 `ap1/ap2` public settings 后发布，主环境保持原后端镜像和原 Pages 注入。
 - 同步官方后继续搜索 `ops_monitoring_enabled`、`VITE_OPS_HOST_HEALTH_VISIBLE`、`OpsHostHealthCard`、`GetHostHealth`、`SUB2API_HOST_HEALTH_PATH`、`sub2api-host-health`、`145_add_ops_system_disk_gpu_metrics.sql`、`157_remove_ops_gpu_metrics.sql`，保留“宿主机采集在 VPS，业务容器只读 JSON”、“前台构建变量决定 CPU 面板显示”和“已执行迁移不可变”的边界。
 
+### 2026-06-15 a1 Claude Messages 经 Headroom 时被账号 SOCKS 代理导致 502
+
+**现象：**
+a1 / ap1 使用 Claude Code 或 Anthropic `/v1/messages` 兼容入口请求 `gpt-5.5` 时，客户端提示所选模型不可用；直接请求 `https://ap1.upit.top/51Token/v1/messages` 返回 Cloudflare `502`。
+
+**原因：**
+`/v1/messages` 由 `OpenAIGatewayService.ForwardAsAnthropic()` 转为 OpenAI Responses 后，会按 a1 配置发往 `http://headroom-a1:8787/v1/responses`。修复前该发送路径仍直接使用 `account.Proxy.URL()`，导致 Docker 内网服务名 `headroom-a1` 被交给账号 SOCKS 代理 `172.17.0.1:40001` 解析，出现 `socks connect tcp ... ->headroom-a1:8787` 失败。此前 `0a575f8e` 只覆盖了 `/v1/chat/completions` 兼容入口，未覆盖 `/v1/messages`。
+
+**修改：**
+- `backend/internal/service/openai_gateway_messages.go`：发送 Messages bridge 上游请求时复用 `s.openAICodexHTTPProxyURL(account, upstreamReq)`。
+- `backend/internal/service/openai_compat_model_test.go`：新增 `TestForwardAsAnthropic_OAuthHeadroomOverrideBypassesAccountProxy`，覆盖 OAuth 账号有 SOCKS proxy 且 Headroom override 指向 Docker 内网时，第一跳必须不走账号 proxy。
+
+**验证：**
+```bash
+cd backend
+go test ./internal/service -run 'TestForwardAsAnthropic_OAuthHeadroomOverrideBypassesAccountProxy|TestForwardAsChatCompletions_OAuthHeadroomOverrideBypassesAccountProxy|TestOpenAIBuildOpenAIResponsesWSURLUsesOAuthCodexOverride|TestForwardAsAnthropic_OAuth' -count=1
+git diff --check
+```
+
+线上验证必须包含真实 `/51Token/v1/messages` 和 Claude CLI 一次性 prompt；只看 `/v1/models` 不能证明 Messages bridge 已修复。
+
+**同步官方后的复查：**
+继续搜索 `ForwardAsAnthropic`、`ForwardAsChatCompletions`、`openAICodexHTTPProxyURL`、`OpenAIOAuthCodexResponsesURL`、`headroom-a1`、`headroom-a2`。任何新增的 OpenAI OAuth Codex / Responses / Anthropic Messages / Chat Completions 转发路径，只要目标是本机或 Docker 内网 Headroom sidecar，都必须复用同一代理选择规则。
+
+### 2026-06-15 OpenAI OAuth Headroom 代理选择全链路审计
+
+**结论：**
+不能按外部请求路径是否包含 `/v1/` 来决定是否绕过账号 proxy。`/v1/chat/completions`、`/v1/responses`、`/v1/images/*` 既可能指向外部 OpenAI / 第三方兼容上游，也可能被后端转成 `http://headroom-a1:8787/v1/responses`。正确判断点是已经构造好的 upstream URL：只有最终目标是本机、私网 IP、loopback 或无点号 Docker service hostname，并且 scheme 为 `http` / `ws` 时，才绕过账号 proxy；外部 `https` / `wss` 上游仍必须保留账号 proxy。
+
+**本次补漏：**
+- `backend/internal/service/openai_gateway_service.go`：新增 `openAICodexWSProxyURL()`，并把 HTTP/WS 内网判断统一到 `isOpenAIInternalCodexOverrideURL()`。
+- `backend/internal/service/openai_images_responses.go`：OpenAI Images 经 Responses/Headroom 的 OAuth 路径改用 `openAICodexHTTPProxyURL()`。
+- `backend/internal/service/openai_ws_http_bridge.go`：WS 大帧 HTTP bridge 到 Responses/Headroom 时改用 `openAICodexHTTPProxyURL()`。
+- `backend/internal/service/openai_ws_forwarder.go` 和 `backend/internal/service/openai_ws_v2_passthrough_adapter.go`：WS v2 passthrough / connection pool 到 `ws://headroom-*` 时改用 `openAICodexWSProxyURL()`。
+
+**验证：**
+```bash
+cd backend
+go test ./internal/service -run 'Test.*Headroom.*Proxy|Test.*Headroom.*Override|Test.*OAuthCodex.*Override|TestOpenAIWSHTTPBridge|TestOpenAIGatewayServiceForwardImages_OAuth|TestForwardAsAnthropic_OAuth|TestForwardAsChatCompletions_OAuth' -count=1
+git diff --check
+```
+
+**同步官方后的复查：**
+继续搜索 `OpenAIOAuthCodexResponsesURL`、`buildUpstreamRequest`、`buildUpstreamRequestOpenAIPassthrough`、`buildOpenAIResponsesWSURL`、`buildOpenAIImagesRequest`、`httpUpstream.Do`、`httpUpstream.DoWithTLS`、`Dial(`、`Acquire(`、`account.Proxy.URL()`。只要路径可能由 OpenAI OAuth Codex override 指向 Headroom，就必须按最终 upstream URL 调用 `openAICodexHTTPProxyURL()` 或 `openAICodexWSProxyURL()`；不要把外部 `/v1/*` 兼容上游的账号 proxy 去掉。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：

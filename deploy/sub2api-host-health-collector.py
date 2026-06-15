@@ -128,11 +128,11 @@ def diagnose(cpu_percent: float, containers: list[dict[str, object]], processes:
         return ""
     if containers and float(containers[0].get("cpu_percent", 0)) >= 30:
         name = str(containers[0].get("name", "unknown"))
-        return f"CPU pressure is mainly from container {name}"
+        return f"CPU 压力主要来自容器 {name}"
     if processes and float(processes[0].get("cpu_percent", 0)) >= 30:
         command = str(processes[0].get("command", "unknown"))
-        return f"CPU pressure is mainly from process {command}"
-    return "CPU pressure is high; no single dominant container was identified"
+        return f"CPU 压力主要来自进程 {command}"
+    return "CPU 压力较高，但未识别到单个主要容器"
 
 
 def main() -> None:
