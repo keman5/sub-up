@@ -993,7 +993,7 @@ pnpm --dir frontend test:run src/views/admin/__tests__/SettingsView.spec.ts
 - 前端移除 `OpsDashboardHeader.vue` 的 GPU 卡片、`frontend/src/api/admin/ops.ts` 的 `gpu_usage_percent` 类型字段，以及中英文 GPU tooltip。
 - 后端移除 `OpsSystemMetricsSnapshot` / `OpsInsertMetricsInput` 的 GPU 字段，`ops_metrics_collector.go` 不再调用 `nvidia-smi`，删除 `parseNvidiaSMIUtilizationCSV` 相关测试。
 - repository 写入和读取 `ops_system_metrics` 时不再包含 `gpu_usage_percent`。
-- `backend/migrations/145_add_ops_system_disk_gpu_metrics.sql` 调整为只新增磁盘字段；已执行过旧迁移的环境通过新增 `backend/migrations/157_remove_ops_gpu_metrics.sql` 删除遗留 `gpu_usage_percent` 列。
+- `backend/migrations/145_add_ops_system_disk_gpu_metrics.sql` 保持已执行版本不变，继续包含旧的 GPU 字段定义以匹配线上 checksum；已执行过旧迁移的环境通过新增 `backend/migrations/157_remove_ops_gpu_metrics.sql` 删除遗留 `gpu_usage_percent` 列。不要再修改 145 这类已上线迁移。
 - 验证：`go test ./internal/repository ./internal/service -run 'TestOps|TestWriteOpenAIFastPolicyBlockedResponseMarksBusinessLimited|TestOpsMetricsCollector' -count=1`；`pnpm --dir frontend run typecheck`；`git diff --check`。
 - 同步官方后继续搜索 `gpu_usage_percent`、`nvidia-smi`、`GPUUsagePercent`、`collectGPUUsagePercent`，只允许迁移/维护文档保留“已移除”说明，不要恢复 GPU 卡片或采集。
 
@@ -1001,6 +1001,20 @@ pnpm --dir frontend test:run src/views/admin/__tests__/SettingsView.spec.ts
 
 - 部署前复跑：auth store / client 测试、Pages Worker / injection 测试、AccountUsageCell 测试、SettingsView 测试、Headroom stats 组件测试、`git diff --check`。
 - 线上复查同时看：前台 Pages 域名、API 回源域名、容器健康、Headroom `/health`、Redis/PostgreSQL 连接分档、Cloudflare DNS/Pages 项目映射。
+
+## 2026-06-15 相关改动记录
+
+### 运维监控开关回显与宿主机 CPU 原因卡片
+
+- 后台系统设置页修复 `ops_monitoring_enabled` 回显：`GET /api/v1/admin/settings` 返回数据库持久化值，不再和 `opsService.IsMonitoringEnabled()` 做 AND，避免“保存开启后刷新又显示关闭”。
+- 运维监控新增宿主机快照接口 `/api/v1/admin/ops/host-health`。后端只读取 `SUB2API_HOST_HEALTH_PATH` 指向的 JSON 文件，默认 `/run/sub2api-ops/host-health.json`；文件缺失时返回 `available=false`，不在请求路径执行 `docker stats` 或 `ps`。
+- 新增宿主机 collector：`deploy/sub2api-host-health-collector.py`、`deploy/sub2api-host-health.service`、`deploy/sub2api-host-health.timer`。VPS 宿主机每 15 秒写一次 `/run/sub2api-ops/host-health.json`，业务容器只读挂载。
+- 管理端运维面板新增 `OpsHostHealthCard.vue`，展示宿主机 CPU、load、可用内存、swap、top containers、top processes 和诊断文本；随现有 dashboard refresh token 刷新。面板由前台构建变量 `VITE_OPS_HOST_HEALTH_VISIBLE=true` 控制，只在 a1/a2 Pages 构建中打开，主环境默认隐藏且不请求 host-health 接口。
+- 本次同步审计后台开关联动：`ops_monitoring_enabled`、`ops_realtime_monitoring_enabled`、`openai_headroom_enabled`、`channel_monitor_enabled`、`available_channels_enabled`、`allow_user_view_error_requests` 均有前端保存、后端 DTO/落库或运行时读取链路；`ops_host_health_visible` 是只读环境字段，不进入后台保存请求。
+- 2026-06-15 部署前发现已执行迁移 `145_add_ops_system_disk_gpu_metrics.sql` 被改动会触发线上 checksum mismatch；当前已恢复 145 原内容，GPU 删除只通过 `157_remove_ops_gpu_metrics.sql` 完成。
+- 本次部署边界：只部署 a1/a2 后端和 `sub2api-frontend-a1`、`sub2api-frontend-a2` Pages；不要发布主环境 Pages，不要切换 primary 后端，也不要给主环境 compose 增加宿主机快照挂载。
+- 线上发布记录：a1/a2 后端切到 `sub2api:subapi-7a7baea8-a1a2-host-health-env-20260615090353`；a1/a2 Pages 使用 `VITE_OPS_HOST_HEALTH_VISIBLE=true` 构建并重新注入各自 `ap1/ap2` public settings 后发布，主环境保持原后端镜像和原 Pages 注入。
+- 同步官方后继续搜索 `ops_monitoring_enabled`、`VITE_OPS_HOST_HEALTH_VISIBLE`、`OpsHostHealthCard`、`GetHostHealth`、`SUB2API_HOST_HEALTH_PATH`、`sub2api-host-health`、`145_add_ops_system_disk_gpu_metrics.sql`、`157_remove_ops_gpu_metrics.sql`，保留“宿主机采集在 VPS，业务容器只读 JSON”、“前台构建变量决定 CPU 面板显示”和“已执行迁移不可变”的边界。
 
 ## 同步官方版本后的复查流程
 

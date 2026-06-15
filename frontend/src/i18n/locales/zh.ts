@@ -5001,6 +5001,24 @@ export default {
         topModels: '模型分布',
         providers: 'Provider 分布'
       },
+      hostHealth: {
+        title: '宿主机实时状态',
+        lastCollected: '采集时间：{time}',
+        age: '{seconds}s 前',
+        failedToLoad: '加载宿主机状态失败',
+        unavailable: '未采集',
+        unavailableHint: '宿主机采集器尚未写入快照或容器未挂载快照目录。',
+        empty: '暂无宿主机状态数据',
+        stale: '数据过期',
+        highCpu: 'CPU 偏高',
+        normal: '正常',
+        cpu: 'CPU',
+        loadAverage: 'Load Avg',
+        availableMemory: '可用内存',
+        swapUsed: 'Swap 已用',
+        topContainers: '容器 CPU 排名',
+        topProcesses: '进程 CPU 排名'
+      },
       customTimeRange: {
         startTime: '开始时间',
         endTime: '结束时间'

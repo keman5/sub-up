@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Sub2API host health collector every 15 seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=15s
+AccuracySec=2s
+Unit=sub2api-host-health.service
+
+[Install]
+WantedBy=timers.target

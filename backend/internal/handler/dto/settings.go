@@ -322,6 +322,9 @@ type PublicSettings struct {
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+
+	// 宿主机 CPU 面板按部署环境控制；主环境默认隐藏。
+	OpsHostHealthVisible bool `json:"ops_host_health_visible"`
 }
 
 type LoginAgreementDocument struct {

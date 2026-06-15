@@ -236,6 +236,7 @@ export interface PublicSettings {
   service_quota_enabled: boolean
   affiliate_enabled: boolean
   allow_user_view_error_requests?: boolean
+  ops_host_health_visible?: boolean
 }
 
 export interface AuthResponse {

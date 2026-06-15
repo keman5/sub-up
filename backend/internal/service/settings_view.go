@@ -300,6 +300,9 @@ type PublicSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+
+	// 宿主机 CPU 面板按部署环境控制；主环境默认隐藏。
+	OpsHostHealthVisible bool `json:"ops_host_health_visible"`
 }
 
 type LoginAgreementDocument struct {

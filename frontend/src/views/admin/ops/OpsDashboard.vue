@@ -95,6 +95,7 @@
 
       <!-- Row: Headroom Stats -->
       <div v-if="opsEnabled && !(loading && !hasLoadedOnce)" class="grid grid-cols-1 gap-6">
+        <OpsHostHealthCard v-if="showHostHealthCard" :refresh-token="dashboardRefreshToken" />
         <OpsHeadroomStatsCard :refresh-token="dashboardRefreshToken" />
       </div>
 
@@ -170,6 +171,7 @@ import OpsThroughputTrendChart from './components/OpsThroughputTrendChart.vue'
 import OpsSwitchRateTrendChart from './components/OpsSwitchRateTrendChart.vue'
 import OpsAlertEventsCard from './components/OpsAlertEventsCard.vue'
 import OpsOpenAITokenStatsCard from './components/OpsOpenAITokenStatsCard.vue'
+import OpsHostHealthCard from './components/OpsHostHealthCard.vue'
 import OpsHeadroomStatsCard from './components/OpsHeadroomStatsCard.vue'
 import OpsSystemLogTable from './components/OpsSystemLogTable.vue'
 import OpsRequestDetailsModal, { type OpsRequestDetailsPreset } from './components/OpsRequestDetailsModal.vue'
@@ -183,6 +185,7 @@ const adminSettingsStore = useAdminSettingsStore()
 const { t } = useI18n()
 
 const opsEnabled = computed(() => adminSettingsStore.opsMonitoringEnabled)
+const showHostHealthCard = import.meta.env.VITE_OPS_HOST_HEALTH_VISIBLE === 'true'
 
 type TimeRange = '5m' | '30m' | '1h' | '6h' | '24h' | 'custom'
 const allowedTimeRanges = new Set<TimeRange>(['5m', '30m', '1h', '6h', '24h', 'custom'])

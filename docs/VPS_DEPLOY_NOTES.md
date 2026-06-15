@@ -1619,3 +1619,146 @@ curl -fsS https://ai.upit.top/health
 curl -fsS https://a1.upit.top/health
 curl -fsS https://a2.upit.top/health
 ```
+
+## 十三、2026-06-15 宿主机运维监控与 a1/a2 灰度部署
+
+### 1. 宿主机 CPU 原因采集边界
+
+宿主机 CPU 过高原因不要放进 sub2api 业务容器里实时执行，也不要把 Docker socket 挂给业务容器。当前做法是：
+
+- VPS 宿主机运行 `sub2api-host-health.timer`，每 15 秒执行一次轻量 collector。
+- collector 读取 `/proc/loadavg`、`/proc/meminfo`、短采样 `/proc/stat`，并用 `docker stats --no-stream`、`ps` 生成 top 容器和 top 进程。
+- collector 原子写入 `/run/sub2api-ops/host-health.json`。
+- `sub2api-ap1` 和 `sub2api-ap2` 只读挂载 `/run/sub2api-ops:/run/sub2api-ops:ro`，后端接口只读 JSON，不在请求路径执行系统命令。
+- 前台运维页调用 `/api/v1/admin/ops/host-health` 展示宿主机 CPU、load、可用内存、swap、top containers、top processes 和诊断文本。
+
+相关仓库文件：
+
+```text
+deploy/sub2api-host-health-collector.py
+deploy/sub2api-host-health.service
+deploy/sub2api-host-health.timer
+```
+
+VPS 安装或更新 collector：
+
+```bash
+ssh 51tokens 'install -d -m 0755 /opt/sub2api-ops'
+scp deploy/sub2api-host-health-collector.py 51tokens:/opt/sub2api-ops/sub2api-host-health-collector.py
+scp deploy/sub2api-host-health.service deploy/sub2api-host-health.timer 51tokens:/etc/systemd/system/
+ssh 51tokens '
+  chmod 0755 /opt/sub2api-ops/sub2api-host-health-collector.py
+  systemctl daemon-reload
+  systemctl enable --now sub2api-host-health.timer
+  systemctl start sub2api-host-health.service
+  systemctl status sub2api-host-health.timer --no-pager
+  cat /run/sub2api-ops/host-health.json
+'
+```
+
+a1/a2 应用 compose 需要保留只读挂载，不要加到主环境：
+
+```yaml
+services:
+  sub2api:
+    volumes:
+      - /run/sub2api-ops:/run/sub2api-ops:ro
+    environment:
+      SUB2API_HOST_HEALTH_PATH: /run/sub2api-ops/host-health.json
+      OPS_HOST_HEALTH_VISIBLE: "true"
+```
+
+`ap2` 服务名是 `sub2api-ap2` 时，也同样只加到对应应用服务下。验证：
+
+```bash
+ssh 51tokens '
+  docker exec sub2api-ap1 test -r /run/sub2api-ops/host-health.json
+  docker exec sub2api-ap2 test -r /run/sub2api-ops/host-health.json
+'
+```
+
+### 2. 运维监控开关回显修复
+
+2026-06-15 修复后台“系统设置 -> 运维监控”开关刷新后变回关闭的问题。根因是 `/api/v1/admin/settings` 的 GET 回包把数据库持久化值 `ops_monitoring_enabled` 又和 `opsService.IsMonitoringEnabled()` 做了 AND；当运行态 hard switch 或 handler 注入状态与数据库值不一致时，设置页会显示 false，造成“保存成功但刷新变关闭”。
+
+当前边界：
+
+- 设置页 GET 返回数据库持久化值，保证开关回显和保存值一致。
+- 运维监控实际接口仍由 `RequireMonitoringEnabled()` 判断是否可访问。
+- 如果部署 hard switch 关闭，运维接口会拒绝访问，但设置页不会把数据库保存值误覆盖为关闭。
+
+### 3. 宿主机 CPU 面板按环境显示
+
+宿主机 CPU 面板不是后台数据库开关，而是前台构建环境能力开关。主环境默认隐藏，a1/a2 的 Pages 构建明确打开：
+
+```yaml
+VITE_OPS_HOST_HEALTH_VISIBLE=true
+```
+
+前端运维页只在 `import.meta.env.VITE_OPS_HOST_HEALTH_VISIBLE === "true"` 时挂载 `OpsHostHealthCard`。主环境不带该变量构建，就不会显示 CPU 面板，也不会请求 `/api/v1/admin/ops/host-health`。
+
+本次同步检查的设置开关联动：
+
+- `ops_monitoring_enabled`：后台设置 GET 返回数据库持久化值；运行时接口仍由 `RequireMonitoringEnabled()` 控制。
+- `ops_realtime_monitoring_enabled`：后台设置保存到 DB；实时接口和 WebSocket 通过 `IsRealtimeMonitoringEnabled()` 单独读取。
+- `openai_headroom_enabled`：后台设置保存到 DB；OpenAI Codex Headroom 转发通过运行时缓存读取，保存后清理缓存。
+- `channel_monitor_enabled`、`available_channels_enabled`、`allow_user_view_error_requests`：public settings、HTML 注入和运行时读取均有对应链路。
+- `VITE_OPS_HOST_HEALTH_VISIBLE`：只读前台构建环境变量，不进入后台保存请求，避免被设置页误覆盖。
+
+### 4. 迁移文件不可变注意事项
+
+不要修改已经在线上执行过的迁移文件。2026-06-15 首次尝试部署宿主机监控镜像时，a1/a2 因 `145_add_ops_system_disk_gpu_metrics.sql` checksum mismatch 启动失败；原因是该迁移在旧环境已按“磁盘 + GPU 字段”版本执行过，之后本地把 145 改成“只加磁盘字段”导致 checksum 变化。
+
+当前正确状态：
+
+- `backend/migrations/145_add_ops_system_disk_gpu_metrics.sql` 保持旧内容，继续包含 `gpu_usage_percent` 字段和 comment，匹配线上已记录 checksum。
+- `backend/migrations/157_remove_ops_gpu_metrics.sql` 负责删除遗留 GPU 字段。
+- 移除或调整已执行 schema 时，只追加新迁移，不修改旧迁移。
+
+复查 checksum 可用迁移 runner 同样的 trim 后 SHA-256 算法：
+
+```bash
+perl -0pe 's/^\s+|\s+$//g' backend/migrations/145_add_ops_system_disk_gpu_metrics.sql | shasum -a 256
+```
+
+期望输出：
+
+```text
+3c137690c2146d2b3c9332cf87ee63ac6615452cf42c26339fd4551869aad59b
+```
+
+### 5. 只部署 a1/a2 的注意事项
+
+本次宿主机监控先只部署到 a1/a2：
+
+- 后端镜像可以本地构建并上传到新 VPS，但重启时只切换 `/opt/sub2api-ap1-deploy` 和 `/opt/sub2api-ap2-deploy`。
+- 不要运行会滚动 primary 的 `deploy/local-gzip-binary-deploy.sh --deploy`。
+- 前台改动只发布 `sub2api-frontend-a1` 和 `sub2api-frontend-a2` Pages 项目，不发布 `sub2api-frontend-main`。
+- 主环境不挂载 `/run/sub2api-ops`，不暴露宿主机监控卡片数据；后续需要主环境时再单独评估。
+
+只部署 a1/a2 Pages：
+
+```bash
+VITE_OPS_HOST_HEALTH_VISIBLE=true pnpm --dir frontend run build
+rm -rf /tmp/sub2api-pages-a1 /tmp/sub2api-pages-a2
+cp -R backend/internal/web/dist /tmp/sub2api-pages-a1
+cp -R backend/internal/web/dist /tmp/sub2api-pages-a2
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://ap1.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-a1/index.html
+node scripts/inject-pages-public-settings.mjs \
+  --settings-url https://ap2.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-a2/index.html
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a1 --project-name sub2api-frontend-a1 --branch subapi
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a2 --project-name sub2api-frontend-a2 --branch subapi
+```
+
+2026-06-15 已按该边界发布：
+
+- 后端新镜像：`sub2api:subapi-7a7baea8-a1a2-host-health-env-20260615090353`。
+- 已切换容器：`sub2api-ap1`、`sub2api-ap2`；两者均配置 `SUB2API_HOST_HEALTH_PATH=/run/sub2api-ops/host-health.json` 和 `OPS_HOST_HEALTH_VISIBLE=true`。
+- 未切换主环境：`sub2api` 仍保持原镜像，主环境 public settings 返回 `ops_host_health_visible=false` 或不注入该字段。
+- 已发布 Pages：`sub2api-frontend-a1`、`sub2api-frontend-a2`；未发布 `sub2api-frontend-main`。
+- 已验证：`https://a1.upit.top/login` 注入 `api_base_url=https://ap1.upit.top/51Token/v1`、`ops_host_health_visible=true`；`https://a2.upit.top/login` 注入 `api_base_url=https://ap2.upit.top/51Token/v1`、`ops_host_health_visible=true`；`https://ai.upit.top/login` 未注入宿主机 CPU 面板显示字段。
+
+2026-06-15 后续调整：CPU 面板是否显示改为只看前台构建变量 `VITE_OPS_HOST_HEALTH_VISIBLE=true`，不再让前台通过 public settings 字段决定显示；a1/a2 Pages 发布时带该变量构建，主环境 Pages 构建不带该变量即可隐藏。

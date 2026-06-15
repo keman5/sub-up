@@ -992,6 +992,19 @@ func TestValidateOpsCleanupScheduleRequired(t *testing.T) {
 	}
 }
 
+func TestLoadOpsHostHealthVisibleFromEnv(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("OPS_HOST_HEALTH_VISIBLE", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if !cfg.Ops.HostHealthVisible {
+		t.Fatalf("Ops.HostHealthVisible = false, want true")
+	}
+}
+
 func TestValidateConcurrencyPingInterval(t *testing.T) {
 	resetViperWithJWTSecret(t)
 

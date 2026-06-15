@@ -4846,6 +4846,24 @@ export default {
         topModels: 'Model Breakdown',
         providers: 'Provider Breakdown'
       },
+      hostHealth: {
+        title: 'Host Realtime Status',
+        lastCollected: 'Collected: {time}',
+        age: '{seconds}s ago',
+        failedToLoad: 'Failed to load host status',
+        unavailable: 'Not Collected',
+        unavailableHint: 'The host collector has not written a snapshot yet or the container has no snapshot mount.',
+        empty: 'No host status data yet',
+        stale: 'Stale',
+        highCpu: 'High CPU',
+        normal: 'Normal',
+        cpu: 'CPU',
+        loadAverage: 'Load Avg',
+        availableMemory: 'Available Memory',
+        swapUsed: 'Swap Used',
+        topContainers: 'Top Containers',
+        topProcesses: 'Top Processes'
+      },
       fullscreen: {
         enter: 'Enter Fullscreen'
       },
