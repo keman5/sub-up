@@ -36,6 +36,7 @@ var (
 	ErrDailyLimitExceeded         = infraerrors.TooManyRequests("DAILY_LIMIT_EXCEEDED", "daily usage limit exceeded")
 	ErrWeeklyLimitExceeded        = infraerrors.TooManyRequests("WEEKLY_LIMIT_EXCEEDED", "weekly usage limit exceeded")
 	ErrMonthlyLimitExceeded       = infraerrors.TooManyRequests("MONTHLY_LIMIT_EXCEEDED", "monthly usage limit exceeded")
+	ErrTotalLimitExceeded         = infraerrors.TooManyRequests("TOTAL_LIMIT_EXCEEDED", "total usage limit exceeded")
 	ErrSubscriptionNilInput       = infraerrors.BadRequest("SUBSCRIPTION_NIL_INPUT", "subscription input cannot be nil")
 	ErrAdjustWouldExpire          = infraerrors.BadRequest("ADJUST_WOULD_EXPIRE", "adjustment would result in expired subscription (remaining days must be > 0)")
 )
@@ -857,6 +858,9 @@ func (s *SubscriptionService) CheckUsageLimits(ctx context.Context, sub *UserSub
 	if !sub.CheckMonthlyLimit(group, additionalCost) {
 		return ErrMonthlyLimitExceeded
 	}
+	if !sub.CheckTotalLimit(group, additionalCost) {
+		return ErrTotalLimitExceeded
+	}
 	return nil
 }
 
@@ -903,6 +907,9 @@ func (s *SubscriptionService) ValidateAndCheckLimits(sub *UserSubscription, grou
 	if !sub.CheckMonthlyLimit(group, 0) {
 		return needsMaintenance, ErrMonthlyLimitExceeded
 	}
+	if !sub.CheckTotalLimit(group, 0) {
+		return needsMaintenance, ErrTotalLimitExceeded
+	}
 
 	return needsMaintenance, nil
 }
@@ -910,7 +917,8 @@ func (s *SubscriptionService) ValidateAndCheckLimits(sub *UserSubscription, grou
 func IsSubscriptionLimitError(err error) bool {
 	return errors.Is(err, ErrDailyLimitExceeded) ||
 		errors.Is(err, ErrWeeklyLimitExceeded) ||
-		errors.Is(err, ErrMonthlyLimitExceeded)
+		errors.Is(err, ErrMonthlyLimitExceeded) ||
+		errors.Is(err, ErrTotalLimitExceeded)
 }
 
 func (s *SubscriptionService) ResolveQuotaFallback(ctx context.Context, userID int64, sourceGroup *Group, limitErr error) (*QuotaFallbackResolution, error) {
@@ -1021,6 +1029,7 @@ type SubscriptionProgress struct {
 	Daily         *UsageWindowProgress `json:"daily,omitempty"`
 	Weekly        *UsageWindowProgress `json:"weekly,omitempty"`
 	Monthly       *UsageWindowProgress `json:"monthly,omitempty"`
+	Total         *UsageWindowProgress `json:"total,omitempty"`
 }
 
 // UsageWindowProgress 使用窗口进度
@@ -1133,6 +1142,30 @@ func (s *SubscriptionService) calculateProgress(sub *UserSubscription, group *Gr
 		}
 		if progress.Monthly.ResetsInSeconds < 0 {
 			progress.Monthly.ResetsInSeconds = 0
+		}
+	}
+
+	// 总量进度：整个订阅周期内累计，不随日/周/月窗口重置。
+	if group.HasTotalLimit() {
+		limit := *group.TotalLimitUSD
+		windowStart := sub.StartsAt
+		progress.Total = &UsageWindowProgress{
+			LimitUSD:        limit,
+			UsedUSD:         sub.TotalUsageUSD,
+			RemainingUSD:    limit - sub.TotalUsageUSD,
+			Percentage:      (sub.TotalUsageUSD / limit) * 100,
+			WindowStart:     windowStart,
+			ResetsAt:        sub.ExpiresAt,
+			ResetsInSeconds: int64(time.Until(sub.ExpiresAt).Seconds()),
+		}
+		if progress.Total.RemainingUSD < 0 {
+			progress.Total.RemainingUSD = 0
+		}
+		if progress.Total.Percentage > 100 {
+			progress.Total.Percentage = 100
+		}
+		if progress.Total.ResetsInSeconds < 0 {
+			progress.Total.ResetsInSeconds = 0
 		}
 	}
 

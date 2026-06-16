@@ -288,12 +288,34 @@
                 </div>
               </div>
 
+              <!-- Total Usage -->
+              <div v-if="row.group?.total_limit_usd" class="usage-row">
+                <div class="flex items-center gap-2">
+                  <span class="usage-label">{{ t('admin.subscriptions.total') }}</span>
+                  <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
+                    <div
+                      class="h-1.5 rounded-full transition-all"
+                      :class="getProgressClass(row.total_usage_usd, row.group?.total_limit_usd)"
+                      :style="{
+                        width: getProgressWidth(row.total_usage_usd, row.group?.total_limit_usd)
+                      }"
+                    ></div>
+                  </div>
+                  <span class="usage-amount">
+                    ${{ row.total_usage_usd?.toFixed(2) || '0.00' }}
+                    <span class="text-gray-400">/</span>
+                    ${{ row.group?.total_limit_usd?.toFixed(2) }}
+                  </span>
+                </div>
+              </div>
+
               <!-- No Limits - Unlimited badge -->
               <div
                 v-if="
                   !row.group?.daily_limit_usd &&
                   !row.group?.weekly_limit_usd &&
-                  !row.group?.monthly_limit_usd
+                  !row.group?.monthly_limit_usd &&
+                  !row.group?.total_limit_usd
                 "
                 class="flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-50 to-teal-50 px-3 py-2 dark:from-emerald-900/20 dark:to-teal-900/20"
               >
@@ -1158,7 +1180,8 @@ const refreshVisibleSubscriptionProgress = async (items: UserSubscription[]) => 
     .filter(subscription =>
       subscription.group?.daily_limit_usd ||
       subscription.group?.weekly_limit_usd ||
-      subscription.group?.monthly_limit_usd
+      subscription.group?.monthly_limit_usd ||
+      subscription.group?.total_limit_usd
     )
     .map(subscription => subscription.id)
 

@@ -111,6 +111,7 @@ export interface SubscriptionPlan {
   daily_limit_usd?: number | null
   weekly_limit_usd?: number | null
   monthly_limit_usd?: number | null
+  total_limit_usd?: number | null
   supported_model_scopes?: string[]
   name: string
   description: string

@@ -514,6 +514,7 @@ export interface Group {
   daily_limit_usd: number | null
   weekly_limit_usd: number | null
   monthly_limit_usd: number | null
+  total_limit_usd: number | null
   // 图片生成计费配置
   allow_image_generation: boolean
   image_rate_independent: boolean
@@ -638,6 +639,7 @@ export interface CreateGroupRequest {
   daily_limit_usd?: number | null
   weekly_limit_usd?: number | null
   monthly_limit_usd?: number | null
+  total_limit_usd?: number | null
   allow_image_generation?: boolean
   image_rate_independent?: boolean
   image_rate_multiplier?: number
@@ -677,6 +679,7 @@ export interface UpdateGroupRequest {
   daily_limit_usd?: number | null
   weekly_limit_usd?: number | null
   monthly_limit_usd?: number | null
+  total_limit_usd?: number | null
   allow_image_generation?: boolean
   image_rate_independent?: boolean
   image_rate_multiplier?: number
@@ -1592,6 +1595,7 @@ export interface UserSubscription {
   daily_usage_usd: number
   weekly_usage_usd: number
   monthly_usage_usd: number
+  total_usage_usd: number
   daily_window_start: string | null
   weekly_window_start: string | null
   monthly_window_start: string | null
@@ -1628,6 +1632,17 @@ export interface SubscriptionProgress {
     reset_in_seconds?: number | null
   } | null
   monthly: {
+    used_usd?: number
+    used?: number
+    limit_usd?: number
+    limit?: number | null
+    percentage: number
+    window_start?: string
+    resets_at?: string
+    resets_in_seconds?: number
+    reset_in_seconds?: number | null
+  } | null
+  total?: {
     used_usd?: number
     used?: number
     limit_usd?: number
