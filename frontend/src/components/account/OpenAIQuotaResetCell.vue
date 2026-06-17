@@ -95,6 +95,10 @@ const props = defineProps<{
   account: Account
 }>()
 
+const emit = defineEmits<{
+  queried: [data: OpenAIQuotaUsage]
+}>()
+
 const { t } = useI18n()
 
 // Visible only for OpenAI OAuth accounts.
@@ -154,6 +158,7 @@ const handleQuery = async () => {
   resetMessage.value = null
   try {
     data.value = await queryOpenAIQuota(props.account.id)
+    emit('queried', data.value)
   } catch (e) {
     error.value = extractErrorMessage(e)
   } finally {

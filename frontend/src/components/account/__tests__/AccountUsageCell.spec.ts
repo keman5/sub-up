@@ -3,8 +3,10 @@ import { flushPromises, mount } from '@vue/test-utils'
 import AccountUsageCell from '../AccountUsageCell.vue'
 import type { Account } from '@/types'
 
-const { getUsage } = vi.hoisted(() => ({
-  getUsage: vi.fn()
+const { getUsage, queryOpenAIQuota, resetOpenAIQuota } = vi.hoisted(() => ({
+  getUsage: vi.fn(),
+  queryOpenAIQuota: vi.fn(),
+  resetOpenAIQuota: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -13,6 +15,11 @@ vi.mock('@/api/admin', () => ({
       getUsage
     }
   }
+}))
+
+vi.mock('@/api/admin/accounts', () => ({
+  queryOpenAIQuota,
+  resetOpenAIQuota
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -57,6 +64,12 @@ function makeAccount(overrides: Partial<Account>): Account {
 describe('AccountUsageCell', () => {
   beforeEach(() => {
     getUsage.mockReset()
+    queryOpenAIQuota.mockReset()
+    resetOpenAIQuota.mockReset()
+    queryOpenAIQuota.mockResolvedValue({
+      rate_limit_reset_credits: { available_count: 0 },
+      fetched_at: 0
+    })
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
       value: vi.fn().mockImplementation(() => ({
@@ -287,6 +300,81 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('5h|5')
     expect(wrapper.text()).toContain('7d|0')
     expect(wrapper.text()).not.toContain('7d|95')
+  })
+
+  it('OpenAI OAuth quota 查询成功后会刷新账号用量', async () => {
+    getUsage
+      .mockResolvedValueOnce({
+        five_hour: {
+          utilization: 100,
+          resets_at: '2099-03-07T12:00:00Z',
+          remaining_seconds: 3600,
+          window_stats: null
+        },
+        seven_day: {
+          utilization: 100,
+          resets_at: '2099-03-13T12:00:00Z',
+          remaining_seconds: 3600,
+          window_stats: null
+        },
+        codex_main_5h_used_percent: 100,
+        codex_main_5h_reset_at: '2099-03-07T12:00:00Z',
+        codex_main_7d_used_percent: 100,
+        codex_main_7d_reset_at: '2099-03-13T12:00:00Z'
+      })
+      .mockResolvedValueOnce({
+        five_hour: {
+          utilization: 0,
+          resets_at: '2099-03-07T12:00:00Z',
+          remaining_seconds: 3600,
+          window_stats: null
+        },
+        seven_day: {
+          utilization: 0,
+          resets_at: '2099-03-13T12:00:00Z',
+          remaining_seconds: 3600,
+          window_stats: null
+        },
+        codex_main_5h_used_percent: 0,
+        codex_main_5h_reset_at: '2099-03-07T12:00:00Z',
+        codex_main_7d_used_percent: 0,
+        codex_main_7d_reset_at: '2099-03-13T12:00:00Z'
+      })
+    queryOpenAIQuota.mockResolvedValue({
+      rate_limit_reset_credits: { available_count: 0 },
+      fetched_at: 1
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 2020,
+          platform: 'openai',
+          type: 'oauth',
+          extra: {}
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+    expect(wrapper.text()).toContain('7d|100')
+
+    await wrapper.findAll('button').find((button) => button.text().includes('admin.accounts.openaiQuotaReset.count'))?.trigger('click')
+    await flushPromises()
+
+    expect(queryOpenAIQuota).toHaveBeenCalledWith(2020)
+    expect(getUsage).toHaveBeenCalledTimes(2)
+    expect(getUsage.mock.calls[1]).toEqual([2020, 'active', true])
+    expect(wrapper.text()).toContain('7d|0')
   })
 
   it('OpenAI OAuth raw codex 头没有 Spark 快照时间时不显示 Spark 展开区', async () => {

@@ -11,6 +11,8 @@ type accountUsageCodexProbeRepo struct {
 	stubOpenAIAccountRepo
 	updateExtraCh chan map[string]any
 	rateLimitCh   chan time.Time
+	clearLimitCh  chan int64
+	account       *Account
 }
 
 func (r *accountUsageCodexProbeRepo) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
@@ -29,6 +31,33 @@ func (r *accountUsageCodexProbeRepo) SetRateLimited(_ context.Context, _ int64, 
 		r.rateLimitCh <- resetAt
 	}
 	return nil
+}
+
+func (r *accountUsageCodexProbeRepo) ClearRateLimit(_ context.Context, id int64) error {
+	if r.clearLimitCh != nil {
+		r.clearLimitCh <- id
+	}
+	return nil
+}
+
+func (r *accountUsageCodexProbeRepo) GetByID(_ context.Context, id int64) (*Account, error) {
+	if r.account != nil && r.account.ID == id {
+		return r.account, nil
+	}
+	return r.stubOpenAIAccountRepo.GetByID(context.Background(), id)
+}
+
+type openAIQuotaUsageRefresherStub struct {
+	calls int
+	query func(context.Context, int64) (*OpenAIQuotaUsage, error)
+}
+
+func (s *openAIQuotaUsageRefresherStub) QueryUsage(ctx context.Context, accountID int64) (*OpenAIQuotaUsage, error) {
+	s.calls++
+	if s.query != nil {
+		return s.query(ctx, accountID)
+	}
+	return &OpenAIQuotaUsage{}, nil
 }
 
 func TestShouldRefreshOpenAICodexSnapshot(t *testing.T) {
@@ -361,6 +390,92 @@ func TestAccountUsageService_GetOpenAIUsageMapsRawSparkSnapshotByWindowMinutes(t
 	}
 }
 
+func TestAccountUsageService_GetOpenAIUsageRefreshesOfficialQuotaForSuspiciousMainSnapshot(t *testing.T) {
+	t.Parallel()
+
+	resetAt := time.Now().Add(7 * time.Hour).UTC().Truncate(time.Second)
+	refreshedAccount := &Account{
+		ID:       905,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_main_5h_used_percent": 0.0,
+			"codex_main_5h_reset_at":     resetAt.Format(time.RFC3339),
+			"codex_main_7d_used_percent": 0.0,
+			"codex_main_7d_reset_at":     resetAt.Format(time.RFC3339),
+			"codex_main_usage_updated_at": time.Now().
+				UTC().
+				Truncate(time.Second).
+				Format(time.RFC3339),
+		},
+	}
+	repo := &accountUsageCodexProbeRepo{account: refreshedAccount}
+	refresher := &openAIQuotaUsageRefresherStub{}
+	svc := &AccountUsageService{
+		accountRepo:               repo,
+		cache:                     NewUsageCache(),
+		openAIQuotaUsageRefresher: refresher,
+	}
+	account := &Account{
+		ID:               905,
+		Platform:         PlatformOpenAI,
+		Type:             AccountTypeOAuth,
+		RateLimitResetAt: &resetAt,
+		Extra: map[string]any{
+			"codex_main_5h_used_percent": 100.0,
+			"codex_main_5h_reset_at":     resetAt.Format(time.RFC3339),
+			"codex_main_7d_used_percent": 100.0,
+			"codex_main_7d_reset_at":     resetAt.Format(time.RFC3339),
+		},
+	}
+
+	usage, err := svc.getOpenAIUsage(context.Background(), account, false)
+	if err != nil {
+		t.Fatalf("getOpenAIUsage() error = %v", err)
+	}
+
+	if refresher.calls != 1 {
+		t.Fatalf("official quota refresh calls = %d, want 1", refresher.calls)
+	}
+	if usage.SevenDay == nil || usage.SevenDay.Utilization != 0 {
+		t.Fatalf("seven day usage = %#v, want refreshed official main usage 0", usage.SevenDay)
+	}
+	if usage.CodexMain7dUsedPercent == nil || *usage.CodexMain7dUsedPercent != 0 {
+		t.Fatalf("codex_main_7d_used_percent = %v, want 0", usage.CodexMain7dUsedPercent)
+	}
+}
+
+func TestAccountUsageService_GetOpenAIUsageThrottlesOfficialQuotaRefresh(t *testing.T) {
+	t.Parallel()
+
+	resetAt := time.Now().Add(7 * time.Hour).UTC().Truncate(time.Second)
+	refresher := &openAIQuotaUsageRefresherStub{}
+	svc := &AccountUsageService{
+		accountRepo:               &accountUsageCodexProbeRepo{},
+		cache:                     NewUsageCache(),
+		openAIQuotaUsageRefresher: refresher,
+	}
+	account := &Account{
+		ID:       906,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_main_7d_used_percent": 100.0,
+			"codex_main_7d_reset_at":     resetAt.Format(time.RFC3339),
+		},
+	}
+
+	for i := 0; i < 2; i++ {
+		if _, err := svc.getOpenAIUsage(context.Background(), account, false); err != nil {
+			t.Fatalf("getOpenAIUsage() call %d error = %v", i+1, err)
+		}
+	}
+
+	if refresher.calls != 1 {
+		t.Fatalf("official quota refresh calls = %d, want throttled single call", refresher.calls)
+	}
+}
+
 func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
@@ -410,4 +525,39 @@ func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 			t.Fatalf("expected Utilization=0 for expired 7d window, got %v", progress.Utilization)
 		}
 	})
+}
+
+func TestAccountUsageService_GetOpenAIUsageZerosExpiredMainSnapshotFields(t *testing.T) {
+	t.Parallel()
+
+	resetAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Second).Format(time.RFC3339)
+	svc := &AccountUsageService{}
+	account := &Account{
+		ID:       904,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_main_5h_used_percent": 100.0,
+			"codex_main_5h_reset_at":     resetAt,
+			"codex_main_7d_used_percent": 100.0,
+			"codex_main_7d_reset_at":     resetAt,
+		},
+	}
+
+	usage, err := svc.getOpenAIUsage(context.Background(), account, false)
+	if err != nil {
+		t.Fatalf("getOpenAIUsage() error = %v", err)
+	}
+	if usage.FiveHour == nil || usage.FiveHour.Utilization != 0 {
+		t.Fatalf("expired main five_hour = %#v, want utilization 0", usage.FiveHour)
+	}
+	if usage.SevenDay == nil || usage.SevenDay.Utilization != 0 {
+		t.Fatalf("expired main seven_day = %#v, want utilization 0", usage.SevenDay)
+	}
+	if usage.CodexMain5hUsedPercent == nil || *usage.CodexMain5hUsedPercent != 0 {
+		t.Fatalf("codex_main_5h_used_percent = %v, want 0", usage.CodexMain5hUsedPercent)
+	}
+	if usage.CodexMain7dUsedPercent == nil || *usage.CodexMain7dUsedPercent != 0 {
+		t.Fatalf("codex_main_7d_used_percent = %v, want 0", usage.CodexMain7dUsedPercent)
+	}
 }

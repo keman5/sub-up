@@ -170,7 +170,7 @@
           refresh button is rendered via the pre-actions slot so the user sees a
           single row of related buttons instead of two stacked rows.
         -->
-        <OpenAIQuotaResetCell :account="account">
+        <OpenAIQuotaResetCell :account="account" @queried="handleOpenAIQuotaQueried">
           <template #pre-actions>
             <button
               type="button"
@@ -212,7 +212,7 @@
       <div v-else>
         <div class="text-xs text-gray-400">-</div>
         <!-- Always allow on-demand upstream quota query, even before local data exists. -->
-        <OpenAIQuotaResetCell :account="account" class="mt-1" />
+        <OpenAIQuotaResetCell :account="account" class="mt-1" @queried="handleOpenAIQuotaQueried" />
       </div>
     </template>
 
@@ -673,10 +673,12 @@ const buildOpenAIProgressFromMainSnapshot = (
 ): UsageProgress | null => {
   const utilization = toNumber(utilized)
   if (utilization == null) return null
+  const resetsAt = toResetAt(resetAt, resetAfterSeconds)
+  const isExpired = resetsAt ? new Date(resetsAt).getTime() <= Date.now() : false
   return {
-    utilization,
-    resets_at: toResetAt(resetAt, resetAfterSeconds) ?? null,
-    remaining_seconds: toNumber(resetAfterSeconds) ?? 0,
+    utilization: isExpired ? 0 : utilization,
+    resets_at: resetsAt ?? null,
+    remaining_seconds: isExpired ? 0 : (toNumber(resetAfterSeconds) ?? 0),
     window_stats: null
   }
 }
@@ -802,12 +804,16 @@ const openAICodexSparkWindows = computed(() => {
     resets_at: string | undefined
     remaining_seconds: number
     window_stats: null
-  } => ({
-    utilization: util ?? 0,
-    resets_at: toResetAt(resetAt, resetAfterSeconds),
-    remaining_seconds: toNumber(resetAfterSeconds) ?? 0,
-    window_stats: null
-  })
+  } => {
+    const resetsAt = toResetAt(resetAt, resetAfterSeconds)
+    const isExpired = resetsAt ? new Date(resetsAt).getTime() <= Date.now() : false
+    return {
+      utilization: isExpired ? 0 : (util ?? 0),
+      resets_at: resetsAt,
+      remaining_seconds: isExpired ? 0 : (toNumber(resetAfterSeconds) ?? 0),
+      window_stats: null
+    }
+  }
 
   if (snapshot.spark5h.utilized != null || snapshot.spark7d.utilized != null) {
     const bars: Array<{ label: '5h' | '7d'; progress: ReturnType<typeof buildProgress> }> = []
@@ -1358,6 +1364,10 @@ const loadActiveUsage = async () => {
   } finally {
     activeQueryLoading.value = false
   }
+}
+
+const handleOpenAIQuotaQueried = async () => {
+  await loadActiveUsage()
 }
 
 // ===== API Key quota progress bars =====

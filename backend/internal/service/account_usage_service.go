@@ -110,6 +110,7 @@ const (
 	apiQueryMaxJitter         = 800 * time.Millisecond // 用量查询最大随机延迟
 	windowStatsCacheTTL       = 1 * time.Minute
 	openAIProbeCacheTTL       = 10 * time.Minute
+	openAIOfficialQuotaTTL    = 1 * time.Minute
 	openAICodexProbeVersion   = "0.125.0"
 	openAICodexProbeModel     = "gpt-5.3-codex-spark"
 	openAICodexMainProbeModel = "gpt-5.3-codex"
@@ -123,6 +124,7 @@ type UsageCache struct {
 	apiFlight         singleflight.Group // 防止同一账号的并发请求击穿缓存（Anthropic）
 	antigravityFlight singleflight.Group // 防止同一 Antigravity 账号的并发请求击穿缓存
 	openAIProbeCache  sync.Map           // accountID -> time.Time
+	openAIQuotaCache  sync.Map           // accountID -> time.Time
 }
 
 // NewUsageCache 创建 UsageCache 实例
@@ -285,14 +287,19 @@ type ClaudeUsageFetcher interface {
 
 // AccountUsageService 账号使用量查询服务
 type AccountUsageService struct {
-	accountRepo             AccountRepository
-	usageLogRepo            UsageLogRepository
-	usageFetcher            ClaudeUsageFetcher
-	geminiQuotaService      *GeminiQuotaService
-	antigravityQuotaFetcher *AntigravityQuotaFetcher
-	cache                   *UsageCache
-	identityCache           IdentityCache
-	tlsFPProfileService     *TLSFingerprintProfileService
+	accountRepo               AccountRepository
+	usageLogRepo              UsageLogRepository
+	usageFetcher              ClaudeUsageFetcher
+	geminiQuotaService        *GeminiQuotaService
+	antigravityQuotaFetcher   *AntigravityQuotaFetcher
+	cache                     *UsageCache
+	identityCache             IdentityCache
+	tlsFPProfileService       *TLSFingerprintProfileService
+	openAIQuotaUsageRefresher openAIQuotaUsageRefresher
+}
+
+type openAIQuotaUsageRefresher interface {
+	QueryUsage(ctx context.Context, accountID int64) (*OpenAIQuotaUsage, error)
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
@@ -305,16 +312,18 @@ func NewAccountUsageService(
 	cache *UsageCache,
 	identityCache IdentityCache,
 	tlsFPProfileService *TLSFingerprintProfileService,
+	openAIQuotaUsageRefresher openAIQuotaUsageRefresher,
 ) *AccountUsageService {
 	return &AccountUsageService{
-		accountRepo:             accountRepo,
-		usageLogRepo:            usageLogRepo,
-		usageFetcher:            usageFetcher,
-		geminiQuotaService:      geminiQuotaService,
-		antigravityQuotaFetcher: antigravityQuotaFetcher,
-		cache:                   cache,
-		identityCache:           identityCache,
-		tlsFPProfileService:     tlsFPProfileService,
+		accountRepo:               accountRepo,
+		usageLogRepo:              usageLogRepo,
+		usageFetcher:              usageFetcher,
+		geminiQuotaService:        geminiQuotaService,
+		antigravityQuotaFetcher:   antigravityQuotaFetcher,
+		cache:                     cache,
+		identityCache:             identityCache,
+		tlsFPProfileService:       tlsFPProfileService,
+		openAIQuotaUsageRefresher: openAIQuotaUsageRefresher,
 	}
 }
 
@@ -555,18 +564,7 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		)
 	}
 
-	if progress := buildCodexMainUsageProgressFromExtra(account.Extra, "5h", now); progress != nil {
-		usage.FiveHour = progress
-	}
-	if progress := buildCodexMainUsageProgressFromExtra(account.Extra, "7d", now); progress != nil {
-		usage.SevenDay = progress
-	}
-	if progress := buildCodexUsageProgressFromExtraKeys(account.Extra, "codex_primary_used_percent", "codex_primary_reset_after_seconds", "codex_primary_reset_at", now); progress != nil {
-		usage.CodexPrimary = progress
-	}
-	if progress := buildCodexUsageProgressFromExtraKeys(account.Extra, "codex_secondary_used_percent", "codex_secondary_reset_after_seconds", "codex_secondary_reset_at", now); progress != nil {
-		usage.CodexSecondary = progress
-	}
+	applyOpenAIUsageSnapshots(usage, account.Extra, now)
 
 	if (force || shouldRefreshOpenAICodexSnapshot(account, usage, now)) && s.shouldProbeOpenAICodexSnapshot(account.ID, now, force) {
 		if updates, err := s.probeOpenAICodexSnapshot(ctx, account); err == nil && len(updates) > 0 {
@@ -574,23 +572,18 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 			if usage.UpdatedAt == nil {
 				usage.UpdatedAt = &now
 			}
-			if progress := buildCodexMainUsageProgressFromExtra(account.Extra, "5h", now); progress != nil {
-				usage.FiveHour = progress
-			}
-			if progress := buildCodexMainUsageProgressFromExtra(account.Extra, "7d", now); progress != nil {
-				usage.SevenDay = progress
-			}
-			if progress := buildCodexUsageProgressFromExtraKeys(account.Extra, "codex_primary_used_percent", "codex_primary_reset_after_seconds", "codex_primary_reset_at", now); progress != nil {
-				usage.CodexPrimary = progress
-			}
-			if progress := buildCodexUsageProgressFromExtraKeys(account.Extra, "codex_secondary_used_percent", "codex_secondary_reset_after_seconds", "codex_secondary_reset_at", now); progress != nil {
-				usage.CodexSecondary = progress
-			}
+			applyOpenAIUsageSnapshots(usage, account.Extra, now)
 		}
 	}
 
+	if refreshed, ok := s.refreshOpenAIMainQuotaSnapshotIfNeeded(ctx, account, usage, now); ok {
+		account = refreshed
+		usage = &UsageInfo{UpdatedAt: &now}
+		applyOpenAIUsageSnapshots(usage, account.Extra, now)
+	}
+
 	if s.usageLogRepo == nil {
-		setCodexUsageSnapshotFields(usage, account.Extra)
+		setCodexUsageSnapshotFields(usage, account.Extra, now)
 		if os.Getenv("SUB2API_DEBUG_OPENAI_USAGE") == "1" {
 			slog.Info(
 				"[usage] openai account usage output (no usage log)",
@@ -618,7 +611,7 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
 	}
 
-	setCodexUsageSnapshotFields(usage, account.Extra)
+	setCodexUsageSnapshotFields(usage, account.Extra, now)
 	if os.Getenv("SUB2API_DEBUG_OPENAI_USAGE") == "1" {
 		slog.Info(
 			"[usage] openai account usage output",
@@ -632,7 +625,25 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 	return usage, nil
 }
 
-func setCodexUsageSnapshotFields(usage *UsageInfo, extra map[string]any) {
+func applyOpenAIUsageSnapshots(usage *UsageInfo, extra map[string]any, now time.Time) {
+	if usage == nil {
+		return
+	}
+	if progress := buildCodexMainUsageProgressFromExtra(extra, "5h", now); progress != nil {
+		usage.FiveHour = progress
+	}
+	if progress := buildCodexMainUsageProgressFromExtra(extra, "7d", now); progress != nil {
+		usage.SevenDay = progress
+	}
+	if progress := buildCodexUsageProgressFromExtraKeys(extra, "codex_primary_used_percent", "codex_primary_reset_after_seconds", "codex_primary_reset_at", now); progress != nil {
+		usage.CodexPrimary = progress
+	}
+	if progress := buildCodexUsageProgressFromExtraKeys(extra, "codex_secondary_used_percent", "codex_secondary_reset_after_seconds", "codex_secondary_reset_at", now); progress != nil {
+		usage.CodexSecondary = progress
+	}
+}
+
+func setCodexUsageSnapshotFields(usage *UsageInfo, extra map[string]any, now time.Time) {
 	if usage == nil || len(extra) == 0 {
 		return
 	}
@@ -709,7 +720,51 @@ func setCodexUsageSnapshotFields(usage *UsageInfo, extra map[string]any) {
 		usage.CodexMainUsageUpdatedAt = &s
 	}
 
-	applyRawCodexSnapshotFallback(usage, extra)
+	applyCodexProgressSnapshotFields(usage, extra, now)
+	applyRawCodexSnapshotFallback(usage, extra, now)
+}
+
+func applyCodexProgressSnapshotFields(usage *UsageInfo, extra map[string]any, now time.Time) {
+	if progress := buildCodexUsageProgressFromExtra(extra, "5h", now); progress != nil {
+		usage.Codex5hUsedPercent = usageFloat64Ptr(progress.Utilization)
+		usage.Codex5hResetAfterSeconds = usageIntPtr(progress.RemainingSeconds)
+		if progress.ResetsAt != nil {
+			usage.Codex5hResetAt = usageStringPtr(progress.ResetsAt.Format(time.RFC3339))
+		}
+	}
+	if progress := buildCodexUsageProgressFromExtra(extra, "7d", now); progress != nil {
+		usage.Codex7dUsedPercent = usageFloat64Ptr(progress.Utilization)
+		usage.Codex7dResetAfterSeconds = usageIntPtr(progress.RemainingSeconds)
+		if progress.ResetsAt != nil {
+			usage.Codex7dResetAt = usageStringPtr(progress.ResetsAt.Format(time.RFC3339))
+		}
+	}
+	if progress := buildCodexMainUsageProgressFromExtra(extra, "5h", now); progress != nil {
+		usage.CodexMain5hUsedPercent = usageFloat64Ptr(progress.Utilization)
+		usage.CodexMain5hResetAfterSeconds = usageIntPtr(progress.RemainingSeconds)
+		if progress.ResetsAt != nil {
+			usage.CodexMain5hResetAt = usageStringPtr(progress.ResetsAt.Format(time.RFC3339))
+		}
+	}
+	if progress := buildCodexMainUsageProgressFromExtra(extra, "7d", now); progress != nil {
+		usage.CodexMain7dUsedPercent = usageFloat64Ptr(progress.Utilization)
+		usage.CodexMain7dResetAfterSeconds = usageIntPtr(progress.RemainingSeconds)
+		if progress.ResetsAt != nil {
+			usage.CodexMain7dResetAt = usageStringPtr(progress.ResetsAt.Format(time.RFC3339))
+		}
+	}
+}
+
+func usageFloat64Ptr(v float64) *float64 {
+	return &v
+}
+
+func usageIntPtr(v int) *int {
+	return &v
+}
+
+func usageStringPtr(v string) *string {
+	return &v
 }
 
 type rawCodexWindowSnapshot struct {
@@ -776,12 +831,13 @@ func selectRawCodexSnapshotForWindow(primary, secondary rawCodexWindowSnapshot, 
 	return primary
 }
 
-func applyRawCodexSnapshotFallback(usage *UsageInfo, extra map[string]any) {
+func applyRawCodexSnapshotFallback(usage *UsageInfo, extra map[string]any, now time.Time) {
 	primary := buildRawCodexWindowSnapshot(extra, "codex_primary")
 	secondary := buildRawCodexWindowSnapshot(extra, "codex_secondary")
 
 	if usage.Codex5hUsedPercent == nil {
 		raw5h := selectRawCodexSnapshotForWindow(primary, secondary, "5h")
+		raw5h = normalizeRawCodexWindowSnapshot(raw5h, now)
 		if raw5h.usedPercent != nil {
 			usage.Codex5hUsedPercent = raw5h.usedPercent
 			usage.Codex5hResetAfterSeconds = raw5h.resetAfterSeconds
@@ -792,6 +848,7 @@ func applyRawCodexSnapshotFallback(usage *UsageInfo, extra map[string]any) {
 
 	if usage.Codex7dUsedPercent == nil {
 		raw7d := selectRawCodexSnapshotForWindow(primary, secondary, "7d")
+		raw7d = normalizeRawCodexWindowSnapshot(raw7d, now)
 		if raw7d.usedPercent != nil {
 			usage.Codex7dUsedPercent = raw7d.usedPercent
 			usage.Codex7dResetAfterSeconds = raw7d.resetAfterSeconds
@@ -799,6 +856,19 @@ func applyRawCodexSnapshotFallback(usage *UsageInfo, extra map[string]any) {
 			usage.Codex7dWindowMinutes = raw7d.windowMinutes
 		}
 	}
+}
+
+func normalizeRawCodexWindowSnapshot(raw rawCodexWindowSnapshot, now time.Time) rawCodexWindowSnapshot {
+	if raw.resetAt == nil || strings.TrimSpace(*raw.resetAt) == "" {
+		return raw
+	}
+	resetAt, err := parseTime(*raw.resetAt)
+	if err != nil || now.Before(resetAt) {
+		return raw
+	}
+	raw.usedPercent = usageFloat64Ptr(0)
+	raw.resetAfterSeconds = usageIntPtr(0)
+	return raw
 }
 
 func buildCodexMainUsageProgressFromExtra(extra map[string]any, window string, now time.Time) *UsageProgress {
@@ -829,6 +899,23 @@ func shouldRefreshOpenAICodexSnapshot(account *Account, usage *UsageInfo, now ti
 		return true
 	}
 	return isOpenAICodexSnapshotStale(account, now)
+}
+
+func shouldRefreshOpenAIMainQuotaFromOfficial(account *Account, usage *UsageInfo) bool {
+	if account == nil || !account.IsOpenAIOAuth() {
+		return false
+	}
+	if account.IsRateLimited() {
+		return true
+	}
+	if usage == nil {
+		return false
+	}
+	return usageProgressAtLimit(usage.FiveHour) || usageProgressAtLimit(usage.SevenDay)
+}
+
+func usageProgressAtLimit(progress *UsageProgress) bool {
+	return progress != nil && progress.Utilization >= 100
 }
 
 func isOpenAICodexSparkSnapshotIncomplete(account *Account) bool {
@@ -881,6 +968,46 @@ func (s *AccountUsageService) shouldProbeOpenAICodexSnapshot(accountID int64, no
 		}
 	}
 	s.cache.openAIProbeCache.Store(accountID, now)
+	return true
+}
+
+func (s *AccountUsageService) refreshOpenAIMainQuotaSnapshotIfNeeded(ctx context.Context, account *Account, usage *UsageInfo, now time.Time) (*Account, bool) {
+	if s == nil ||
+		s.openAIQuotaUsageRefresher == nil ||
+		s.accountRepo == nil ||
+		account == nil ||
+		account.ID <= 0 ||
+		!shouldRefreshOpenAIMainQuotaFromOfficial(account, usage) ||
+		!s.shouldQueryOpenAIOfficialQuota(account.ID, now) {
+		return nil, false
+	}
+
+	if _, err := s.openAIQuotaUsageRefresher.QueryUsage(ctx, account.ID); err != nil {
+		slog.Warn("openai_usage_official_quota_refresh_failed", "account_id", account.ID, "error", err)
+		return nil, false
+	}
+
+	refreshed, err := s.accountRepo.GetByID(ctx, account.ID)
+	if err != nil {
+		slog.Warn("openai_usage_official_quota_reload_failed", "account_id", account.ID, "error", err)
+		return nil, false
+	}
+	if refreshed == nil {
+		return nil, false
+	}
+	return refreshed, true
+}
+
+func (s *AccountUsageService) shouldQueryOpenAIOfficialQuota(accountID int64, now time.Time) bool {
+	if s == nil || s.cache == nil || accountID <= 0 {
+		return true
+	}
+	if cached, ok := s.cache.openAIQuotaCache.Load(accountID); ok {
+		if ts, ok := cached.(time.Time); ok && now.Sub(ts) < openAIOfficialQuotaTTL {
+			return false
+		}
+	}
+	s.cache.openAIQuotaCache.Store(accountID, now)
 	return true
 }
 
