@@ -12,6 +12,7 @@ import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import HomeView from '@/views/HomeView.vue'
 import { getSetupStatus } from '@/api/setup'
+import { FeatureFlags, refreshAndResolveFeatureFlag } from '@/utils/featureFlags'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveDocumentTitle } from './title'
 
@@ -851,7 +852,7 @@ router.beforeEach(async (to, _from, next) => {
   }
 
   if (to.meta.requiresRiskControl) {
-    const riskControlEnabled = appStore.cachedPublicSettings?.risk_control_enabled === true
+    const riskControlEnabled = await refreshAndResolveFeatureFlag(FeatureFlags.riskControl)
     if (!riskControlEnabled) {
       next(authStore.isAdmin ? '/admin/settings' : '/dashboard')
       return

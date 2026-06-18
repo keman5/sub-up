@@ -105,6 +105,7 @@ rg -n "window\\.__APP_CONFIG__|api_base_url|<title>" /tmp/sub2api-pages-a2/index
 - Pages 发布前必须从对应环境的公开设置接口拉取配置，并写入本环境产物的 `index.html`。主环境使用 `https://api.upit.top/api/v1/settings/public`，a1 使用 `https://ap1.upit.top/api/v1/settings/public`，a2 使用 `https://ap2.upit.top/api/v1/settings/public`。
 - 只能注入 `/api/v1/settings/public` 返回的公开 `data` 字段，不要把后台 admin 配置、`.env`、数据库连接、密钥或其它私有配置写入静态文件。
 - 如果线上 public settings 改了，需要重新执行 build、inject、Pages deploy；否则首屏会继续使用上一次写入的静态配置。
+- 对依赖 public settings 的后台功能入口（例如 `risk_control_enabled` 控制的 `/admin/risk-control`），前端路由守卫必须在本地缓存为关闭时强制刷新一次 `/api/v1/settings/public` 后再判断。否则管理员刚保存开关后，当前 SPA 仍可能因为旧缓存把“前往配置”跳转拦回设置页。
 
 ### 多环境前台产物原则
 
@@ -392,5 +393,6 @@ curl -sSIL https://ap2.upit.top/51Token/v1/models | sed -n '1,20p'
 - Pages Worker 只负责轻量路由：API 回源，静态资源留在 Pages。
 - Pages 静态 HTML 发布前必须执行 `scripts/inject-pages-public-settings.mjs`，把对应环境的 public settings 注入 `window.__APP_CONFIG__`。
 - 只缓存公开只读接口，且 TTL 保持短周期；不要缓存任何携带用户态、管理员态、支付态或模型流式响应的接口。
+- 修改由 public settings 控制的前台入口或路由守卫后，验证要包含“后台保存开关后不刷新页面直接跳转”的场景，避免旧 `cachedPublicSettings` 把已开启功能误拦截。
 - 关闭 VPS 旧前台入口时，只移除已切到 Pages 的前台域名；不要移除 `ap2.upit.top` 这类 API 回源域名，也不要停止 `sub2api-ap2` 后端容器。
 - 修改 `frontend/public/_worker.js`、Pages 配置注入脚本或相关部署流程后，必须重新运行 Worker/注入单测和前端构建。

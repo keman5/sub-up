@@ -1109,6 +1109,29 @@ git diff --check
 **同步官方后的复查：**
 继续搜索 `OpenAIOAuthCodexResponsesURL`、`buildUpstreamRequest`、`buildUpstreamRequestOpenAIPassthrough`、`buildOpenAIResponsesWSURL`、`buildOpenAIImagesRequest`、`httpUpstream.Do`、`httpUpstream.DoWithTLS`、`Dial(`、`Acquire(`、`account.Proxy.URL()`。只要路径可能由 OpenAI OAuth Codex override 指向 Headroom，就必须按最终 upstream URL 调用 `openAICodexHTTPProxyURL()` 或 `openAICodexWSProxyURL()`；不要把外部 `/v1/*` 兼容上游的账号 proxy 去掉。
 
+### 2026-06-18 风控中心开启后配置入口被旧 public settings 缓存拦截
+
+**现象：**
+管理员在系统设置里启用“风控中心”后，点击“前往 风控中心 配置内容审计”跳转到 `/admin/risk-control`，页面仍被路由守卫拦回 `/admin/settings`，看起来像开关没有生效。
+
+**原因：**
+`/admin/risk-control` 路由通过 `risk_control_enabled` 这个 public settings 开关控制。Cloudflare Pages 前台首屏会使用发布时注入的 `window.__APP_CONFIG__`，当前 SPA 内还会缓存 `cachedPublicSettings`。如果管理员刚保存开关，路由守卫只读旧缓存的 `false`，不会主动请求最新 `/api/v1/settings/public`，因此误判功能关闭。
+
+**修改：**
+- `frontend/src/utils/featureFlags.ts`：新增 `refreshAndResolveFeatureFlag()`，当当前缓存不允许访问时，强制刷新一次 public settings 后再解析功能开关。
+- `frontend/src/router/index.ts`：`requiresRiskControl` 路由改用 `refreshAndResolveFeatureFlag(FeatureFlags.riskControl)`。
+- `frontend/src/utils/__tests__/featureFlags.spec.ts`：覆盖旧缓存为 `false`、刷新后为 `true` 时应放行，以及当前已为 `true` 时不重复刷新的场景。
+
+**验证：**
+```bash
+pnpm --dir frontend test:run src/utils/__tests__/featureFlags.spec.ts
+pnpm --dir frontend test:run src/router/__tests__/wechat-route.spec.ts src/views/admin/__tests__/SettingsView.spec.ts
+pnpm --dir frontend typecheck
+```
+
+**同步官方后的复查：**
+继续搜索 `requiresRiskControl`、`risk_control_enabled`、`refreshAndResolveFeatureFlag`、`FeatureFlags.riskControl`。如果官方引入统一的异步 feature flag 守卫，可以删除本地 helper；否则所有由 public settings opt-in 控制、且可能从设置页保存后立刻跳转的后台入口，都应在拦截前刷新一次 public settings。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：
