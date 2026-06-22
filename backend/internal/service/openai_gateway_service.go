@@ -1433,13 +1433,14 @@ func isOpenAIAccountEligibleForRequestWithOptions(ctx context.Context, account *
 	if effectiveModel != "" && account.GetRateLimitRemainingTimeWithContext(ctx, effectiveModel) > 0 {
 		return false
 	}
-	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
-		if effectiveModel == "" || !account.IsModelSupported(effectiveModel) {
+	if requestedModel != "" {
+		requestedModelSupported := account.IsModelSupported(requestedModel)
+		effectiveModelSupported := effectiveModel != "" && account.IsModelSupported(effectiveModel)
+		// Account model_mapping is a requested-model whitelist; mapped upstream
+		// targets do not need to be listed again in that same whitelist.
+		if !requestedModelSupported && !effectiveModelSupported {
 			return false
 		}
-	}
-	if effectiveModel != "" && effectiveModel != requestedModel && !account.IsModelSupported(effectiveModel) {
-		return false
 	}
 	if !account.SupportsOpenAIEndpointCapability(opts.RequiredCapability) {
 		return false
@@ -6670,7 +6671,7 @@ func parseCodexActiveLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot
 }
 
 func ParseCodexRateLimitHeadersForModel(headers http.Header, model string) *OpenAICodexUsageSnapshot {
-	if isCodexSparkModel(model) {
+	if model == openAICodexUsageFamilySpark || isCodexSparkModel(model) {
 		if snapshot := parseCodexActiveLimitHeaders(headers); snapshot != nil {
 			return snapshot
 		}

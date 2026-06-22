@@ -1876,7 +1876,8 @@ const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
             ...[
               response.subscription.daily_limit_usd != null ? response.subscription.daily_limit_usd - (response.subscription.daily_usage_usd ?? 0) : undefined,
               response.subscription.weekly_limit_usd != null ? response.subscription.weekly_limit_usd - (response.subscription.weekly_usage_usd ?? 0) : undefined,
-              response.subscription.monthly_limit_usd != null ? response.subscription.monthly_limit_usd - (response.subscription.monthly_usage_usd ?? 0) : undefined
+              response.subscription.monthly_limit_usd != null ? response.subscription.monthly_limit_usd - (response.subscription.monthly_usage_usd ?? 0) : undefined,
+              response.subscription.total_limit_usd != null ? response.subscription.total_limit_usd - (response.subscription.total_usage_usd ?? 0) : undefined
             ].filter(function(value) { return typeof value === "number"; })
           )
         : undefined;

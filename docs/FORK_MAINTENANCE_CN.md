@@ -1132,6 +1132,32 @@ pnpm --dir frontend typecheck
 **同步官方后的复查：**
 继续搜索 `requiresRiskControl`、`risk_control_enabled`、`refreshAndResolveFeatureFlag`、`FeatureFlags.riskControl`。如果官方引入统一的异步 feature flag 守卫，可以删除本地 helper；否则所有由 public settings opt-in 控制、且可能从设置页保存后立刻跳转的后台入口，都应在拦截前刷新一次 public settings。
 
+### 2026-06-22 订阅级总量上限耗尽预检
+
+**业务目的：**
+为订阅套餐增加“总量上限”后，Google/Gemini 风格入口必须在订阅累计用量已经达到上限时拒绝下一次请求；同时仍允许一次请求在预估扣费时刚好用完剩余额度。这个入口主要依赖 `SubscriptionService.ValidateAndCheckLimits()` 中间件预检，否则总量刚好耗尽时可能漏放一次请求。
+
+**修改：**
+- `backend/internal/service/user_subscription.go`：抽出 `checkUsageWithinLimit()`，统一 `CheckDailyLimit`、`CheckWeeklyLimit`、`CheckMonthlyLimit`、`CheckTotalLimit` 的边界语义；`additionalCost <= 0` 的请求预检使用 `used < limit`，带预估扣费时仍允许 `used + additionalCost == limit`。
+- `frontend/src/views/user/KeysView.vue`：CC Switch 导入脚本计算订阅剩余额度时必须把 `total_limit_usd - total_usage_usd` 纳入 `Math.min(...)`，否则客户端展示的 remaining 可能高于真实可用额度。
+- `backend/internal/server/middleware/api_key_auth_google_test.go`、`backend/internal/service/user_subscription_daily_quota_test.go`：覆盖总量刚好耗尽时服务层和 Google/Gemini 入口都返回限额错误。
+
+**验证：**
+```bash
+cd backend
+go test ./internal/service -run 'Test(UserSubscriptionCheckTotalLimit|ValidateAndCheckLimits_TotalLimitExactlyExhausted|ValidateAndCheckLimits_TotalLimitExceeded)' -count=1
+go test ./internal/server/middleware -run 'TestApiKeyAuthWithSubscriptionGoogle_(SubscriptionLimitExceededReturns429|SubscriptionTotalLimitExactlyExhaustedReturns429)' -count=1
+go test ./internal/service -count=1
+go test ./internal/handler ./internal/handler/admin ./internal/server/middleware -count=1
+go test ./internal/repository -count=1
+go test ./... -run TestNonExistent -count=1
+pnpm --dir frontend run typecheck
+pnpm --dir frontend exec vitest run src/views/user/__tests__/PaymentView.spec.ts src/views/admin/__tests__/subscriptionProgressMerge.spec.ts src/stores/__tests__/subscriptions.spec.ts
+```
+
+**同步官方后的复查：**
+继续搜索 `TotalLimitUSD`、`total_limit_usd`、`total_usage_usd`、`CheckTotalLimit`、`ValidateAndCheckLimits`、`ErrTotalLimitExceeded`、`APIKeyAuthWithSubscriptionGoogle`、`executeCcsImport`。如果官方调整订阅预检、Google/Gemini 鉴权链路或用户侧 Key 导入脚本，必须确认“已用量等于总量上限时下一次请求返回 429”仍成立，且客户端导入脚本的 remaining 会受总量上限约束；同时保留“预估本次扣费刚好用完剩余额度可通过”的行为，避免提前拒绝最后一次合法请求。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：
