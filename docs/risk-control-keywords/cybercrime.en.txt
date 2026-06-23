@@ -1,0 +1,39 @@
+credential stuffing
+credential stuffing script
+account takeover tutorial
+account takeover script
+password cracking script
+password brute force
+brute force login
+phishing kit
+phishing page template
+phishing website source code
+phishing email template
+malware source code
+trojan source code
+remote access trojan
+rat malware
+stealer malware
+cookie stealer
+token stealer
+session hijacking tutorial
+xss cookie theft
+ransomware source code
+ransomware builder
+malware persistence
+backdoor implantation
+privilege escalation tutorial
+antivirus evasion
+av bypass
+captcha bypass
+bypass captcha
+sms bombing
+email bombing
+bot account creation
+bulk account creation script
+abuse automation script
+bypass fraud detection
+evade fraud detection
+bypass content moderation
+bypass safety filters
+api abuse script
