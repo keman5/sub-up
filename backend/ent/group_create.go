@@ -119,6 +119,34 @@ func (_c *GroupCreate) SetNillableDisplayRateMultiplier(v *float64) *GroupCreate
 	return _c
 }
 
+// SetUsageMultiplierEnabled sets the "usage_multiplier_enabled" field.
+func (_c *GroupCreate) SetUsageMultiplierEnabled(v bool) *GroupCreate {
+	_c.mutation.SetUsageMultiplierEnabled(v)
+	return _c
+}
+
+// SetNillableUsageMultiplierEnabled sets the "usage_multiplier_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableUsageMultiplierEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetUsageMultiplierEnabled(*v)
+	}
+	return _c
+}
+
+// SetUsageMultiplier sets the "usage_multiplier" field.
+func (_c *GroupCreate) SetUsageMultiplier(v float64) *GroupCreate {
+	_c.mutation.SetUsageMultiplier(v)
+	return _c
+}
+
+// SetNillableUsageMultiplier sets the "usage_multiplier" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableUsageMultiplier(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetUsageMultiplier(*v)
+	}
+	return _c
+}
+
 // SetIsExclusive sets the "is_exclusive" field.
 func (_c *GroupCreate) SetIsExclusive(v bool) *GroupCreate {
 	_c.mutation.SetIsExclusive(v)
@@ -728,6 +756,14 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultDisplayRateMultiplier
 		_c.mutation.SetDisplayRateMultiplier(v)
 	}
+	if _, ok := _c.mutation.UsageMultiplierEnabled(); !ok {
+		v := group.DefaultUsageMultiplierEnabled
+		_c.mutation.SetUsageMultiplierEnabled(v)
+	}
+	if _, ok := _c.mutation.UsageMultiplier(); !ok {
+		v := group.DefaultUsageMultiplier
+		_c.mutation.SetUsageMultiplier(v)
+	}
 	if _, ok := _c.mutation.IsExclusive(); !ok {
 		v := group.DefaultIsExclusive
 		_c.mutation.SetIsExclusive(v)
@@ -844,6 +880,12 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.DisplayRateMultiplier(); !ok {
 		return &ValidationError{Name: "display_rate_multiplier", err: errors.New(`ent: missing required field "Group.display_rate_multiplier"`)}
+	}
+	if _, ok := _c.mutation.UsageMultiplierEnabled(); !ok {
+		return &ValidationError{Name: "usage_multiplier_enabled", err: errors.New(`ent: missing required field "Group.usage_multiplier_enabled"`)}
+	}
+	if _, ok := _c.mutation.UsageMultiplier(); !ok {
+		return &ValidationError{Name: "usage_multiplier", err: errors.New(`ent: missing required field "Group.usage_multiplier"`)}
 	}
 	if _, ok := _c.mutation.IsExclusive(); !ok {
 		return &ValidationError{Name: "is_exclusive", err: errors.New(`ent: missing required field "Group.is_exclusive"`)}
@@ -1003,6 +1045,14 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.DisplayRateMultiplier(); ok {
 		_spec.SetField(group.FieldDisplayRateMultiplier, field.TypeFloat64, value)
 		_node.DisplayRateMultiplier = value
+	}
+	if value, ok := _c.mutation.UsageMultiplierEnabled(); ok {
+		_spec.SetField(group.FieldUsageMultiplierEnabled, field.TypeBool, value)
+		_node.UsageMultiplierEnabled = value
+	}
+	if value, ok := _c.mutation.UsageMultiplier(); ok {
+		_spec.SetField(group.FieldUsageMultiplier, field.TypeFloat64, value)
+		_node.UsageMultiplier = value
 	}
 	if value, ok := _c.mutation.IsExclusive(); ok {
 		_spec.SetField(group.FieldIsExclusive, field.TypeBool, value)
@@ -1389,6 +1439,36 @@ func (u *GroupUpsert) UpdateDisplayRateMultiplier() *GroupUpsert {
 // AddDisplayRateMultiplier adds v to the "display_rate_multiplier" field.
 func (u *GroupUpsert) AddDisplayRateMultiplier(v float64) *GroupUpsert {
 	u.Add(group.FieldDisplayRateMultiplier, v)
+	return u
+}
+
+// SetUsageMultiplierEnabled sets the "usage_multiplier_enabled" field.
+func (u *GroupUpsert) SetUsageMultiplierEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldUsageMultiplierEnabled, v)
+	return u
+}
+
+// UpdateUsageMultiplierEnabled sets the "usage_multiplier_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateUsageMultiplierEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldUsageMultiplierEnabled)
+	return u
+}
+
+// SetUsageMultiplier sets the "usage_multiplier" field.
+func (u *GroupUpsert) SetUsageMultiplier(v float64) *GroupUpsert {
+	u.Set(group.FieldUsageMultiplier, v)
+	return u
+}
+
+// UpdateUsageMultiplier sets the "usage_multiplier" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateUsageMultiplier() *GroupUpsert {
+	u.SetExcluded(group.FieldUsageMultiplier)
+	return u
+}
+
+// AddUsageMultiplier adds v to the "usage_multiplier" field.
+func (u *GroupUpsert) AddUsageMultiplier(v float64) *GroupUpsert {
+	u.Add(group.FieldUsageMultiplier, v)
 	return u
 }
 
@@ -2104,6 +2184,41 @@ func (u *GroupUpsertOne) AddDisplayRateMultiplier(v float64) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateDisplayRateMultiplier() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateDisplayRateMultiplier()
+	})
+}
+
+// SetUsageMultiplierEnabled sets the "usage_multiplier_enabled" field.
+func (u *GroupUpsertOne) SetUsageMultiplierEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetUsageMultiplierEnabled(v)
+	})
+}
+
+// UpdateUsageMultiplierEnabled sets the "usage_multiplier_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateUsageMultiplierEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateUsageMultiplierEnabled()
+	})
+}
+
+// SetUsageMultiplier sets the "usage_multiplier" field.
+func (u *GroupUpsertOne) SetUsageMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetUsageMultiplier(v)
+	})
+}
+
+// AddUsageMultiplier adds v to the "usage_multiplier" field.
+func (u *GroupUpsertOne) AddUsageMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddUsageMultiplier(v)
+	})
+}
+
+// UpdateUsageMultiplier sets the "usage_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateUsageMultiplier() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateUsageMultiplier()
 	})
 }
 
@@ -3078,6 +3193,41 @@ func (u *GroupUpsertBulk) AddDisplayRateMultiplier(v float64) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateDisplayRateMultiplier() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateDisplayRateMultiplier()
+	})
+}
+
+// SetUsageMultiplierEnabled sets the "usage_multiplier_enabled" field.
+func (u *GroupUpsertBulk) SetUsageMultiplierEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetUsageMultiplierEnabled(v)
+	})
+}
+
+// UpdateUsageMultiplierEnabled sets the "usage_multiplier_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateUsageMultiplierEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateUsageMultiplierEnabled()
+	})
+}
+
+// SetUsageMultiplier sets the "usage_multiplier" field.
+func (u *GroupUpsertBulk) SetUsageMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetUsageMultiplier(v)
+	})
+}
+
+// AddUsageMultiplier adds v to the "usage_multiplier" field.
+func (u *GroupUpsertBulk) AddUsageMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddUsageMultiplier(v)
+	})
+}
+
+// UpdateUsageMultiplier sets the "usage_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateUsageMultiplier() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateUsageMultiplier()
 	})
 }
 

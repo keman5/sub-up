@@ -138,6 +138,10 @@ func GroupFromService(g *service.Group) *Group {
 // GroupFromServiceAdmin converts a service Group to DTO for admin users.
 // It includes internal fields like model_routing and account_count.
 func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
+	return GroupFromServiceAdminWithViewer(g, service.UsageViewRaw)
+}
+
+func GroupFromServiceAdminWithViewer(g *service.Group, mode service.UsageViewMode) *AdminGroup {
 	if g == nil {
 		return nil
 	}
@@ -159,6 +163,12 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		SortOrder:                   g.SortOrder,
 	}
 	out.RateMultiplier = g.RateMultiplier
+	out.UsageMultiplierEnabled = g.UsageMultiplierEnabled
+	out.UsageMultiplier = g.UsageMultiplier
+	if mode == service.UsageViewPresentation {
+		out.UsageMultiplierEnabled = false
+		out.UsageMultiplier = 1
+	}
 	if len(g.AccountGroups) > 0 {
 		out.AccountGroups = make([]AccountGroup, 0, len(g.AccountGroups))
 		for i := range g.AccountGroups {
@@ -181,6 +191,8 @@ func groupFromServiceBase(g *service.Group) Group {
 		Platform:                        g.Platform,
 		RateMultiplier:                  displayRateMultiplier,
 		DisplayRateMultiplier:           displayRateMultiplier,
+		UsageMultiplierEnabled:          false,
+		UsageMultiplier:                 1,
 		IsExclusive:                     g.IsExclusive,
 		Status:                          g.Status,
 		SubscriptionType:                g.SubscriptionType,
@@ -583,8 +595,10 @@ func AccountSummaryFromService(a *service.Account) *AccountSummary {
 	}
 }
 
-func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
+func usageLogFromServiceUser(l *service.UsageLog, mode service.UsageViewMode) UsageLog {
 	// 普通用户 DTO：严禁包含管理员字段（例如 account_rate_multiplier、ip_address、account）。
+	viewLog := service.UsageLogForView(l, mode)
+	l = &viewLog
 	requestType := l.EffectiveRequestType()
 	stream, openAIWSMode := service.ApplyLegacyRequestFields(requestType, l.Stream, l.OpenAIWSMode)
 	requestedModel := l.RequestedModel
@@ -646,30 +660,41 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 // UsageLogFromService converts a service UsageLog to DTO for regular users.
 // It excludes Account details and IP address - users should not see these.
 func UsageLogFromService(l *service.UsageLog) *UsageLog {
+	return UsageLogFromServiceWithViewer(l, service.UsageViewPresentation)
+}
+
+func UsageLogFromServiceWithViewer(l *service.UsageLog, mode service.UsageViewMode) *UsageLog {
 	if l == nil {
 		return nil
 	}
-	u := usageLogFromServiceUser(l)
+	u := usageLogFromServiceUser(l, mode)
 	return &u
 }
 
 // UsageLogFromServiceAdmin converts a service UsageLog to DTO for admin users.
 // It includes minimal Account info (ID, Name only) and IP address.
 func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
+	return UsageLogFromServiceAdminWithViewer(l, service.UsageViewPresentation)
+}
+
+func UsageLogFromServiceAdminWithViewer(l *service.UsageLog, mode service.UsageViewMode) *AdminUsageLog {
 	if l == nil {
 		return nil
 	}
-	return &AdminUsageLog{
-		UsageLog:              usageLogFromServiceUser(l),
-		UpstreamModel:         l.UpstreamModel,
-		ChannelID:             l.ChannelID,
-		ModelMappingChain:     l.ModelMappingChain,
-		BillingTier:           l.BillingTier,
-		AccountRateMultiplier: l.AccountRateMultiplier,
-		AccountStatsCost:      l.AccountStatsCost,
-		IPAddress:             l.IPAddress,
-		Account:               AccountSummaryFromService(l.Account),
+	out := &AdminUsageLog{
+		UsageLog:          usageLogFromServiceUser(l, mode),
+		UpstreamModel:     l.UpstreamModel,
+		ChannelID:         l.ChannelID,
+		ModelMappingChain: l.ModelMappingChain,
+		BillingTier:       l.BillingTier,
+		IPAddress:         l.IPAddress,
+		Account:           AccountSummaryFromService(l.Account),
 	}
+	if mode == service.UsageViewRaw {
+		out.AccountRateMultiplier = l.AccountRateMultiplier
+		out.AccountStatsCost = l.AccountStatsCost
+	}
+	return out
 }
 
 func UsageCleanupTaskFromService(task *service.UsageCleanupTask) *UsageCleanupTask {

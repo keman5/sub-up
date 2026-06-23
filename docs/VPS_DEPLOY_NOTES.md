@@ -1719,6 +1719,18 @@ docker exec sub2api-ap1 sh -lc "wget -qO- http://headroom-a1:8787/readyz || curl
 '
 ```
 
+## 十四、2026-06-21 分组用量展示倍率部署说明
+
+本 fork 增加分组级“用量展示倍率”：`groups.usage_multiplier_enabled` 控制开关，`groups.usage_multiplier` 保存倍率；每条新用量在写入 `usage_logs.presentation_multiplier` 时按真实输入、输出、cache creation、cache read 合计是否达到 1000 token 决定是否快照倍率。数据库原始 token/cost 不变，普通用户和普通管理员看到的是展示倍率后的 usage；`super_admin` 看到真实 usage 和真实倍率配置。普通 admin 的分组接口/前端会隐藏并忽略展示倍率配置，避免通过管理页或手工请求泄露/修改真实倍率。
+
+部署注意：
+
+- 必须部署包含 `backend/migrations/159_add_usage_presentation_multiplier.sql` 的后端镜像，让目标环境先完成迁移。
+- 只部署 a2 时，后端只切 `/opt/sub2api-ap2-deploy` 的 `sub2api-ap2`；不要运行会同时滚动 primary/ap1 的 `deploy/local-gzip-binary-deploy.sh --deploy`。
+- 如果前台有分组管理页面改动，需要发布 `sub2api-frontend-a2` Pages，并注入 `https://ap2.upit.top/api/v1/settings/public`。
+- 发布后用 `super_admin` 和普通 `admin` 各查一次 `/api/v1/admin/usage/stats`、`/api/v1/admin/dashboard/stats` 与分组编辑页：普通 admin 应看到展示后的 token/cost/RPM/TPM，分组页不显示展示倍率配置；`super_admin` 应看到 raw token/cost/RPM/TPM 和真实倍率配置；用户侧 group DTO 的 `usage_multiplier` 始终是 `1`。
+- 用大于等于 1000 token 的非流式和流式请求各验证一次客户端响应 usage；低于 1000 token 的请求应保持 `presentation_multiplier=1`。
+
 ### 7. OpenAI OAuth Headroom 代理选择复查
 
 不要按客户端访问路径是否包含 `/v1/` 来决定是否绕过账号 proxy。线上同样是 `/v1/responses` 或 `/v1/chat/completions`，可能最终去外部 OpenAI / 第三方兼容上游，也可能被后端转换后去 `http://headroom-a1:8787/v1/responses`。只有最终 upstream URL 是本机、私网 IP、loopback 或 Docker 内网 service name，并且 scheme 为 `http` / `ws` 时，才允许不走账号 proxy。

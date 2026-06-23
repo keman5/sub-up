@@ -136,14 +136,15 @@ func (h *UsageHandler) List(c *gin.Context) {
 		SortOrder: c.DefaultQuery("sort_order", "desc"),
 	}
 	filters := usagestats.UsageLogFilters{
-		UserID:      subject.UserID, // Always filter by current user for security
-		APIKeyID:    apiKeyID,
-		Model:       model,
-		RequestType: requestType,
-		Stream:      stream,
-		BillingType: billingType,
-		StartTime:   startTime,
-		EndTime:     endTime,
+		UserID:                    subject.UserID, // Always filter by current user for security
+		APIKeyID:                  apiKeyID,
+		Model:                     model,
+		RequestType:               requestType,
+		Stream:                    stream,
+		BillingType:               billingType,
+		StartTime:                 startTime,
+		EndTime:                   endTime,
+		UsePresentationMultiplier: true,
 	}
 
 	records, result, err := h.usageService.ListWithFilters(c.Request.Context(), params, filters)
@@ -371,13 +372,14 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		endTime = now
 	}
 
-	var stats *service.UsageStats
-	var err error
-	if apiKeyID > 0 {
-		stats, err = h.usageService.GetStatsByAPIKey(c.Request.Context(), apiKeyID, startTime, endTime)
-	} else {
-		stats, err = h.usageService.GetStatsByUser(c.Request.Context(), subject.UserID, startTime, endTime)
+	filters := usagestats.UsageLogFilters{
+		UserID:                    subject.UserID,
+		APIKeyID:                  apiKeyID,
+		StartTime:                 &startTime,
+		EndTime:                   &endTime,
+		UsePresentationMultiplier: true,
 	}
+	stats, err := h.usageService.GetStatsWithFilters(c.Request.Context(), filters)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

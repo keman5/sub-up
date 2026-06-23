@@ -49,6 +49,7 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "usage_logs", "image_output_size", "character varying", 32, true)
 	requireColumn(t, tx, "usage_logs", "image_size_source", "character varying", 16, true)
 	requireColumn(t, tx, "usage_logs", "image_size_breakdown", "jsonb", 0, true)
+	requireColumn(t, tx, "usage_logs", "presentation_multiplier", "numeric", 0, false)
 	requireConstraintDefinitionContains(
 		t,
 		tx,
@@ -108,6 +109,10 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 
 	// user_subscriptions: deleted_at for soft delete support (migration 012)
 	requireColumn(t, tx, "user_subscriptions", "deleted_at", "timestamp with time zone", 0, true)
+
+	// groups: usage presentation multiplier controls
+	requireColumn(t, tx, "groups", "usage_multiplier_enabled", "boolean", 0, false)
+	requireColumn(t, tx, "groups", "usage_multiplier", "numeric", 0, false)
 
 	// orphan_allowed_groups_audit table should exist (migration 013)
 	var orphanAuditRegclass sql.NullString

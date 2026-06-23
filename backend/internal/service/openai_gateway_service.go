@@ -2599,8 +2599,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	apiKey := getAPIKeyFromContext(c)
+	var requestGroup *Group
 	imageGenerationAllowed := GroupAllowsImageGeneration(nil)
 	if apiKey != nil {
+		requestGroup = apiKey.Group
 		imageGenerationAllowed = GroupAllowsImageGeneration(apiKey.Group)
 	}
 	codexImageGenerationBridgeEnabled := isCodexCLI && imageGenerationAllowed && s.isCodexImageGenerationBridgeEnabled(ctx, account, apiKey)
@@ -3179,7 +3181,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		imageCount := 0
 		var imageOutputSizes []string
 		if reqStream {
-			streamResult, err := s.handleStreamingResponse(ctx, resp, c, account, startTime, originalModel, upstreamModel)
+			streamResult, err := s.handleStreamingResponse(ctx, resp, c, account, requestGroup, startTime, originalModel, upstreamModel)
 			if err != nil {
 				return nil, err
 			}
@@ -3189,7 +3191,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			imageCount = streamResult.imageCount
 			imageOutputSizes = streamResult.imageOutputSizes
 		} else {
-			nonStreamResult, err := s.handleNonStreamingResponse(ctx, resp, c, account, originalModel, upstreamModel)
+			nonStreamResult, err := s.handleNonStreamingResponse(ctx, resp, c, account, requestGroup, originalModel, upstreamModel)
 			if err != nil {
 				return nil, err
 			}
@@ -3432,7 +3434,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		imageCount := 0
 		var imageOutputSizes []string
 		if reqStream {
-			result, err := s.handleStreamingResponsePassthrough(ctx, resp, c, account, startTime, reqModel, upstreamPassthroughModel)
+			result, err := s.handleStreamingResponsePassthrough(ctx, resp, c, account, apiKeyGroup(apiKey), startTime, reqModel, upstreamPassthroughModel)
 			if err != nil {
 				return nil, err
 			}
@@ -3937,6 +3939,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	resp *http.Response,
 	c *gin.Context,
 	account *Account,
+	group *Group,
 	startTime time.Time,
 	originalModel string,
 	mappedModel string,
@@ -4053,6 +4056,19 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			if firstTokenMs == nil && lineStartsClientOutput && trimmedData != "[DONE]" {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
+			}
+			if trimmedData != "[DONE]" {
+				clientDataBytes := rewriteOpenAIUsageForPresentation(dataBytes, ResolvePresentationMultiplierWithImageOutput(
+					group,
+					openAIUsageInputTokensFromBytes(dataBytes),
+					openAIUsageOutputTokensFromBytes(dataBytes),
+					openAIUsageCacheCreationTokensFromBytes(dataBytes),
+					openAIUsageCacheReadTokensFromBytes(dataBytes),
+					openAIUsageImageOutputTokensFromBytes(dataBytes),
+				))
+				if !bytes.Equal(clientDataBytes, dataBytes) {
+					line = "data: " + string(clientDataBytes)
+				}
 			}
 			s.parseSSEUsageBytes(dataBytes, usage)
 		}
@@ -4931,7 +4947,7 @@ type openaiNonStreamingResult struct {
 	imageOutputSizes []string
 }
 
-func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string) (*openaiStreamingResult, error) {
+func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, group *Group, startTime time.Time, originalModel, mappedModel string) (*openaiStreamingResult, error) {
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
@@ -5179,10 +5195,25 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 				line = "data: " + data
 				eventType = strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
 			}
+			clientLine := line
+			if data != "[DONE]" {
+				clientDataBytes := rewriteOpenAIUsageForPresentation(dataBytes, ResolvePresentationMultiplierWithImageOutput(
+					group,
+					openAIUsageInputTokensFromBytes(dataBytes),
+					openAIUsageOutputTokensFromBytes(dataBytes),
+					openAIUsageCacheCreationTokensFromBytes(dataBytes),
+					openAIUsageCacheReadTokensFromBytes(dataBytes),
+					openAIUsageImageOutputTokensFromBytes(dataBytes),
+				))
+				if !bytes.Equal(clientDataBytes, dataBytes) {
+					clientLine = "data: " + string(clientDataBytes)
+				}
+			}
 			// Replace model in response if needed.
 			// Fast path: most events do not contain model field values.
 			if needModelReplace && mappedModel != "" && strings.Contains(line, mappedModel) {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
+				clientLine = s.replaceModelInSSELine(clientLine, mappedModel, originalModel)
 			}
 			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType)
 
@@ -5193,7 +5224,7 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 					// 保证首个 token 事件尽快出站，避免影响 TTFT。
 					shouldFlush = true
 				}
-				if _, err := bufferedWriter.WriteString(line); err != nil {
+				if _, err := bufferedWriter.WriteString(clientLine); err != nil {
 					clientDisconnected = true
 					logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
 				} else if _, err := bufferedWriter.WriteString("\n"); err != nil {
@@ -5501,6 +5532,102 @@ func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 	return openAIUsageFromGJSON(gjson.GetBytes(body, "response.usage"))
 }
 
+func openAIUsageIntFromBytes(data []byte, paths ...string) int {
+	for _, path := range paths {
+		if v := int(gjson.GetBytes(data, path).Int()); v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+func openAIUsageInputTokensFromBytes(data []byte) int {
+	return openAIUsageIntFromBytes(data,
+		"usage.input_tokens",
+		"usage.prompt_tokens",
+		"response.usage.input_tokens",
+		"response.usage.prompt_tokens",
+	)
+}
+
+func openAIUsageOutputTokensFromBytes(data []byte) int {
+	return openAIUsageIntFromBytes(data,
+		"usage.output_tokens",
+		"usage.completion_tokens",
+		"response.usage.output_tokens",
+		"response.usage.completion_tokens",
+	)
+}
+
+func openAIUsageCacheCreationTokensFromBytes(data []byte) int {
+	return openAIUsageIntFromBytes(data,
+		"usage.cache_creation_input_tokens",
+		"response.usage.cache_creation_input_tokens",
+	)
+}
+
+func openAIUsageCacheReadTokensFromBytes(data []byte) int {
+	return openAIUsageIntFromBytes(data,
+		"usage.cache_read_input_tokens",
+		"usage.input_tokens_details.cached_tokens",
+		"usage.prompt_tokens_details.cached_tokens",
+		"response.usage.cache_read_input_tokens",
+		"response.usage.input_tokens_details.cached_tokens",
+		"response.usage.prompt_tokens_details.cached_tokens",
+	)
+}
+
+func openAIUsageImageOutputTokensFromBytes(data []byte) int {
+	return openAIUsageIntFromBytes(data,
+		"usage.output_tokens_details.image_tokens",
+		"usage.completion_tokens_details.image_tokens",
+		"usage.image_output_tokens",
+		"response.usage.output_tokens_details.image_tokens",
+		"response.usage.completion_tokens_details.image_tokens",
+		"response.usage.image_output_tokens",
+	)
+}
+
+func rewriteOpenAIUsageForPresentation(body []byte, multiplier float64) []byte {
+	if multiplier <= 1 || len(body) == 0 || !gjson.ValidBytes(body) {
+		return body
+	}
+	usagePath := "usage"
+	if !gjson.GetBytes(body, usagePath).Exists() {
+		usagePath = "response.usage"
+		if !gjson.GetBytes(body, usagePath).Exists() {
+			return body
+		}
+	}
+	updated := body
+	for _, field := range []string{
+		"input_tokens",
+		"output_tokens",
+		"prompt_tokens",
+		"completion_tokens",
+		"cache_creation_input_tokens",
+		"cache_read_input_tokens",
+		"input_tokens_details.cached_tokens",
+		"prompt_tokens_details.cached_tokens",
+		"output_tokens_details.image_tokens",
+		"completion_tokens_details.image_tokens",
+		"image_output_tokens",
+		"total_tokens",
+	} {
+		path := usagePath + "." + field
+		value := gjson.GetBytes(updated, path)
+		if !value.Exists() || value.Type != gjson.Number {
+			continue
+		}
+		next, err := sjson.SetBytes(updated, path, multiplyInt(int(value.Int()), multiplier))
+		if err != nil {
+			return body
+		}
+		updated = next
+	}
+	return updated
+}
+
 func extractOpenAIResponseIDFromJSONBytes(body []byte) string {
 	if len(body) == 0 || !gjson.ValidBytes(body) {
 		return ""
@@ -5548,6 +5675,9 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	if imageOutputTokens == 0 {
 		imageOutputTokens = value.Get("completion_tokens_details.image_tokens").Int()
 	}
+	if imageOutputTokens == 0 {
+		imageOutputTokens = value.Get("image_output_tokens").Int()
+	}
 	return OpenAIUsage{
 		InputTokens:              int(inputTokens),
 		OutputTokens:             int(outputTokens),
@@ -5557,7 +5687,7 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	}, true
 }
 
-func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, mappedModel string) (*openaiNonStreamingResult, error) {
+func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, group *Group, originalModel, mappedModel string) (*openaiNonStreamingResult, error) {
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		return nil, err
@@ -5593,6 +5723,14 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	if originalModel != mappedModel {
 		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 	}
+	body = rewriteOpenAIUsageForPresentation(body, ResolvePresentationMultiplierWithImageOutput(
+		group,
+		usage.InputTokens-usage.CacheReadInputTokens,
+		usage.OutputTokens,
+		usage.CacheCreationInputTokens,
+		usage.CacheReadInputTokens,
+		usage.ImageOutputTokens,
+	))
 
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 
@@ -6331,12 +6469,20 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		CacheCreationTokens: result.Usage.CacheCreationInputTokens,
 		CacheReadTokens:     result.Usage.CacheReadInputTokens,
 		ImageOutputTokens:   result.Usage.ImageOutputTokens,
-		ImageCount:          result.ImageCount,
-		ImageSize:           optionalTrimmedStringPtr(result.ImageSize),
-		ImageInputSize:      optionalTrimmedStringPtr(result.ImageInputSize),
-		ImageOutputSize:     optionalTrimmedStringPtr(result.ImageOutputSize),
-		ImageSizeSource:     optionalTrimmedStringPtr(result.ImageSizeSource),
-		ImageSizeBreakdown:  result.ImageSizeBreakdown,
+		PresentationMultiplier: ResolvePresentationMultiplierWithImageOutput(
+			apiKey.Group,
+			actualInputTokens,
+			result.Usage.OutputTokens,
+			result.Usage.CacheCreationInputTokens,
+			result.Usage.CacheReadInputTokens,
+			result.Usage.ImageOutputTokens,
+		),
+		ImageCount:         result.ImageCount,
+		ImageSize:          optionalTrimmedStringPtr(result.ImageSize),
+		ImageInputSize:     optionalTrimmedStringPtr(result.ImageInputSize),
+		ImageOutputSize:    optionalTrimmedStringPtr(result.ImageOutputSize),
+		ImageSizeSource:    optionalTrimmedStringPtr(result.ImageSizeSource),
+		ImageSizeBreakdown: result.ImageSizeBreakdown,
 	}
 	if cost != nil {
 		usageLog.InputCost = cost.InputCost

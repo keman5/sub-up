@@ -10,6 +10,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -82,16 +83,18 @@ func NewGroupHandler(adminService service.AdminService, dashboardService *servic
 
 // CreateGroupRequest represents create group request
 type CreateGroupRequest struct {
-	Name             string             `json:"name" binding:"required"`
-	Description      string             `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity"`
-	RateMultiplier   float64            `json:"rate_multiplier"`
-	IsExclusive      bool               `json:"is_exclusive"`
-	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
-	DailyLimitUSD    optionalLimitField `json:"daily_limit_usd"`
-	WeeklyLimitUSD   optionalLimitField `json:"weekly_limit_usd"`
-	MonthlyLimitUSD  optionalLimitField `json:"monthly_limit_usd"`
-	TotalLimitUSD    optionalLimitField `json:"total_limit_usd"`
+	Name                   string             `json:"name" binding:"required"`
+	Description            string             `json:"description"`
+	Platform               string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity"`
+	RateMultiplier         float64            `json:"rate_multiplier"`
+	UsageMultiplierEnabled bool               `json:"usage_multiplier_enabled"`
+	UsageMultiplier        float64            `json:"usage_multiplier"`
+	IsExclusive            bool               `json:"is_exclusive"`
+	SubscriptionType       string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
+	DailyLimitUSD          optionalLimitField `json:"daily_limit_usd"`
+	WeeklyLimitUSD         optionalLimitField `json:"weekly_limit_usd"`
+	MonthlyLimitUSD        optionalLimitField `json:"monthly_limit_usd"`
+	TotalLimitUSD          optionalLimitField `json:"total_limit_usd"`
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            bool     `json:"allow_image_generation"`
 	ImageRateIndependent            bool     `json:"image_rate_independent"`
@@ -126,17 +129,19 @@ type CreateGroupRequest struct {
 
 // UpdateGroupRequest represents update group request
 type UpdateGroupRequest struct {
-	Name             string             `json:"name"`
-	Description      *string            `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity"`
-	RateMultiplier   *float64           `json:"rate_multiplier"`
-	IsExclusive      *bool              `json:"is_exclusive"`
-	Status           string             `json:"status" binding:"omitempty,oneof=active inactive"`
-	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
-	DailyLimitUSD    optionalLimitField `json:"daily_limit_usd"`
-	WeeklyLimitUSD   optionalLimitField `json:"weekly_limit_usd"`
-	MonthlyLimitUSD  optionalLimitField `json:"monthly_limit_usd"`
-	TotalLimitUSD    optionalLimitField `json:"total_limit_usd"`
+	Name                   string             `json:"name"`
+	Description            *string            `json:"description"`
+	Platform               string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity"`
+	RateMultiplier         *float64           `json:"rate_multiplier"`
+	UsageMultiplierEnabled *bool              `json:"usage_multiplier_enabled"`
+	UsageMultiplier        *float64           `json:"usage_multiplier"`
+	IsExclusive            *bool              `json:"is_exclusive"`
+	Status                 string             `json:"status" binding:"omitempty,oneof=active inactive"`
+	SubscriptionType       string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
+	DailyLimitUSD          optionalLimitField `json:"daily_limit_usd"`
+	WeeklyLimitUSD         optionalLimitField `json:"weekly_limit_usd"`
+	MonthlyLimitUSD        optionalLimitField `json:"monthly_limit_usd"`
+	TotalLimitUSD          optionalLimitField `json:"total_limit_usd"`
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            *bool    `json:"allow_image_generation"`
 	ImageRateIndependent            *bool    `json:"image_rate_independent"`
@@ -197,9 +202,10 @@ func (h *GroupHandler) List(c *gin.Context) {
 		return
 	}
 
+	viewMode := usageViewModeFromContext(c)
 	outGroups := make([]dto.AdminGroup, 0, len(groups))
 	for i := range groups {
-		outGroups = append(outGroups, *dto.GroupFromServiceAdmin(&groups[i]))
+		outGroups = append(outGroups, *dto.GroupFromServiceAdminWithViewer(&groups[i], viewMode))
 	}
 	response.Paginated(c, outGroups, total, page, pageSize)
 }
@@ -229,9 +235,10 @@ func (h *GroupHandler) GetAll(c *gin.Context) {
 		return
 	}
 
+	viewMode := usageViewModeFromContext(c)
 	outGroups := make([]dto.AdminGroup, 0, len(groups))
 	for i := range groups {
-		outGroups = append(outGroups, *dto.GroupFromServiceAdmin(&groups[i]))
+		outGroups = append(outGroups, *dto.GroupFromServiceAdminWithViewer(&groups[i], viewMode))
 	}
 	response.Success(c, outGroups)
 }
@@ -251,7 +258,7 @@ func (h *GroupHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, dto.GroupFromServiceAdmin(group))
+	response.Success(c, dto.GroupFromServiceAdminWithViewer(group, usageViewModeFromContext(c)))
 }
 
 // GetModelsListCandidates handles getting candidate model IDs for custom /v1/models list.
@@ -284,12 +291,19 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	viewMode := usageViewModeFromContext(c)
+	if viewMode == service.UsageViewPresentation {
+		req.UsageMultiplierEnabled = false
+		req.UsageMultiplier = 1
+	}
 
 	group, err := h.adminService.CreateGroup(c.Request.Context(), &service.CreateGroupInput{
 		Name:                            req.Name,
 		Description:                     req.Description,
 		Platform:                        req.Platform,
 		RateMultiplier:                  req.RateMultiplier,
+		UsageMultiplierEnabled:          req.UsageMultiplierEnabled,
+		UsageMultiplier:                 req.UsageMultiplier,
 		IsExclusive:                     req.IsExclusive,
 		SubscriptionType:                req.SubscriptionType,
 		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
@@ -326,7 +340,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, dto.GroupFromServiceAdmin(group))
+	response.Success(c, dto.GroupFromServiceAdminWithViewer(group, viewMode))
 }
 
 // Update handles updating a group
@@ -343,12 +357,19 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	viewMode := usageViewModeFromContext(c)
+	if viewMode == service.UsageViewPresentation {
+		req.UsageMultiplierEnabled = nil
+		req.UsageMultiplier = nil
+	}
 
 	group, err := h.adminService.UpdateGroup(c.Request.Context(), groupID, &service.UpdateGroupInput{
 		Name:                            req.Name,
 		Description:                     req.Description,
 		Platform:                        req.Platform,
 		RateMultiplier:                  req.RateMultiplier,
+		UsageMultiplierEnabled:          req.UsageMultiplierEnabled,
+		UsageMultiplier:                 req.UsageMultiplier,
 		IsExclusive:                     req.IsExclusive,
 		Status:                          req.Status,
 		SubscriptionType:                req.SubscriptionType,
@@ -386,7 +407,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, dto.GroupFromServiceAdmin(group))
+	response.Success(c, dto.GroupFromServiceAdminWithViewer(group, viewMode))
 }
 
 // Delete handles deleting a group
@@ -432,8 +453,10 @@ func (h *GroupHandler) GetUsageSummary(c *gin.Context) {
 	userTZ := c.Query("timezone")
 	now := timezone.NowInUserLocation(userTZ)
 	todayStart := timezone.StartOfDayInUserLocation(now, userTZ)
+	role, _ := middleware.GetUserRoleFromContext(c)
+	viewMode := service.UsageViewModeForRole(role)
 
-	results, err := h.dashboardService.GetGroupUsageSummary(c.Request.Context(), todayStart)
+	results, err := h.dashboardService.GetGroupUsageSummaryForView(c.Request.Context(), todayStart, viewMode)
 	if err != nil {
 		response.Error(c, 500, "Failed to get group usage summary")
 		return

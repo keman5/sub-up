@@ -123,6 +123,16 @@ func TestAdminAuthJWTValidatesTokenVersion(t *testing.T) {
 	})
 }
 
+func TestUserAdminRoleHelpers(t *testing.T) {
+	require.True(t, (&service.User{Role: service.RoleAdmin}).IsAdmin())
+	require.True(t, (&service.User{Role: service.RoleSuperAdmin}).IsAdmin())
+	require.False(t, (&service.User{Role: service.RoleUser}).IsAdmin())
+
+	require.True(t, (&service.User{Role: service.RoleSuperAdmin}).IsSuperAdmin())
+	require.False(t, (&service.User{Role: service.RoleAdmin}).IsSuperAdmin())
+	require.False(t, (&service.User{Role: service.RoleUser}).IsSuperAdmin())
+}
+
 type stubUserRepo struct {
 	getByID func(ctx context.Context, id int64) (*service.User, error)
 }

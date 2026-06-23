@@ -49,6 +49,13 @@ func (Group) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Default(1.0).
 			Comment("用户端展示倍率，仅影响 UI 展示，不参与实际计费"),
+		field.Bool("usage_multiplier_enabled").
+			Default(false).
+			Comment("是否启用非超级管理员可见用量消耗倍率"),
+		field.Float("usage_multiplier").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(1.0).
+			Comment("非超级管理员可见用量消耗倍率"),
 		field.Bool("is_exclusive").
 			Default(false),
 		field.String("status").

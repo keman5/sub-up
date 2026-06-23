@@ -84,7 +84,7 @@ export interface User {
   linuxdo_bound?: boolean
   oidc_bound?: boolean
   wechat_bound?: boolean
-  role: 'admin' | 'user' // User role for authorization
+  role: 'admin' | 'super_admin' | 'user' // User role for authorization
   balance: number // User balance for API usage
   concurrency: number // Allowed concurrent requests
   rpm_limit?: number // User-level RPM cap (0 = unlimited); effective as fallback when group has no rpm_limit
@@ -507,6 +507,8 @@ export interface Group {
   rate_multiplier: number
   display_rate_multiplier?: number
   billing_rate_multiplier?: number
+  usage_multiplier_enabled?: boolean
+  usage_multiplier?: number
   rpm_limit?: number // Group-level RPM cap (0 = unlimited); overrides user-level rpm_limit when set
   is_exclusive: boolean
   status: 'active' | 'inactive'
@@ -634,6 +636,8 @@ export interface CreateGroupRequest {
   platform?: GroupPlatform
   rate_multiplier?: number
   display_rate_multiplier?: number
+  usage_multiplier_enabled?: boolean
+  usage_multiplier?: number
   is_exclusive?: boolean
   subscription_type?: SubscriptionType
   daily_limit_usd?: number | null
@@ -673,6 +677,8 @@ export interface UpdateGroupRequest {
   platform?: GroupPlatform
   rate_multiplier?: number
   display_rate_multiplier?: number
+  usage_multiplier_enabled?: boolean
+  usage_multiplier?: number
   is_exclusive?: boolean
   status?: 'active' | 'inactive'
   subscription_type?: SubscriptionType

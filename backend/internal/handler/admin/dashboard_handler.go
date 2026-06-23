@@ -10,6 +10,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -29,6 +30,11 @@ func NewDashboardHandler(dashboardService *service.DashboardService, aggregation
 		aggregationService: aggregationService,
 		startTime:          time.Now(),
 	}
+}
+
+func dashboardUsePresentation(c *gin.Context) bool {
+	role, _ := middleware.GetUserRoleFromContext(c)
+	return service.UsageViewModeForRole(role) == service.UsageViewPresentation
 }
 
 // parseTimeRange parses start_date, end_date query parameters
@@ -67,7 +73,7 @@ func parseTimeRange(c *gin.Context) (time.Time, time.Time) {
 // GetStats handles getting dashboard statistics
 // GET /api/v1/admin/dashboard/stats
 func (h *DashboardHandler) GetStats(c *gin.Context) {
-	stats, err := h.dashboardService.GetDashboardStats(c.Request.Context())
+	stats, err := h.dashboardService.GetDashboardStatsForView(c.Request.Context(), dashboardUsePresentation(c))
 	if err != nil {
 		response.Error(c, 500, "Failed to get dashboard statistics")
 		return
@@ -102,6 +108,7 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"total_tokens":                stats.TotalTokens,
 		"total_cost":                  stats.TotalCost,       // 标准计费
 		"total_actual_cost":           stats.TotalActualCost, // 实际扣除
+		"total_account_cost":          stats.TotalAccountCost,
 
 		// 今日 Token 使用统计
 		"today_requests":              stats.TodayRequests,
@@ -112,6 +119,7 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"today_tokens":                stats.TodayTokens,
 		"today_cost":                  stats.TodayCost,       // 今日标准计费
 		"today_actual_cost":           stats.TodayActualCost, // 今日实际扣除
+		"today_account_cost":          stats.TodayAccountCost,
 
 		// 系统运行统计
 		"average_duration_ms":    stats.AverageDurationMs,
@@ -251,7 +259,8 @@ func (h *DashboardHandler) GetUsageTrend(c *gin.Context) {
 		}
 	}
 
-	trend, hit, err := h.getUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, billingType)
+	usePresentation := dashboardUsePresentation(c)
+	trend, hit, err := h.getUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, billingType, usePresentation)
 	if err != nil {
 		response.Error(c, 500, "Failed to get usage trend")
 		return
@@ -332,7 +341,8 @@ func (h *DashboardHandler) GetModelStats(c *gin.Context) {
 		}
 	}
 
-	stats, hit, err := h.getModelStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, modelSource, requestType, stream, billingType)
+	usePresentation := dashboardUsePresentation(c)
+	stats, hit, err := h.getModelStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, modelSource, requestType, stream, billingType, usePresentation)
 	if err != nil {
 		response.Error(c, 500, "Failed to get model statistics")
 		return
@@ -403,7 +413,8 @@ func (h *DashboardHandler) GetGroupStats(c *gin.Context) {
 		}
 	}
 
-	stats, hit, err := h.getGroupStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, requestType, stream, billingType)
+	usePresentation := dashboardUsePresentation(c)
+	stats, hit, err := h.getGroupStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, requestType, stream, billingType, usePresentation)
 	if err != nil {
 		response.Error(c, 500, "Failed to get group statistics")
 		return
@@ -429,7 +440,8 @@ func (h *DashboardHandler) GetAPIKeyUsageTrend(c *gin.Context) {
 		limit = 5
 	}
 
-	trend, hit, err := h.getAPIKeyUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, limit)
+	usePresentation := dashboardUsePresentation(c)
+	trend, hit, err := h.getAPIKeyUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, limit, usePresentation)
 	if err != nil {
 		response.Error(c, 500, "Failed to get API key usage trend")
 		return
@@ -456,7 +468,8 @@ func (h *DashboardHandler) GetUserUsageTrend(c *gin.Context) {
 		limit = 12
 	}
 
-	trend, hit, err := h.getUserUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, limit)
+	usePresentation := dashboardUsePresentation(c)
+	trend, hit, err := h.getUserUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, limit, usePresentation)
 	if err != nil {
 		response.Error(c, 500, "Failed to get user usage trend")
 		return
@@ -498,13 +511,15 @@ func (h *DashboardHandler) GetUserSpendingRanking(c *gin.Context) {
 	limit := parseRankingLimit(c.DefaultQuery("limit", "12"))
 
 	keyRaw, _ := json.Marshal(struct {
-		Start string `json:"start"`
-		End   string `json:"end"`
-		Limit int    `json:"limit"`
+		Start           string `json:"start"`
+		End             string `json:"end"`
+		Limit           int    `json:"limit"`
+		UsePresentation bool   `json:"use_presentation"`
 	}{
-		Start: startTime.UTC().Format(time.RFC3339),
-		End:   endTime.UTC().Format(time.RFC3339),
-		Limit: limit,
+		Start:           startTime.UTC().Format(time.RFC3339),
+		End:             endTime.UTC().Format(time.RFC3339),
+		Limit:           limit,
+		UsePresentation: dashboardUsePresentation(c),
 	})
 	cacheKey := string(keyRaw)
 	if cached, ok := dashboardUsersRankingCache.Get(cacheKey); ok {
@@ -513,7 +528,8 @@ func (h *DashboardHandler) GetUserSpendingRanking(c *gin.Context) {
 		return
 	}
 
-	ranking, err := h.dashboardService.GetUserSpendingRanking(c.Request.Context(), startTime, endTime, limit)
+	usePresentation := dashboardUsePresentation(c)
+	ranking, err := h.dashboardService.GetUserSpendingRankingForView(c.Request.Context(), startTime, endTime, limit, usePresentation)
 	if err != nil {
 		response.Error(c, 500, "Failed to get user spending ranking")
 		return
@@ -549,13 +565,15 @@ func (h *DashboardHandler) GetBatchUsersUsage(c *gin.Context) {
 
 	// cacheKey 必须包含当日日期，否则跨午夜后 30s 内会复用昨天的 "today_*" 结果。
 	keyRaw, _ := json.Marshal(struct {
-		V       int     `json:"v"`
-		Day     string  `json:"day"`
-		UserIDs []int64 `json:"user_ids"`
+		V               int     `json:"v"`
+		Day             string  `json:"day"`
+		UserIDs         []int64 `json:"user_ids"`
+		UsePresentation bool    `json:"use_presentation"`
 	}{
-		V:       2, // bump 当响应结构变化（如加入 by_platform 时）
-		Day:     timezone.Today().Format("2006-01-02"),
-		UserIDs: userIDs,
+		V:               2, // bump 当响应结构变化（如加入 by_platform 时）
+		Day:             timezone.Today().Format("2006-01-02"),
+		UserIDs:         userIDs,
+		UsePresentation: dashboardUsePresentation(c),
 	})
 	cacheKey := string(keyRaw)
 	if cached, ok := dashboardBatchUsersUsageCache.Get(cacheKey); ok {
@@ -564,7 +582,8 @@ func (h *DashboardHandler) GetBatchUsersUsage(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.dashboardService.GetBatchUserUsageStats(c.Request.Context(), userIDs, time.Time{}, time.Time{})
+	usePresentation := dashboardUsePresentation(c)
+	stats, err := h.dashboardService.GetBatchUserUsageStatsForView(c.Request.Context(), userIDs, time.Time{}, time.Time{}, usePresentation)
 	if err != nil {
 		response.Error(c, 500, "Failed to get user usage stats")
 		return
@@ -597,9 +616,11 @@ func (h *DashboardHandler) GetBatchAPIKeysUsage(c *gin.Context) {
 	}
 
 	keyRaw, _ := json.Marshal(struct {
-		APIKeyIDs []int64 `json:"api_key_ids"`
+		APIKeyIDs       []int64 `json:"api_key_ids"`
+		UsePresentation bool    `json:"use_presentation"`
 	}{
-		APIKeyIDs: apiKeyIDs,
+		APIKeyIDs:       apiKeyIDs,
+		UsePresentation: dashboardUsePresentation(c),
 	})
 	cacheKey := string(keyRaw)
 	if cached, ok := dashboardBatchAPIKeysUsageCache.Get(cacheKey); ok {
@@ -608,7 +629,8 @@ func (h *DashboardHandler) GetBatchAPIKeysUsage(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.dashboardService.GetBatchAPIKeyUsageStats(c.Request.Context(), apiKeyIDs, time.Time{}, time.Time{})
+	usePresentation := dashboardUsePresentation(c)
+	stats, err := h.dashboardService.GetBatchAPIKeyUsageStatsForView(c.Request.Context(), apiKeyIDs, time.Time{}, time.Time{}, usePresentation)
 	if err != nil {
 		response.Error(c, 500, "Failed to get API key usage stats")
 		return
@@ -683,8 +705,9 @@ func (h *DashboardHandler) GetUserBreakdown(c *gin.Context) {
 		}
 	}
 
-	stats, err := h.dashboardService.GetUserBreakdownStats(
-		c.Request.Context(), startTime, endTime, dim, limit,
+	usePresentation := dashboardUsePresentation(c)
+	stats, err := h.dashboardService.GetUserBreakdownStatsForView(
+		c.Request.Context(), startTime, endTime, dim, limit, usePresentation,
 	)
 	if err != nil {
 		response.Error(c, 500, "Failed to get user breakdown stats")

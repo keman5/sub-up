@@ -171,19 +171,22 @@ func (h *UsageHandler) List(c *gin.Context) {
 		SortBy:    c.DefaultQuery("sort_by", "created_at"),
 		SortOrder: c.DefaultQuery("sort_order", "desc"),
 	}
+	role, _ := middleware.GetUserRoleFromContext(c)
+	viewMode := service.UsageViewModeForRole(role)
 	filters := usagestats.UsageLogFilters{
-		UserID:      userID,
-		APIKeyID:    apiKeyID,
-		AccountID:   accountID,
-		GroupID:     groupID,
-		Model:       model,
-		RequestType: requestType,
-		Stream:      stream,
-		BillingType: billingType,
-		BillingMode: billingMode,
-		StartTime:   startTime,
-		EndTime:     endTime,
-		ExactTotal:  exactTotal,
+		UserID:                    userID,
+		APIKeyID:                  apiKeyID,
+		AccountID:                 accountID,
+		GroupID:                   groupID,
+		Model:                     model,
+		RequestType:               requestType,
+		Stream:                    stream,
+		BillingType:               billingType,
+		BillingMode:               billingMode,
+		StartTime:                 startTime,
+		EndTime:                   endTime,
+		UsePresentationMultiplier: viewMode == service.UsageViewPresentation,
+		ExactTotal:                exactTotal,
 	}
 
 	records, result, err := h.usageService.ListWithFilters(c.Request.Context(), params, filters)
@@ -194,7 +197,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 
 	out := make([]dto.AdminUsageLog, 0, len(records))
 	for i := range records {
-		out = append(out, *dto.UsageLogFromServiceAdmin(&records[i]))
+		out = append(out, *dto.UsageLogFromServiceAdminWithViewer(&records[i], viewMode))
 	}
 	response.Paginated(c, out, result.Total, page, pageSize)
 }
@@ -311,18 +314,21 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 	}
 
 	// Build filters and call GetStatsWithFilters
+	role, _ := middleware.GetUserRoleFromContext(c)
+	viewMode := service.UsageViewModeForRole(role)
 	filters := usagestats.UsageLogFilters{
-		UserID:      userID,
-		APIKeyID:    apiKeyID,
-		AccountID:   accountID,
-		GroupID:     groupID,
-		Model:       model,
-		RequestType: requestType,
-		Stream:      stream,
-		BillingType: billingType,
-		BillingMode: billingMode,
-		StartTime:   &startTime,
-		EndTime:     &endTime,
+		UserID:                    userID,
+		APIKeyID:                  apiKeyID,
+		AccountID:                 accountID,
+		GroupID:                   groupID,
+		Model:                     model,
+		RequestType:               requestType,
+		Stream:                    stream,
+		BillingType:               billingType,
+		BillingMode:               billingMode,
+		StartTime:                 &startTime,
+		EndTime:                   &endTime,
+		UsePresentationMultiplier: viewMode == service.UsageViewPresentation,
 	}
 
 	var stats *usagestats.UsageStats
@@ -345,7 +351,16 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		c.Header("X-Usage-Stats-Cache", cacheStatusValue(hit))
 	}
 
-	response.Success(c, stats)
+	response.Success(c, usageStatsForView(stats, viewMode))
+}
+
+func usageStatsForView(stats *usagestats.UsageStats, viewMode service.UsageViewMode) *usagestats.UsageStats {
+	if stats == nil || viewMode == service.UsageViewRaw {
+		return stats
+	}
+	out := *stats
+	out.TotalAccountCost = nil
+	return &out
 }
 
 // SearchUsers handles searching users by email keyword

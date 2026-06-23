@@ -284,7 +284,7 @@ func TestOpenAIGatewayServiceHandleResponsesImageOutputs_NonStreaming(t *testing
 		}`)),
 	}
 
-	result, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1, Type: AccountTypeAPIKey}, "gpt-5.4", "gpt-5.4")
+	result, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1, Type: AccountTypeAPIKey}, nil, "gpt-5.4", "gpt-5.4")
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -309,7 +309,7 @@ func TestOpenAIGatewayServiceHandleResponsesImageOutputs_Streaming(t *testing.T)
 		)),
 	}
 
-	result, err := svc.handleStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "gpt-5.5", "gpt-5.5")
+	result, err := svc.handleStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, nil, time.Now(), "gpt-5.5", "gpt-5.5")
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -338,7 +338,7 @@ func TestHandleStreamingResponse_CyberPolicyCapturesRealUpstreamTokens(t *testin
 		)),
 	}
 
-	_, err := svc.handleStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "gpt-5.5", "gpt-5.5")
+	_, err := svc.handleStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, nil, time.Now(), "gpt-5.5", "gpt-5.5")
 	require.Error(t, err, "cyber 命中的流式响应应返回错误（sawFailedEvent）")
 
 	mark := GetOpsCyberPolicy(c)

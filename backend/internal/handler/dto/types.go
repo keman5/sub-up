@@ -83,14 +83,16 @@ type APIKey struct {
 }
 
 type Group struct {
-	ID                    int64   `json:"id"`
-	Name                  string  `json:"name"`
-	Description           string  `json:"description"`
-	Platform              string  `json:"platform"`
-	RateMultiplier        float64 `json:"rate_multiplier"`
-	DisplayRateMultiplier float64 `json:"display_rate_multiplier"`
-	IsExclusive           bool    `json:"is_exclusive"`
-	Status                string  `json:"status"`
+	ID                     int64   `json:"id"`
+	Name                   string  `json:"name"`
+	Description            string  `json:"description"`
+	Platform               string  `json:"platform"`
+	RateMultiplier         float64 `json:"rate_multiplier"`
+	DisplayRateMultiplier  float64 `json:"display_rate_multiplier"`
+	UsageMultiplierEnabled bool    `json:"usage_multiplier_enabled"`
+	UsageMultiplier        float64 `json:"usage_multiplier"`
+	IsExclusive            bool    `json:"is_exclusive"`
+	Status                 string  `json:"status"`
 
 	SubscriptionType string   `json:"subscription_type"`
 	DailyLimitUSD    *float64 `json:"daily_limit_usd"`
@@ -519,7 +521,7 @@ type AdminUsageLog struct {
 	BillingTier *string `json:"billing_tier,omitempty"`
 
 	// AccountRateMultiplier 账号计费倍率快照（nil 表示按 1.0 处理）
-	AccountRateMultiplier *float64 `json:"account_rate_multiplier"`
+	AccountRateMultiplier *float64 `json:"account_rate_multiplier,omitempty"`
 	// AccountStatsCost 自定义定价规则计算的账号统计费用（nil 表示使用默认公式）
 	AccountStatsCost *float64 `json:"account_stats_cost,omitempty"`
 

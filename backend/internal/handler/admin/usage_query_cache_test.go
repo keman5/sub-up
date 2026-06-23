@@ -25,4 +25,8 @@ func TestUsageStatsCacheKey_StableAndDistinct(t *testing.T) {
 	withUser := base
 	withUser.UserID = 7
 	require.NotEqual(t, k1, usageStatsCacheKey(withUser), "different user must change key")
+
+	presentation := base
+	presentation.UsePresentationMultiplier = true
+	require.NotEqual(t, k1, usageStatsCacheKey(presentation), "presentation and raw views must not share cached stats")
 }

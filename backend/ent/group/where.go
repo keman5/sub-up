@@ -90,6 +90,16 @@ func DisplayRateMultiplier(v float64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDisplayRateMultiplier, v))
 }
 
+// UsageMultiplierEnabled applies equality check predicate on the "usage_multiplier_enabled" field. It's identical to UsageMultiplierEnabledEQ.
+func UsageMultiplierEnabled(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldUsageMultiplierEnabled, v))
+}
+
+// UsageMultiplier applies equality check predicate on the "usage_multiplier" field. It's identical to UsageMultiplierEQ.
+func UsageMultiplier(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldUsageMultiplier, v))
+}
+
 // IsExclusive applies equality check predicate on the "is_exclusive" field. It's identical to IsExclusiveEQ.
 func IsExclusive(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldIsExclusive, v))
@@ -588,6 +598,56 @@ func DisplayRateMultiplierLT(v float64) predicate.Group {
 // DisplayRateMultiplierLTE applies the LTE predicate on the "display_rate_multiplier" field.
 func DisplayRateMultiplierLTE(v float64) predicate.Group {
 	return predicate.Group(sql.FieldLTE(FieldDisplayRateMultiplier, v))
+}
+
+// UsageMultiplierEnabledEQ applies the EQ predicate on the "usage_multiplier_enabled" field.
+func UsageMultiplierEnabledEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldUsageMultiplierEnabled, v))
+}
+
+// UsageMultiplierEnabledNEQ applies the NEQ predicate on the "usage_multiplier_enabled" field.
+func UsageMultiplierEnabledNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldUsageMultiplierEnabled, v))
+}
+
+// UsageMultiplierEQ applies the EQ predicate on the "usage_multiplier" field.
+func UsageMultiplierEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldUsageMultiplier, v))
+}
+
+// UsageMultiplierNEQ applies the NEQ predicate on the "usage_multiplier" field.
+func UsageMultiplierNEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldUsageMultiplier, v))
+}
+
+// UsageMultiplierIn applies the In predicate on the "usage_multiplier" field.
+func UsageMultiplierIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldUsageMultiplier, vs...))
+}
+
+// UsageMultiplierNotIn applies the NotIn predicate on the "usage_multiplier" field.
+func UsageMultiplierNotIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldUsageMultiplier, vs...))
+}
+
+// UsageMultiplierGT applies the GT predicate on the "usage_multiplier" field.
+func UsageMultiplierGT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldUsageMultiplier, v))
+}
+
+// UsageMultiplierGTE applies the GTE predicate on the "usage_multiplier" field.
+func UsageMultiplierGTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldUsageMultiplier, v))
+}
+
+// UsageMultiplierLT applies the LT predicate on the "usage_multiplier" field.
+func UsageMultiplierLT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldUsageMultiplier, v))
+}
+
+// UsageMultiplierLTE applies the LTE predicate on the "usage_multiplier" field.
+func UsageMultiplierLTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldUsageMultiplier, v))
 }
 
 // IsExclusiveEQ applies the EQ predicate on the "is_exclusive" field.

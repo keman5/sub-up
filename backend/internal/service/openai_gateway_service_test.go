@@ -1174,7 +1174,7 @@ func TestOpenAIStreamingTimeout(t *testing.T) {
 	}
 
 	start := time.Now()
-	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, start, "model", "model")
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, nil, start, "model", "model")
 	_ = pw.Close()
 	_ = pr.Close()
 
@@ -1209,7 +1209,7 @@ func TestOpenAIStreamingContextCanceledReturnsIncompleteErrorWithoutInjectingErr
 		Header:     http.Header{},
 	}
 
-	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, time.Now(), "model", "model")
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, nil, time.Now(), "model", "model")
 	if err == nil || !strings.Contains(err.Error(), "stream usage incomplete") {
 		t.Fatalf("expected incomplete stream error, got %v", err)
 	}
@@ -1239,7 +1239,7 @@ func TestOpenAIStreamingReadErrorBeforeOutputReturnsFailover(t *testing.T) {
 		Header:     http.Header{"X-Request-Id": []string{"rid-disconnect"}},
 	}
 
-	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "model", "model")
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, nil, time.Now(), "model", "model")
 	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
@@ -1279,7 +1279,7 @@ func TestOpenAIStreamingResponseFailedBeforeOutputReturnsFailover(t *testing.T) 
 		Header: http.Header{"X-Request-Id": []string{"rid-failed"}},
 	}
 
-	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "model", "model")
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, nil, time.Now(), "model", "model")
 	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
@@ -1320,7 +1320,7 @@ func TestOpenAIStreamingResponseFailedBeforeOutputCapacityErrorReturnsFailover(t
 		Header: http.Header{"X-Request-Id": []string{"rid-capacity-failed"}},
 	}
 
-	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "model", "model")
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, nil, time.Now(), "model", "model")
 	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
@@ -1358,7 +1358,7 @@ func TestOpenAIStreamingPreambleOnlyMissingTerminalReturnsFailover(t *testing.T)
 		Header: http.Header{"X-Request-Id": []string{"rid-missing-terminal"}},
 	}
 
-	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "model", "model")
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, nil, time.Now(), "model", "model")
 	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
@@ -1398,7 +1398,7 @@ func TestOpenAIStreamingPreambleKeepaliveUsesDownstreamIdle(t *testing.T) {
 		_, _ = pw.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n\n"))
 	}()
 
-	result, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "model", "model")
+	result, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, nil, time.Now(), "model", "model")
 	_ = pr.Close()
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -1436,7 +1436,7 @@ func TestOpenAIStreamingNormalizesTerminalOutputFromDeltas(t *testing.T) {
 		Header: http.Header{"X-Request-Id": []string{"rid-sdk-parse"}},
 	}
 
-	result, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "model", "model")
+	result, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, nil, time.Now(), "model", "model")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -1473,7 +1473,7 @@ func TestOpenAIStreamingNormalizesTerminalOutputToEmptyArray(t *testing.T) {
 		Header: http.Header{"X-Request-Id": []string{"rid-empty-output"}},
 	}
 
-	result, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "model", "model")
+	result, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, nil, time.Now(), "model", "model")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -1513,7 +1513,7 @@ func TestOpenAIStreamingPolicyResponseFailedBeforeOutputPassesThrough(t *testing
 		Header: http.Header{"X-Request-Id": []string{"rid-policy-failed"}},
 	}
 
-	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "model", "model")
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, nil, time.Now(), "model", "model")
 	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError
 	require.False(t, errors.As(err, &failoverErr))
@@ -1551,7 +1551,7 @@ func TestOpenAIStreamingClientDisconnectDrainsUpstreamUsage(t *testing.T) {
 		_, _ = pw.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":3,\"output_tokens\":5,\"input_tokens_details\":{\"cached_tokens\":1}}}}\n\n"))
 	}()
 
-	result, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, time.Now(), "model", "model")
+	result, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, nil, time.Now(), "model", "model")
 	_ = pr.Close()
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
@@ -1594,7 +1594,7 @@ func TestOpenAIStreamingMissingTerminalEventReturnsIncompleteError(t *testing.T)
 		_, _ = pw.Write([]byte("data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"message\"},\"output_index\":0}\n\n"))
 	}()
 
-	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, time.Now(), "model", "model")
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, nil, time.Now(), "model", "model")
 	_ = pr.Close()
 	if err == nil || !strings.Contains(err.Error(), "missing terminal event") {
 		t.Fatalf("expected missing terminal event error, got %v", err)
@@ -1626,7 +1626,7 @@ func TestOpenAIStreamingPassthroughMissingTerminalEventReturnsIncompleteError(t 
 		_, _ = pw.Write([]byte("data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"message\"},\"output_index\":0}\n\n"))
 	}()
 
-	_, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1}, time.Now(), "", "")
+	_, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1}, nil, time.Now(), "", "")
 	_ = pr.Close()
 	if err == nil || !strings.Contains(err.Error(), "missing terminal event") {
 		t.Fatalf("expected missing terminal event error, got %v", err)
@@ -1659,7 +1659,7 @@ func TestOpenAIStreamingPassthroughResponseFailedBeforeOutputReturnsFailover(t *
 		Header: http.Header{"X-Request-Id": []string{"rid-passthrough-failed"}},
 	}
 
-	_, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, time.Now(), "", "")
+	_, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "acc"}, nil, time.Now(), "", "")
 	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
@@ -1694,7 +1694,7 @@ func TestOpenAIStreamingPassthroughResponseDoneWithoutDoneMarkerStillSucceeds(t 
 		_, _ = pw.Write([]byte("data: {\"type\":\"response.done\",\"response\":{\"usage\":{\"input_tokens\":2,\"output_tokens\":3,\"input_tokens_details\":{\"cached_tokens\":1}}}}\n\n"))
 	}()
 
-	result, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1}, time.Now(), "", "")
+	result, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1}, nil, time.Now(), "", "")
 	_ = pr.Close()
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -1702,6 +1702,88 @@ func TestOpenAIStreamingPassthroughResponseDoneWithoutDoneMarkerStillSucceeds(t 
 	require.Equal(t, 2, result.usage.InputTokens)
 	require.Equal(t, 3, result.usage.OutputTokens)
 	require.Equal(t, 1, result.usage.CacheReadInputTokens)
+}
+
+func TestOpenAIStreamingPassthrough_RewritesClientUsageForPresentation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{
+		Gateway: config.GatewayConfig{
+			MaxLineSize: defaultMaxLineSize,
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: cfg}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.done","response":{"usage":{"input_tokens":600,"output_tokens":500,"input_tokens_details":{"cached_tokens":100},"total_tokens":1100}}}`,
+			"",
+		}, "\n"))),
+		Header: http.Header{"X-Request-Id": []string{"rid-passthrough-presentation-stream"}},
+	}
+
+	result, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1}, &Group{
+		UsageMultiplierEnabled: true,
+		UsageMultiplier:        2,
+	}, time.Now(), "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.usage)
+	require.Equal(t, 600, result.usage.InputTokens)
+	require.Equal(t, 500, result.usage.OutputTokens)
+	require.Equal(t, 100, result.usage.CacheReadInputTokens)
+
+	body := rec.Body.String()
+	require.Contains(t, body, `"input_tokens":1200`)
+	require.Contains(t, body, `"output_tokens":1000`)
+	require.Contains(t, body, `"cached_tokens":200`)
+	require.Contains(t, body, `"total_tokens":2200`)
+}
+
+func TestOpenAIStreamingResponse_RewritesClientUsageForPresentation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{
+		Gateway: config.GatewayConfig{
+			StreamDataIntervalTimeout: 0,
+			StreamKeepaliveInterval:   0,
+			MaxLineSize:               defaultMaxLineSize,
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: cfg}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.completed","response":{"usage":{"input_tokens":600,"output_tokens":500,"input_tokens_details":{"cached_tokens":100},"total_tokens":1100}}}`,
+			"",
+		}, "\n"))),
+		Header: http.Header{"X-Request-Id": []string{"rid-presentation-stream"}},
+	}
+
+	result, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, &Group{
+		UsageMultiplierEnabled: true,
+		UsageMultiplier:        2,
+	}, time.Now(), "model", "model")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.usage)
+	require.Equal(t, 600, result.usage.InputTokens)
+	require.Equal(t, 500, result.usage.OutputTokens)
+	require.Equal(t, 100, result.usage.CacheReadInputTokens)
+
+	body := rec.Body.String()
+	require.Contains(t, body, `"input_tokens":1200`)
+	require.Contains(t, body, `"output_tokens":1000`)
+	require.Contains(t, body, `"cached_tokens":200`)
+	require.Contains(t, body, `"total_tokens":2200`)
 }
 
 func TestOpenAIStreamingPassthroughResponseIncompleteWithoutDoneMarkerStillSucceeds(t *testing.T) {
@@ -1729,7 +1811,7 @@ func TestOpenAIStreamingPassthroughResponseIncompleteWithoutDoneMarkerStillSucce
 		_, _ = pw.Write([]byte("data: {\"type\":\"response.incomplete\",\"response\":{\"usage\":{\"input_tokens\":2,\"output_tokens\":3,\"input_tokens_details\":{\"cached_tokens\":1}}}}\n\n"))
 	}()
 
-	result, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1}, time.Now(), "", "")
+	result, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1}, nil, time.Now(), "", "")
 	_ = pr.Close()
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -1768,7 +1850,7 @@ func TestOpenAIStreamingTooLong(t *testing.T) {
 		_, _ = pw.Write([]byte(payload))
 	}()
 
-	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 2}, time.Now(), "model", "model")
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 2}, nil, time.Now(), "model", "model")
 	_ = pr.Close()
 
 	if !errors.Is(err, bufio.ErrTooLong) {
@@ -1799,7 +1881,7 @@ func TestOpenAINonStreamingContentTypePassThrough(t *testing.T) {
 		Header:     http.Header{"Content-Type": []string{"application/vnd.test+json"}},
 	}
 
-	_, err := svc.handleNonStreamingResponse(c.Request.Context(), resp, c, &Account{}, "model", "model")
+	_, err := svc.handleNonStreamingResponse(c.Request.Context(), resp, c, &Account{}, nil, "model", "model")
 	if err != nil {
 		t.Fatalf("handleNonStreamingResponse error: %v", err)
 	}
@@ -1829,7 +1911,7 @@ func TestOpenAINonStreamingContentTypeDefault(t *testing.T) {
 		Header:     http.Header{},
 	}
 
-	_, err := svc.handleNonStreamingResponse(c.Request.Context(), resp, c, &Account{}, "model", "model")
+	_, err := svc.handleNonStreamingResponse(c.Request.Context(), resp, c, &Account{}, nil, "model", "model")
 	if err != nil {
 		t.Fatalf("handleNonStreamingResponse error: %v", err)
 	}
@@ -1873,7 +1955,7 @@ func TestOpenAIStreamingHeadersOverride(t *testing.T) {
 		_, _ = pw.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{}}\n\n"))
 	}()
 
-	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, time.Now(), "model", "model")
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, nil, time.Now(), "model", "model")
 	_ = pr.Close()
 	if err != nil {
 		t.Fatalf("handleStreamingResponse error: %v", err)
@@ -1917,7 +1999,7 @@ func TestOpenAIStreamingReuseScannerBufferAndStillWorks(t *testing.T) {
 		_, _ = pw.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2,\"input_tokens_details\":{\"cached_tokens\":3}}}}\n\n"))
 	}()
 
-	result, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, time.Now(), "model", "model")
+	result, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, nil, time.Now(), "model", "model")
 	_ = pr.Close()
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -2581,6 +2663,92 @@ func TestExtractOpenAIUsageFromJSONBytes_AcceptsResponseAndChatUsageShapes(t *te
 	require.Equal(t, 13, usage.InputTokens)
 	require.Equal(t, 7, usage.OutputTokens)
 	require.Equal(t, 4, usage.CacheReadInputTokens)
+
+	usage, ok = extractOpenAIUsageFromJSONBytes([]byte(`{"id":"resp_img","usage":{"input_tokens":13,"output_tokens":21,"image_output_tokens":9}}`))
+	require.True(t, ok)
+	require.Equal(t, 13, usage.InputTokens)
+	require.Equal(t, 21, usage.OutputTokens)
+	require.Equal(t, 9, usage.ImageOutputTokens)
+}
+
+func TestRewriteOpenAIUsageForPresentation_ResponsesShape(t *testing.T) {
+	body := []byte(`{"id":"resp_1","usage":{"input_tokens":600,"output_tokens":500,"input_tokens_details":{"cached_tokens":40},"output_tokens_details":{"image_tokens":20},"total_tokens":1140}}`)
+
+	got := rewriteOpenAIUsageForPresentation(body, 2)
+
+	require.True(t, gjson.ValidBytes(got))
+	require.Equal(t, int64(1200), gjson.GetBytes(got, "usage.input_tokens").Int())
+	require.Equal(t, int64(1000), gjson.GetBytes(got, "usage.output_tokens").Int())
+	require.Equal(t, int64(80), gjson.GetBytes(got, "usage.input_tokens_details.cached_tokens").Int())
+	require.Equal(t, int64(40), gjson.GetBytes(got, "usage.output_tokens_details.image_tokens").Int())
+	require.Equal(t, int64(2280), gjson.GetBytes(got, "usage.total_tokens").Int())
+}
+
+func TestRewriteOpenAIUsageForPresentation_ChatCompletionsShape(t *testing.T) {
+	body := []byte(`{"id":"chatcmpl_1","usage":{"prompt_tokens":600,"completion_tokens":500,"prompt_tokens_details":{"cached_tokens":40},"completion_tokens_details":{"image_tokens":20},"total_tokens":1140}}`)
+
+	got := rewriteOpenAIUsageForPresentation(body, 2)
+
+	require.True(t, gjson.ValidBytes(got))
+	require.Equal(t, int64(1200), gjson.GetBytes(got, "usage.prompt_tokens").Int())
+	require.Equal(t, int64(1000), gjson.GetBytes(got, "usage.completion_tokens").Int())
+	require.Equal(t, int64(80), gjson.GetBytes(got, "usage.prompt_tokens_details.cached_tokens").Int())
+	require.Equal(t, int64(40), gjson.GetBytes(got, "usage.completion_tokens_details.image_tokens").Int())
+	require.Equal(t, int64(2280), gjson.GetBytes(got, "usage.total_tokens").Int())
+}
+
+func TestHandleNonStreamingResponse_RewritesClientUsageForPresentation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	body := `{"id":"resp_1","usage":{"input_tokens":600,"output_tokens":500,"input_tokens_details":{"cached_tokens":40},"total_tokens":1100}}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+	svc := &OpenAIGatewayService{}
+
+	result, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{}, &Group{
+		UsageMultiplierEnabled: true,
+		UsageMultiplier:        2,
+	}, "gpt-5", "gpt-5")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 600, result.usage.InputTokens)
+	require.Equal(t, 500, result.usage.OutputTokens)
+	require.Equal(t, 40, result.usage.CacheReadInputTokens)
+	require.Equal(t, int64(1200), gjson.GetBytes(rec.Body.Bytes(), "usage.input_tokens").Int())
+	require.Equal(t, int64(1000), gjson.GetBytes(rec.Body.Bytes(), "usage.output_tokens").Int())
+	require.Equal(t, int64(80), gjson.GetBytes(rec.Body.Bytes(), "usage.input_tokens_details.cached_tokens").Int())
+	require.Equal(t, int64(2200), gjson.GetBytes(rec.Body.Bytes(), "usage.total_tokens").Int())
+}
+
+func TestHandleNonStreamingResponse_RewritesClientUsageForPresentationWithImageOutputThreshold(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	body := `{"id":"resp_1","usage":{"input_tokens":0,"output_tokens":0,"image_output_tokens":1000,"total_tokens":1000}}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+	svc := &OpenAIGatewayService{}
+
+	result, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{}, &Group{
+		UsageMultiplierEnabled: true,
+		UsageMultiplier:        2,
+	}, "gpt-image-2", "gpt-image-2")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1000, result.usage.ImageOutputTokens)
+	require.Equal(t, int64(2000), gjson.GetBytes(rec.Body.Bytes(), "usage.image_output_tokens").Int())
+	require.Equal(t, int64(2000), gjson.GetBytes(rec.Body.Bytes(), "usage.total_tokens").Int())
 }
 
 func TestExtractCodexFinalResponse_SampleReplay(t *testing.T) {
@@ -2645,7 +2813,7 @@ func TestHandleNonStreamingResponse_APIKeyFallsBackToSSEBodyWhenContentTypeIsWro
 	}
 	account := &Account{ID: 1, Type: AccountTypeAPIKey}
 
-	result, err := svc.handleNonStreamingResponse(context.Background(), resp, c, account, "gpt-5.4", "gpt-5.4")
+	result, err := svc.handleNonStreamingResponse(context.Background(), resp, c, account, nil, "gpt-5.4", "gpt-5.4")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 3, result.InputTokens)
@@ -2777,7 +2945,7 @@ func TestStreamingPassthroughCyberPolicyMarksAndPassesThrough(t *testing.T) {
 		Header: http.Header{"X-Request-Id": []string{"rid-cyber"}},
 	}
 
-	_, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "a"}, time.Now(), "m", "m")
+	_, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "a"}, nil, time.Now(), "m", "m")
 	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError
 	require.False(t, errors.As(err, &failoverErr), "cyber must NOT failover")
@@ -2806,7 +2974,7 @@ func TestHandleStreamingResponseCyberPolicyMarks(t *testing.T) {
 		}, "\n"))),
 		Header: http.Header{"X-Request-Id": []string{"rid"}},
 	}
-	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "a"}, time.Now(), "m", "m")
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1, Platform: PlatformOpenAI, Name: "a"}, nil, time.Now(), "m", "m")
 	require.Error(t, err)
 	var fo *UpstreamFailoverError
 	require.False(t, errors.As(err, &fo))

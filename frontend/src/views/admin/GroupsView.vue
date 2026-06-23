@@ -525,6 +525,32 @@
           />
           <p class="input-hint">{{ t("admin.groups.displayRateMultiplierHint") }}</p>
         </div>
+        <div v-if="isSuperAdmin">
+          <label class="flex items-center gap-3">
+            <input
+              v-model="createForm.usage_multiplier_enabled"
+              type="checkbox"
+              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{
+              t("admin.groups.form.usageMultiplierEnabled")
+            }}</span>
+          </label>
+          <p class="input-hint">{{ t("admin.groups.usageMultiplierHint") }}</p>
+        </div>
+        <div v-if="isSuperAdmin">
+          <label class="input-label">{{
+            t("admin.groups.form.usageMultiplier")
+          }}</label>
+          <input
+            v-model.number="createForm.usage_multiplier"
+            type="number"
+            step="0.001"
+            min="0"
+            :disabled="!createForm.usage_multiplier_enabled"
+            class="input"
+          />
+        </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
           <input
@@ -1873,6 +1899,32 @@
           />
           <p class="input-hint">{{ t("admin.groups.displayRateMultiplierHint") }}</p>
         </div>
+        <div v-if="isSuperAdmin">
+          <label class="flex items-center gap-3">
+            <input
+              v-model="editForm.usage_multiplier_enabled"
+              type="checkbox"
+              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{
+              t("admin.groups.form.usageMultiplierEnabled")
+            }}</span>
+          </label>
+          <p class="input-hint">{{ t("admin.groups.usageMultiplierHint") }}</p>
+        </div>
+        <div v-if="isSuperAdmin">
+          <label class="input-label">{{
+            t("admin.groups.form.usageMultiplier")
+          }}</label>
+          <input
+            v-model.number="editForm.usage_multiplier"
+            type="number"
+            step="0.001"
+            min="0"
+            :disabled="!editForm.usage_multiplier_enabled"
+            class="input"
+          />
+        </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
           <input
@@ -3178,6 +3230,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAppStore } from "@/stores/app";
+import { useAuthStore } from "@/stores/auth";
 import { useOnboardingStore } from "@/stores/onboarding";
 import { adminAPI } from "@/api/admin";
 import type { AdminGroup, GroupPlatform, SubscriptionType } from "@/types";
@@ -3219,7 +3272,9 @@ import { normalizeSupportedModelScopesForPlatform } from "./groupsSupportedModel
 
 const { t } = useI18n();
 const appStore = useAppStore();
+const authStore = useAuthStore();
 const onboardingStore = useOnboardingStore();
+const isSuperAdmin = computed(() => authStore.user?.role === "super_admin");
 
 const columns = computed<Column[]>(() => [
   { key: "name", label: t("admin.groups.columns.name"), sortable: true },
@@ -3509,6 +3564,8 @@ const createForm = reactive({
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
   display_rate_multiplier: 1.0,
+  usage_multiplier_enabled: false,
+  usage_multiplier: 1.0,
   is_exclusive: false,
   subscription_type: "standard" as SubscriptionType,
   daily_limit_usd: null as number | null,
@@ -3844,6 +3901,8 @@ const editForm = reactive({
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
   display_rate_multiplier: 1.0,
+  usage_multiplier_enabled: false,
+  usage_multiplier: 1.0,
   is_exclusive: false,
   status: "active" as "active" | "inactive",
   subscription_type: "standard" as SubscriptionType,
@@ -4102,6 +4161,8 @@ const closeCreateModal = () => {
   createForm.platform = "anthropic";
   createForm.rate_multiplier = 1.0;
   createForm.display_rate_multiplier = 1.0;
+  createForm.usage_multiplier_enabled = false;
+  createForm.usage_multiplier = 1.0;
   createForm.is_exclusive = false;
   createForm.subscription_type = "standard";
   createForm.daily_limit_usd = null;
@@ -4223,6 +4284,17 @@ const handleCreateGroup = async () => {
     requestData.display_rate_multiplier = normalizeDisplayRateMultiplier(
       requestData.display_rate_multiplier,
     );
+    if (isSuperAdmin.value) {
+      requestData.usage_multiplier = Number.isFinite(
+        Number(requestData.usage_multiplier),
+      )
+        ? Number(requestData.usage_multiplier)
+        : 1;
+    } else {
+      const hiddenUsageFields = requestData as Record<string, unknown>;
+      delete hiddenUsageFields.usage_multiplier_enabled;
+      delete hiddenUsageFields.usage_multiplier;
+    }
     await adminAPI.groups.create(requestData);
     appStore.showSuccess(t("admin.groups.groupCreated"));
     closeCreateModal();
@@ -4249,6 +4321,8 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.platform = group.platform;
   editForm.rate_multiplier = group.rate_multiplier;
   editForm.display_rate_multiplier = group.display_rate_multiplier ?? 1;
+  editForm.usage_multiplier_enabled = group.usage_multiplier_enabled ?? false;
+  editForm.usage_multiplier = group.usage_multiplier ?? 1;
   editForm.is_exclusive = group.is_exclusive;
   editForm.status = group.status;
   editForm.subscription_type = group.subscription_type || "standard";
@@ -4381,6 +4455,15 @@ const handleUpdateGroup = async () => {
     payload.display_rate_multiplier = normalizeDisplayRateMultiplier(
       payload.display_rate_multiplier,
     );
+    if (isSuperAdmin.value) {
+      payload.usage_multiplier = Number.isFinite(Number(payload.usage_multiplier))
+        ? Number(payload.usage_multiplier)
+        : 1;
+    } else {
+      const hiddenUsageFields = payload as Record<string, unknown>;
+      delete hiddenUsageFields.usage_multiplier_enabled;
+      delete hiddenUsageFields.usage_multiplier;
+    }
     await adminAPI.groups.update(editingGroup.value.id, payload);
     appStore.showSuccess(t("admin.groups.groupUpdated"));
     closeEditModal();

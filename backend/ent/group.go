@@ -33,6 +33,10 @@ type Group struct {
 	RateMultiplier float64 `json:"rate_multiplier,omitempty"`
 	// 用户端展示倍率，仅影响 UI 展示，不参与实际计费
 	DisplayRateMultiplier float64 `json:"display_rate_multiplier,omitempty"`
+	// 是否启用非超级管理员可见用量消耗倍率
+	UsageMultiplierEnabled bool `json:"usage_multiplier_enabled,omitempty"`
+	// 非超级管理员可见用量消耗倍率
+	UsageMultiplier float64 `json:"usage_multiplier,omitempty"`
 	// IsExclusive holds the value of the "is_exclusive" field.
 	IsExclusive bool `json:"is_exclusive,omitempty"`
 	// Status holds the value of the "status" field.
@@ -209,9 +213,9 @@ func (*Group) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case group.FieldModelRouting, group.FieldSupportedModelScopes, group.FieldMessagesDispatchModelConfig, group.FieldModelsListConfig:
 			values[i] = new([]byte)
-		case group.FieldIsExclusive, group.FieldAllowImageGeneration, group.FieldImageRateIndependent, group.FieldClaudeCodeOnly, group.FieldModelRoutingEnabled, group.FieldMcpXMLInject, group.FieldAllowMessagesDispatch, group.FieldRequireOauthOnly, group.FieldRequirePrivacySet:
+		case group.FieldUsageMultiplierEnabled, group.FieldIsExclusive, group.FieldAllowImageGeneration, group.FieldImageRateIndependent, group.FieldClaudeCodeOnly, group.FieldModelRoutingEnabled, group.FieldMcpXMLInject, group.FieldAllowMessagesDispatch, group.FieldRequireOauthOnly, group.FieldRequirePrivacySet:
 			values[i] = new(sql.NullBool)
-		case group.FieldRateMultiplier, group.FieldDisplayRateMultiplier, group.FieldDailyLimitUsd, group.FieldWeeklyLimitUsd, group.FieldMonthlyLimitUsd, group.FieldTotalLimitUsd, group.FieldImageRateMultiplier, group.FieldImagePrice1k, group.FieldImagePrice2k, group.FieldImagePrice4k:
+		case group.FieldRateMultiplier, group.FieldDisplayRateMultiplier, group.FieldUsageMultiplier, group.FieldDailyLimitUsd, group.FieldWeeklyLimitUsd, group.FieldMonthlyLimitUsd, group.FieldTotalLimitUsd, group.FieldImageRateMultiplier, group.FieldImagePrice1k, group.FieldImagePrice2k, group.FieldImagePrice4k:
 			values[i] = new(sql.NullFloat64)
 		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldQuotaFallbackGroupID, group.FieldSortOrder, group.FieldRpmLimit:
 			values[i] = new(sql.NullInt64)
@@ -283,6 +287,18 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field display_rate_multiplier", values[i])
 			} else if value.Valid {
 				_m.DisplayRateMultiplier = value.Float64
+			}
+		case group.FieldUsageMultiplierEnabled:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field usage_multiplier_enabled", values[i])
+			} else if value.Valid {
+				_m.UsageMultiplierEnabled = value.Bool
+			}
+		case group.FieldUsageMultiplier:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field usage_multiplier", values[i])
+			} else if value.Valid {
+				_m.UsageMultiplier = value.Float64
 			}
 		case group.FieldIsExclusive:
 			if value, ok := values[i].(*sql.NullBool); !ok {
@@ -606,6 +622,12 @@ func (_m *Group) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("display_rate_multiplier=")
 	builder.WriteString(fmt.Sprintf("%v", _m.DisplayRateMultiplier))
+	builder.WriteString(", ")
+	builder.WriteString("usage_multiplier_enabled=")
+	builder.WriteString(fmt.Sprintf("%v", _m.UsageMultiplierEnabled))
+	builder.WriteString(", ")
+	builder.WriteString("usage_multiplier=")
+	builder.WriteString(fmt.Sprintf("%v", _m.UsageMultiplier))
 	builder.WriteString(", ")
 	builder.WriteString("is_exclusive=")
 	builder.WriteString(fmt.Sprintf("%v", _m.IsExclusive))

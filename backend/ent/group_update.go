@@ -138,6 +138,41 @@ func (_u *GroupUpdate) AddDisplayRateMultiplier(v float64) *GroupUpdate {
 	return _u
 }
 
+// SetUsageMultiplierEnabled sets the "usage_multiplier_enabled" field.
+func (_u *GroupUpdate) SetUsageMultiplierEnabled(v bool) *GroupUpdate {
+	_u.mutation.SetUsageMultiplierEnabled(v)
+	return _u
+}
+
+// SetNillableUsageMultiplierEnabled sets the "usage_multiplier_enabled" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableUsageMultiplierEnabled(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetUsageMultiplierEnabled(*v)
+	}
+	return _u
+}
+
+// SetUsageMultiplier sets the "usage_multiplier" field.
+func (_u *GroupUpdate) SetUsageMultiplier(v float64) *GroupUpdate {
+	_u.mutation.ResetUsageMultiplier()
+	_u.mutation.SetUsageMultiplier(v)
+	return _u
+}
+
+// SetNillableUsageMultiplier sets the "usage_multiplier" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableUsageMultiplier(v *float64) *GroupUpdate {
+	if v != nil {
+		_u.SetUsageMultiplier(*v)
+	}
+	return _u
+}
+
+// AddUsageMultiplier adds value to the "usage_multiplier" field.
+func (_u *GroupUpdate) AddUsageMultiplier(v float64) *GroupUpdate {
+	_u.mutation.AddUsageMultiplier(v)
+	return _u
+}
+
 // SetIsExclusive sets the "is_exclusive" field.
 func (_u *GroupUpdate) SetIsExclusive(v bool) *GroupUpdate {
 	_u.mutation.SetIsExclusive(v)
@@ -1118,6 +1153,15 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.AddedDisplayRateMultiplier(); ok {
 		_spec.AddField(group.FieldDisplayRateMultiplier, field.TypeFloat64, value)
 	}
+	if value, ok := _u.mutation.UsageMultiplierEnabled(); ok {
+		_spec.SetField(group.FieldUsageMultiplierEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.UsageMultiplier(); ok {
+		_spec.SetField(group.FieldUsageMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedUsageMultiplier(); ok {
+		_spec.AddField(group.FieldUsageMultiplier, field.TypeFloat64, value)
+	}
 	if value, ok := _u.mutation.IsExclusive(); ok {
 		_spec.SetField(group.FieldIsExclusive, field.TypeBool, value)
 	}
@@ -1713,6 +1757,41 @@ func (_u *GroupUpdateOne) SetNillableDisplayRateMultiplier(v *float64) *GroupUpd
 // AddDisplayRateMultiplier adds value to the "display_rate_multiplier" field.
 func (_u *GroupUpdateOne) AddDisplayRateMultiplier(v float64) *GroupUpdateOne {
 	_u.mutation.AddDisplayRateMultiplier(v)
+	return _u
+}
+
+// SetUsageMultiplierEnabled sets the "usage_multiplier_enabled" field.
+func (_u *GroupUpdateOne) SetUsageMultiplierEnabled(v bool) *GroupUpdateOne {
+	_u.mutation.SetUsageMultiplierEnabled(v)
+	return _u
+}
+
+// SetNillableUsageMultiplierEnabled sets the "usage_multiplier_enabled" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableUsageMultiplierEnabled(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetUsageMultiplierEnabled(*v)
+	}
+	return _u
+}
+
+// SetUsageMultiplier sets the "usage_multiplier" field.
+func (_u *GroupUpdateOne) SetUsageMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.ResetUsageMultiplier()
+	_u.mutation.SetUsageMultiplier(v)
+	return _u
+}
+
+// SetNillableUsageMultiplier sets the "usage_multiplier" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableUsageMultiplier(v *float64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetUsageMultiplier(*v)
+	}
+	return _u
+}
+
+// AddUsageMultiplier adds value to the "usage_multiplier" field.
+func (_u *GroupUpdateOne) AddUsageMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.AddUsageMultiplier(v)
 	return _u
 }
 
@@ -2725,6 +2804,15 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.AddedDisplayRateMultiplier(); ok {
 		_spec.AddField(group.FieldDisplayRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.UsageMultiplierEnabled(); ok {
+		_spec.SetField(group.FieldUsageMultiplierEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.UsageMultiplier(); ok {
+		_spec.SetField(group.FieldUsageMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedUsageMultiplier(); ok {
+		_spec.AddField(group.FieldUsageMultiplier, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.IsExclusive(); ok {
 		_spec.SetField(group.FieldIsExclusive, field.TypeBool, value)

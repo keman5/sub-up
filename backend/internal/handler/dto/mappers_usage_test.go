@@ -103,8 +103,7 @@ func TestUsageLogFromService_IncludesServiceTierForUserAndAdmin(t *testing.T) {
 	require.Equal(t, inboundEndpoint, *adminDTO.InboundEndpoint)
 	require.NotNil(t, adminDTO.UpstreamEndpoint)
 	require.Equal(t, upstreamEndpoint, *adminDTO.UpstreamEndpoint)
-	require.NotNil(t, adminDTO.AccountRateMultiplier)
-	require.InDelta(t, 1.5, *adminDTO.AccountRateMultiplier, 1e-12)
+	require.Nil(t, adminDTO.AccountRateMultiplier)
 }
 
 func TestUsageLogFromService_UsesRequestedModelAndKeepsUpstreamAdminOnly(t *testing.T) {
@@ -205,6 +204,102 @@ func TestUsageLogFromService_PreservesHistoricalMissingImageSize(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(body), `"image_size":null`)
 	require.NotContains(t, string(body), `"image_size":"2K"`)
+}
+
+func TestUsageLogFromServiceWithViewer_AppliesPresentationMultiplier(t *testing.T) {
+	t.Parallel()
+
+	log := &service.UsageLog{
+		RequestID:              "req_presentation",
+		Model:                  "claude-sonnet-4",
+		InputTokens:            600,
+		OutputTokens:           500,
+		CacheCreationTokens:    100,
+		CacheReadTokens:        50,
+		CacheCreation5mTokens:  40,
+		CacheCreation1hTokens:  60,
+		ImageOutputTokens:      20,
+		ImageOutputCost:        0.03,
+		InputCost:              0.01,
+		OutputCost:             0.02,
+		CacheCreationCost:      0.004,
+		CacheReadCost:          0.002,
+		TotalCost:              0.036,
+		ActualCost:             0.072,
+		RateMultiplier:         1.5,
+		PresentationMultiplier: 2,
+		AccountRateMultiplier:  f64Ptr(1.25),
+		AccountStatsCost:       f64Ptr(0.025),
+	}
+
+	userDTO := UsageLogFromServiceWithViewer(log, service.UsageViewPresentation)
+	adminDTO := UsageLogFromServiceAdminWithViewer(log, service.UsageViewPresentation)
+
+	for _, got := range []*UsageLog{userDTO, &adminDTO.UsageLog} {
+		require.Equal(t, 1200, got.InputTokens)
+		require.Equal(t, 1000, got.OutputTokens)
+		require.Equal(t, 200, got.CacheCreationTokens)
+		require.Equal(t, 100, got.CacheReadTokens)
+		require.Equal(t, 80, got.CacheCreation5mTokens)
+		require.Equal(t, 120, got.CacheCreation1hTokens)
+		require.Equal(t, 40, got.ImageOutputTokens)
+		require.InDelta(t, 0.06, got.ImageOutputCost, 1e-12)
+		require.InDelta(t, 0.02, got.InputCost, 1e-12)
+		require.InDelta(t, 0.04, got.OutputCost, 1e-12)
+		require.InDelta(t, 0.008, got.CacheCreationCost, 1e-12)
+		require.InDelta(t, 0.004, got.CacheReadCost, 1e-12)
+		require.InDelta(t, 0.072, got.TotalCost, 1e-12)
+		require.InDelta(t, 0.144, got.ActualCost, 1e-12)
+		require.InDelta(t, 1.0, got.RateMultiplier, 1e-12)
+	}
+	require.Nil(t, adminDTO.AccountRateMultiplier)
+	require.Nil(t, adminDTO.AccountStatsCost)
+
+	body, err := json.Marshal(adminDTO)
+	require.NoError(t, err)
+	require.NotContains(t, string(body), "account_rate_multiplier")
+	require.NotContains(t, string(body), "account_stats_cost")
+}
+
+func TestUsageLogFromServiceWithViewer_RawViewPreservesStoredValues(t *testing.T) {
+	t.Parallel()
+
+	log := &service.UsageLog{
+		RequestID:              "req_raw",
+		Model:                  "claude-sonnet-4",
+		InputTokens:            600,
+		OutputTokens:           500,
+		TotalCost:              0.036,
+		ActualCost:             0.072,
+		RateMultiplier:         1.5,
+		PresentationMultiplier: 2,
+		AccountRateMultiplier:  f64Ptr(1.25),
+		AccountStatsCost:       f64Ptr(0.025),
+	}
+
+	userDTO := UsageLogFromServiceWithViewer(log, service.UsageViewRaw)
+	adminDTO := UsageLogFromServiceAdminWithViewer(log, service.UsageViewRaw)
+
+	require.Equal(t, 600, userDTO.InputTokens)
+	require.Equal(t, 500, userDTO.OutputTokens)
+	require.InDelta(t, 0.036, userDTO.TotalCost, 1e-12)
+	require.InDelta(t, 0.072, userDTO.ActualCost, 1e-12)
+	require.InDelta(t, 1.5, userDTO.RateMultiplier, 1e-12)
+
+	require.Equal(t, 600, adminDTO.InputTokens)
+	require.Equal(t, 500, adminDTO.OutputTokens)
+	require.InDelta(t, 0.036, adminDTO.TotalCost, 1e-12)
+	require.InDelta(t, 0.072, adminDTO.ActualCost, 1e-12)
+	require.InDelta(t, 1.5, adminDTO.RateMultiplier, 1e-12)
+	require.NotNil(t, adminDTO.AccountRateMultiplier)
+	require.InDelta(t, 1.25, *adminDTO.AccountRateMultiplier, 1e-12)
+	require.NotNil(t, adminDTO.AccountStatsCost)
+	require.InDelta(t, 0.025, *adminDTO.AccountStatsCost, 1e-12)
+
+	body, err := json.Marshal(adminDTO)
+	require.NoError(t, err)
+	require.Contains(t, string(body), `"account_rate_multiplier":1.25`)
+	require.Contains(t, string(body), `"account_stats_cost":0.025`)
 }
 
 func f64Ptr(value float64) *float64 {

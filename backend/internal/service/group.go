@@ -19,9 +19,13 @@ type Group struct {
 	// DisplayRateMultiplier is the user-facing multiplier shown in UI only.
 	// Billing continues to use RateMultiplier.
 	DisplayRateMultiplier float64
-	IsExclusive           bool
-	Status                string
-	Hydrated              bool // indicates the group was loaded from a trusted repository source
+	// UsageMultiplierEnabled controls whether new usage rows snapshot UsageMultiplier
+	// for non-super-admin presentation.
+	UsageMultiplierEnabled bool
+	UsageMultiplier        float64
+	IsExclusive            bool
+	Status                 string
+	Hydrated               bool // indicates the group was loaded from a trusted repository source
 
 	SubscriptionType    string
 	DailyLimitUSD       *float64

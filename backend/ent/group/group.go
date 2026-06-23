@@ -30,6 +30,10 @@ const (
 	FieldRateMultiplier = "rate_multiplier"
 	// FieldDisplayRateMultiplier holds the string denoting the display_rate_multiplier field in the database.
 	FieldDisplayRateMultiplier = "display_rate_multiplier"
+	// FieldUsageMultiplierEnabled holds the string denoting the usage_multiplier_enabled field in the database.
+	FieldUsageMultiplierEnabled = "usage_multiplier_enabled"
+	// FieldUsageMultiplier holds the string denoting the usage_multiplier field in the database.
+	FieldUsageMultiplier = "usage_multiplier"
 	// FieldIsExclusive holds the string denoting the is_exclusive field in the database.
 	FieldIsExclusive = "is_exclusive"
 	// FieldStatus holds the string denoting the status field in the database.
@@ -180,6 +184,8 @@ var Columns = []string{
 	FieldDescription,
 	FieldRateMultiplier,
 	FieldDisplayRateMultiplier,
+	FieldUsageMultiplierEnabled,
+	FieldUsageMultiplier,
 	FieldIsExclusive,
 	FieldStatus,
 	FieldPlatform,
@@ -255,6 +261,10 @@ var (
 	DefaultRateMultiplier float64
 	// DefaultDisplayRateMultiplier holds the default value on creation for the "display_rate_multiplier" field.
 	DefaultDisplayRateMultiplier float64
+	// DefaultUsageMultiplierEnabled holds the default value on creation for the "usage_multiplier_enabled" field.
+	DefaultUsageMultiplierEnabled bool
+	// DefaultUsageMultiplier holds the default value on creation for the "usage_multiplier" field.
+	DefaultUsageMultiplier float64
 	// DefaultIsExclusive holds the default value on creation for the "is_exclusive" field.
 	DefaultIsExclusive bool
 	// DefaultStatus holds the default value on creation for the "status" field.
@@ -358,6 +368,16 @@ func ByRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
 // ByDisplayRateMultiplier orders the results by the display_rate_multiplier field.
 func ByDisplayRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDisplayRateMultiplier, opts...).ToFunc()
+}
+
+// ByUsageMultiplierEnabled orders the results by the usage_multiplier_enabled field.
+func ByUsageMultiplierEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUsageMultiplierEnabled, opts...).ToFunc()
+}
+
+// ByUsageMultiplier orders the results by the usage_multiplier field.
+func ByUsageMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUsageMultiplier, opts...).ToFunc()
 }
 
 // ByIsExclusive orders the results by the is_exclusive field.

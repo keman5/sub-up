@@ -274,6 +274,8 @@ type UsageLogFilters struct {
 	BillingMode string
 	StartTime   *time.Time
 	EndTime     *time.Time
+	// UsePresentationMultiplier returns user/admin-facing usage based on each row's presentation_multiplier.
+	UsePresentationMultiplier bool
 	// ExactTotal requests exact COUNT(*) for pagination. Default false for fast large-table paging.
 	ExactTotal bool
 }

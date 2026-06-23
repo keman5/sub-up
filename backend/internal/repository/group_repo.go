@@ -45,12 +45,17 @@ func normalizedDisplayRateMultiplier(value float64) float64 {
 
 func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) error {
 	groupIn.DisplayRateMultiplier = normalizedDisplayRateMultiplier(groupIn.DisplayRateMultiplier)
+	if groupIn.UsageMultiplier == 0 {
+		groupIn.UsageMultiplier = 1
+	}
 	builder := r.client.Group.Create().
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetRateMultiplier(groupIn.RateMultiplier).
 		SetDisplayRateMultiplier(groupIn.DisplayRateMultiplier).
+		SetUsageMultiplierEnabled(groupIn.UsageMultiplierEnabled).
+		SetUsageMultiplier(groupIn.UsageMultiplier).
 		SetSortOrder(groupIn.SortOrder).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).
@@ -130,12 +135,17 @@ func (r *groupRepository) GetByIDLite(ctx context.Context, id int64) (*service.G
 
 func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) error {
 	groupIn.DisplayRateMultiplier = normalizedDisplayRateMultiplier(groupIn.DisplayRateMultiplier)
+	if groupIn.UsageMultiplier == 0 {
+		groupIn.UsageMultiplier = 1
+	}
 	builder := r.client.Group.UpdateOneID(groupIn.ID).
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetRateMultiplier(groupIn.RateMultiplier).
 		SetDisplayRateMultiplier(groupIn.DisplayRateMultiplier).
+		SetUsageMultiplierEnabled(groupIn.UsageMultiplierEnabled).
+		SetUsageMultiplier(groupIn.UsageMultiplier).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).
 		SetSubscriptionType(groupIn.SubscriptionType).

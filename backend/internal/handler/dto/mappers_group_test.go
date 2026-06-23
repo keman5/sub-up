@@ -1,3 +1,5 @@
+//go:build unit
+
 package dto
 
 import (
@@ -7,22 +9,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGroupFromService_UsesDisplayRateMultiplierForUserDTO(t *testing.T) {
+func TestGroupFromServiceMasksUsagePresentationMultiplierForUsers(t *testing.T) {
 	t.Parallel()
 
 	group := &service.Group{
-		ID:                    1,
-		Name:                  "premium",
-		Platform:              service.PlatformAnthropic,
-		RateMultiplier:        2,
-		DisplayRateMultiplier: 1,
+		ID:                     1,
+		Name:                   "subscription",
+		Platform:               service.PlatformAnthropic,
+		RateMultiplier:         1,
+		DisplayRateMultiplier:  1,
+		UsageMultiplierEnabled: true,
+		UsageMultiplier:        2,
+		Status:                 service.StatusActive,
+		SubscriptionType:       service.SubscriptionTypeSubscription,
 	}
 
 	userDTO := GroupFromService(group)
-	adminDTO := GroupFromServiceAdmin(group)
+	require.NotNil(t, userDTO)
+	require.False(t, userDTO.UsageMultiplierEnabled)
+	require.InDelta(t, 1.0, userDTO.UsageMultiplier, 1e-12)
 
-	require.Equal(t, 1.0, userDTO.RateMultiplier)
-	require.Equal(t, 2.0, adminDTO.RateMultiplier)
-	require.Equal(t, 2.0, adminDTO.BillingRateMultiplier)
-	require.Equal(t, 1.0, adminDTO.DisplayRateMultiplier)
+	adminDTO := GroupFromServiceAdminWithViewer(group, service.UsageViewRaw)
+	require.NotNil(t, adminDTO)
+	require.True(t, adminDTO.UsageMultiplierEnabled)
+	require.InDelta(t, 2.0, adminDTO.UsageMultiplier, 1e-12)
+
+	ordinaryAdminDTO := GroupFromServiceAdminWithViewer(group, service.UsageViewPresentation)
+	require.NotNil(t, ordinaryAdminDTO)
+	require.False(t, ordinaryAdminDTO.UsageMultiplierEnabled)
+	require.InDelta(t, 1.0, ordinaryAdminDTO.UsageMultiplier, 1e-12)
 }

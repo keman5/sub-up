@@ -83,6 +83,16 @@ type accountWindowStatsBatchReader interface {
 	GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error)
 }
 
+type accountWindowStatsForViewReader interface {
+	GetAccountTodayStatsForView(ctx context.Context, accountID int64, usePresentation bool) (*usagestats.AccountStats, error)
+	GetAccountWindowStatsForView(ctx context.Context, accountID int64, startTime time.Time, usePresentation bool) (*usagestats.AccountStats, error)
+	GetAccountWindowStatsBatchForView(ctx context.Context, accountIDs []int64, startTime time.Time, usePresentation bool) (map[int64]*usagestats.AccountStats, error)
+}
+
+type accountUsageStatsForViewReader interface {
+	GetAccountUsageStatsForView(ctx context.Context, accountID int64, startTime, endTime time.Time, usePresentation bool) (*usagestats.AccountUsageStatsResponse, error)
+}
+
 // apiUsageCache 缓存从 Anthropic API 获取的使用率数据（utilization, resets_at）
 // 同时支持缓存错误响应（负缓存），防止 429 等错误导致的重试风暴
 type apiUsageCache struct {
@@ -1446,17 +1456,56 @@ func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64
 		return nil, fmt.Errorf("get today stats failed: %w", err)
 	}
 
-	return &WindowStats{
-		Requests:     stats.Requests,
-		Tokens:       stats.Tokens,
-		Cost:         stats.Cost,
-		StandardCost: stats.StandardCost,
-		UserCost:     stats.UserCost,
-	}, nil
+	return windowStatsFromAccountStats(stats), nil
+}
+
+// GetTodayStatsForView 获取账号今日统计，并按角色视图隐藏真实账号成本。
+func (s *AccountUsageService) GetTodayStatsForView(ctx context.Context, accountID int64, viewMode UsageViewMode) (*WindowStats, error) {
+	usePresentation := viewMode == UsageViewPresentation
+	if repo, ok := s.usageLogRepo.(accountWindowStatsForViewReader); ok {
+		stats, err := repo.GetAccountTodayStatsForView(ctx, accountID, usePresentation)
+		if err != nil {
+			return nil, fmt.Errorf("get today stats failed: %w", err)
+		}
+		return windowStatsForView(windowStatsFromAccountStats(stats), viewMode), nil
+	}
+
+	stats, err := s.GetTodayStats(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return windowStatsForView(stats, viewMode), nil
+}
+
+// GetAccountWindowStatsForView 获取账号窗口统计，并按角色视图隐藏真实账号成本。
+func (s *AccountUsageService) GetAccountWindowStatsForView(ctx context.Context, accountID int64, startTime time.Time, viewMode UsageViewMode) (*WindowStats, error) {
+	usePresentation := viewMode == UsageViewPresentation
+	if repo, ok := s.usageLogRepo.(accountWindowStatsForViewReader); ok {
+		stats, err := repo.GetAccountWindowStatsForView(ctx, accountID, startTime, usePresentation)
+		if err != nil {
+			return nil, fmt.Errorf("get account window stats failed: %w", err)
+		}
+		return windowStatsForView(windowStatsFromAccountStats(stats), viewMode), nil
+	}
+
+	stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, startTime)
+	if err != nil {
+		return nil, fmt.Errorf("get account window stats failed: %w", err)
+	}
+	return windowStatsForView(windowStatsFromAccountStats(stats), viewMode), nil
 }
 
 // GetTodayStatsBatch 批量获取账号今日统计，优先走批量 SQL，失败时回退单账号查询。
 func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*WindowStats, error) {
+	return s.getTodayStatsBatch(ctx, accountIDs, UsageViewRaw)
+}
+
+// GetTodayStatsBatchForView 批量获取账号今日统计，并按角色视图隐藏真实账号成本。
+func (s *AccountUsageService) GetTodayStatsBatchForView(ctx context.Context, accountIDs []int64, viewMode UsageViewMode) (map[int64]*WindowStats, error) {
+	return s.getTodayStatsBatch(ctx, accountIDs, viewMode)
+}
+
+func (s *AccountUsageService) getTodayStatsBatch(ctx context.Context, accountIDs []int64, viewMode UsageViewMode) (map[int64]*WindowStats, error) {
 	uniqueIDs := make([]int64, 0, len(accountIDs))
 	seen := make(map[int64]struct{}, len(accountIDs))
 	for _, accountID := range accountIDs {
@@ -1476,11 +1525,20 @@ func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs
 	}
 
 	startTime := timezone.Today()
-	if batchReader, ok := s.usageLogRepo.(accountWindowStatsBatchReader); ok {
+	usePresentation := viewMode == UsageViewPresentation
+	if viewReader, ok := s.usageLogRepo.(accountWindowStatsForViewReader); ok {
+		statsByAccount, err := viewReader.GetAccountWindowStatsBatchForView(ctx, uniqueIDs, startTime, usePresentation)
+		if err == nil {
+			for _, accountID := range uniqueIDs {
+				result[accountID] = windowStatsForView(windowStatsFromAccountStats(statsByAccount[accountID]), viewMode)
+			}
+			return result, nil
+		}
+	} else if batchReader, ok := s.usageLogRepo.(accountWindowStatsBatchReader); ok {
 		statsByAccount, err := batchReader.GetAccountWindowStatsBatch(ctx, uniqueIDs, startTime)
 		if err == nil {
 			for _, accountID := range uniqueIDs {
-				result[accountID] = windowStatsFromAccountStats(statsByAccount[accountID])
+				result[accountID] = windowStatsForView(windowStatsFromAccountStats(statsByAccount[accountID]), viewMode)
 			}
 			return result, nil
 		}
@@ -1493,12 +1551,18 @@ func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs
 	for _, accountID := range uniqueIDs {
 		id := accountID
 		g.Go(func() error {
-			stats, err := s.usageLogRepo.GetAccountWindowStats(gctx, id, startTime)
+			var stats *usagestats.AccountStats
+			var err error
+			if viewReader, ok := s.usageLogRepo.(accountWindowStatsForViewReader); ok {
+				stats, err = viewReader.GetAccountWindowStatsForView(gctx, id, startTime, usePresentation)
+			} else {
+				stats, err = s.usageLogRepo.GetAccountWindowStats(gctx, id, startTime)
+			}
 			if err != nil {
 				return nil
 			}
 			mu.Lock()
-			result[id] = windowStatsFromAccountStats(stats)
+			result[id] = windowStatsForView(windowStatsFromAccountStats(stats), viewMode)
 			mu.Unlock()
 			return nil
 		})
@@ -1525,6 +1589,16 @@ func windowStatsFromAccountStats(stats *usagestats.AccountStats) *WindowStats {
 		StandardCost: stats.StandardCost,
 		UserCost:     stats.UserCost,
 	}
+}
+
+func windowStatsForView(stats *WindowStats, viewMode UsageViewMode) *WindowStats {
+	if stats == nil || viewMode == UsageViewRaw {
+		return stats
+	}
+	out := *stats
+	out.Cost = out.UserCost
+	out.StandardCost = out.UserCost
+	return &out
 }
 
 func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now time.Time) *UsageProgress {
@@ -1608,6 +1682,18 @@ func (s *AccountUsageService) GetAccountUsageStats(ctx context.Context, accountI
 		return nil, fmt.Errorf("get account usage stats failed: %w", err)
 	}
 	return stats, nil
+}
+
+func (s *AccountUsageService) GetAccountUsageStatsForView(ctx context.Context, accountID int64, startTime, endTime time.Time, viewMode UsageViewMode) (*usagestats.AccountUsageStatsResponse, error) {
+	usePresentation := viewMode == UsageViewPresentation
+	if repo, ok := s.usageLogRepo.(accountUsageStatsForViewReader); ok {
+		stats, err := repo.GetAccountUsageStatsForView(ctx, accountID, startTime, endTime, usePresentation)
+		if err != nil {
+			return nil, fmt.Errorf("get account usage stats failed: %w", err)
+		}
+		return stats, nil
+	}
+	return s.GetAccountUsageStats(ctx, accountID, startTime, endTime)
 }
 
 // fetchOAuthUsageRaw 从 Anthropic API 获取原始响应（不构建 UsageInfo）

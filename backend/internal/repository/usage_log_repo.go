@@ -30,7 +30,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, service_tier, reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, created_at"
+const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, presentation_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, service_tier, reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, created_at"
 
 // usageLogInsertArgTypes must stay in the same order as:
 //  1. prepareUsageLogInsert().args
@@ -64,6 +64,7 @@ var usageLogInsertArgTypes = [...]string{
 	"numeric",     // total_cost
 	"numeric",     // actual_cost
 	"numeric",     // rate_multiplier
+	"numeric",     // presentation_multiplier
 	"numeric",     // account_rate_multiplier
 	"smallint",    // billing_type
 	"smallint",    // request_type
@@ -262,11 +263,18 @@ func newUsageLogRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *usage
 
 // getPerformanceStats 获取 RPM 和 TPM（近5分钟平均值，可选按用户过滤）
 func (r *usageLogRepository) getPerformanceStats(ctx context.Context, userID int64) (rpm, tpm int64, err error) {
+	return r.getPerformanceStatsForView(ctx, userID, false)
+}
+
+func (r *usageLogRepository) getPerformanceStatsForView(ctx context.Context, userID int64, usePresentation bool) (rpm, tpm int64, err error) {
 	fiveMinutesAgo := time.Now().Add(-5 * time.Minute)
+	presentationFactor := usagePresentationFactorSQL("", usePresentation)
+	inputTokensExpr := usagePresentationTokenSQL("input_tokens", presentationFactor)
+	outputTokensExpr := usagePresentationOutputTokensSQL("", presentationFactor)
 	query := `
 		SELECT
 			COUNT(*) as request_count,
-			COALESCE(SUM(input_tokens + output_tokens), 0) as token_count
+			COALESCE(SUM(` + inputTokensExpr + ` + ` + outputTokensExpr + `), 0) as token_count
 		FROM usage_logs
 		WHERE created_at >= $1`
 	args := []any{fiveMinutesAgo}
@@ -381,6 +389,7 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			total_cost,
 			actual_cost,
 			rate_multiplier,
+			presentation_multiplier,
 			account_rate_multiplier,
 			billing_type,
 			request_type,
@@ -413,7 +422,7 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			$10, $11, $12, $13,
 			$14, $15, $16, $17,
 			$18, $19, $20, $21, $22, $23,
-			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50
+			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 		RETURNING id, created_at
@@ -823,6 +832,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			total_cost,
 			actual_cost,
 			rate_multiplier,
+			presentation_multiplier,
 			account_rate_multiplier,
 			billing_type,
 			request_type,
@@ -904,6 +914,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				total_cost,
 				actual_cost,
 				rate_multiplier,
+				presentation_multiplier,
 				account_rate_multiplier,
 				billing_type,
 				request_type,
@@ -956,6 +967,7 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				total_cost,
 				actual_cost,
 				rate_multiplier,
+				presentation_multiplier,
 				account_rate_multiplier,
 				billing_type,
 				request_type,
@@ -1048,6 +1060,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			total_cost,
 			actual_cost,
 			rate_multiplier,
+			presentation_multiplier,
 			account_rate_multiplier,
 			billing_type,
 			request_type,
@@ -1126,6 +1139,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			total_cost,
 			actual_cost,
 			rate_multiplier,
+			presentation_multiplier,
 			account_rate_multiplier,
 			billing_type,
 			request_type,
@@ -1178,6 +1192,7 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			total_cost,
 			actual_cost,
 			rate_multiplier,
+			presentation_multiplier,
 			account_rate_multiplier,
 			billing_type,
 			request_type,
@@ -1238,6 +1253,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			total_cost,
 			actual_cost,
 			rate_multiplier,
+			presentation_multiplier,
 			account_rate_multiplier,
 			billing_type,
 			request_type,
@@ -1270,7 +1286,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			$10, $11, $12, $13,
 			$14, $15, $16, $17,
 			$18, $19, $20, $21, $22, $23,
-			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50
+			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 	`, prepared.args...)
@@ -1287,6 +1303,10 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	log.RequestID = requestID
 
 	rateMultiplier := log.RateMultiplier
+	presentationMultiplier := log.PresentationMultiplier
+	if presentationMultiplier == 0 {
+		presentationMultiplier = 1
+	}
 	log.SyncRequestTypeAndLegacyFields()
 	requestType := int16(log.RequestType)
 
@@ -1350,6 +1370,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			log.TotalCost,
 			log.ActualCost,
 			rateMultiplier,
+			presentationMultiplier,
 			log.AccountRateMultiplier,
 			log.BillingType,
 			requestType,
@@ -1497,6 +1518,32 @@ func (r *usageLogRepository) GetDashboardStats(ctx context.Context) (*DashboardS
 	}
 
 	rpm, tpm, err := r.getPerformanceStats(ctx, 0)
+	if err != nil {
+		return nil, err
+	}
+	stats.Rpm = rpm
+	stats.Tpm = tpm
+
+	return stats, nil
+}
+
+func (r *usageLogRepository) GetDashboardStatsForView(ctx context.Context, usePresentation bool) (*DashboardStats, error) {
+	if !usePresentation {
+		return r.GetDashboardStats(ctx)
+	}
+
+	stats := &DashboardStats{}
+	now := timezone.Now()
+	todayStart := timezone.Today()
+
+	if err := r.fillDashboardEntityStats(ctx, stats, todayStart, now); err != nil {
+		return nil, err
+	}
+	if err := r.fillDashboardUsageStatsFromUsageLogsForView(ctx, stats, time.Time{}.UTC(), now.UTC(), todayStart, now, true); err != nil {
+		return nil, err
+	}
+
+	rpm, tpm, err := r.getPerformanceStatsForView(ctx, 0, true)
 	if err != nil {
 		return nil, err
 	}
@@ -1686,18 +1733,30 @@ func (r *usageLogRepository) fillDashboardUsageStatsAggregated(ctx context.Conte
 }
 
 func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Context, stats *DashboardStats, startUTC, endUTC, todayUTC, now time.Time) error {
+	return r.fillDashboardUsageStatsFromUsageLogsForView(ctx, stats, startUTC, endUTC, todayUTC, now, false)
+}
+
+func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogsForView(ctx context.Context, stats *DashboardStats, startUTC, endUTC, todayUTC, now time.Time, usePresentation bool) error {
 	todayEnd := todayUTC.Add(24 * time.Hour)
+	presentationFactor := usagePresentationFactorSQL("", usePresentation)
+	inputTokensExpr := usagePresentationTokenSQL("input_tokens", presentationFactor)
+	outputTokensExpr := usagePresentationOutputTokensSQL("", presentationFactor)
+	cacheCreationTokensExpr := usagePresentationTokenSQL("cache_creation_tokens", presentationFactor)
+	cacheReadTokensExpr := usagePresentationTokenSQL("cache_read_tokens", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
+	actualCostExpr := usagePresentationCostSQL("actual_cost", presentationFactor)
+	accountCostExpr := usagePresentationCostSQL("COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)", presentationFactor)
 	combinedStatsQuery := `
 		WITH scoped AS (
 			SELECT
 				created_at,
-				input_tokens,
-				output_tokens,
-				cache_creation_tokens,
-				cache_read_tokens,
-				total_cost,
-				actual_cost,
-				COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) AS account_cost,
+				` + inputTokensExpr + ` AS input_tokens,
+				` + outputTokensExpr + ` AS output_tokens,
+				` + cacheCreationTokensExpr + ` AS cache_creation_tokens,
+				` + cacheReadTokensExpr + ` AS cache_read_tokens,
+				` + totalCostExpr + ` AS total_cost,
+				` + actualCostExpr + ` AS actual_cost,
+				` + accountCostExpr + ` AS account_cost,
 				COALESCE(duration_ms, 0) AS duration_ms
 			FROM usage_logs
 			WHERE created_at >= LEAST($1::timestamptz, $3::timestamptz)
@@ -2068,48 +2127,37 @@ func (r *usageLogRepository) Delete(ctx context.Context, id int64) error {
 
 // GetAccountTodayStats 获取账号今日统计
 func (r *usageLogRepository) GetAccountTodayStats(ctx context.Context, accountID int64) (*usagestats.AccountStats, error) {
-	today := timezone.Today()
+	return r.GetAccountTodayStatsForView(ctx, accountID, false)
+}
 
-	query := `
-		SELECT
-			COUNT(*) as requests,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
-			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as cost,
-			COALESCE(SUM(total_cost), 0) as standard_cost,
-			COALESCE(SUM(actual_cost), 0) as user_cost
-		FROM usage_logs
-		WHERE account_id = $1 AND created_at >= $2
-	`
-
-	stats := &usagestats.AccountStats{}
-	if err := scanSingleRow(
-		ctx,
-		r.sql,
-		query,
-		[]any{accountID, today},
-		&stats.Requests,
-		&stats.Tokens,
-		&stats.Cost,
-		&stats.StandardCost,
-		&stats.UserCost,
-	); err != nil {
-		return nil, err
-	}
-	return stats, nil
+// GetAccountTodayStatsForView 获取账号今日统计，并按视图决定是否使用展示倍率。
+func (r *usageLogRepository) GetAccountTodayStatsForView(ctx context.Context, accountID int64, usePresentation bool) (*usagestats.AccountStats, error) {
+	return r.GetAccountWindowStatsForView(ctx, accountID, timezone.Today(), usePresentation)
 }
 
 // GetAccountWindowStats 获取账号时间窗口内的统计
 func (r *usageLogRepository) GetAccountWindowStats(ctx context.Context, accountID int64, startTime time.Time) (*usagestats.AccountStats, error) {
-	query := `
+	return r.GetAccountWindowStatsForView(ctx, accountID, startTime, false)
+}
+
+// GetAccountWindowStatsForView 获取账号时间窗口内的统计，并按视图决定是否使用展示倍率。
+func (r *usageLogRepository) GetAccountWindowStatsForView(ctx context.Context, accountID int64, startTime time.Time, usePresentation bool) (*usagestats.AccountStats, error) {
+	presentationFactor := usagePresentationFactorSQL("", usePresentation)
+	totalTokensExpr := usagePresentationTotalTokensSQL("", presentationFactor)
+	accountCostExpr := usagePresentationCostSQL("COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)", presentationFactor)
+	standardCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
+	userCostExpr := usagePresentationCostSQL("actual_cost", presentationFactor)
+
+	query := fmt.Sprintf(`
 		SELECT
 			COUNT(*) as requests,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
-			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as cost,
-			COALESCE(SUM(total_cost), 0) as standard_cost,
-			COALESCE(SUM(actual_cost), 0) as user_cost
+			COALESCE(SUM(%s), 0) as tokens,
+			COALESCE(SUM(%s), 0) as cost,
+			COALESCE(SUM(%s), 0) as standard_cost,
+			COALESCE(SUM(%s), 0) as user_cost
 		FROM usage_logs
 		WHERE account_id = $1 AND created_at >= $2
-	`
+	`, totalTokensExpr, accountCostExpr, standardCostExpr, userCostExpr)
 
 	stats := &usagestats.AccountStats{}
 	if err := scanSingleRow(
@@ -2131,23 +2179,34 @@ func (r *usageLogRepository) GetAccountWindowStats(ctx context.Context, accountI
 // GetAccountWindowStatsBatch 批量获取同一窗口起点下多个账号的统计数据。
 // 返回 map[accountID]*AccountStats，未命中的账号会返回零值统计，便于上层直接复用。
 func (r *usageLogRepository) GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error) {
+	return r.GetAccountWindowStatsBatchForView(ctx, accountIDs, startTime, false)
+}
+
+// GetAccountWindowStatsBatchForView 批量获取同一窗口起点下多个账号的统计数据，并按视图决定是否使用展示倍率。
+func (r *usageLogRepository) GetAccountWindowStatsBatchForView(ctx context.Context, accountIDs []int64, startTime time.Time, usePresentation bool) (map[int64]*usagestats.AccountStats, error) {
 	result := make(map[int64]*usagestats.AccountStats, len(accountIDs))
 	if len(accountIDs) == 0 {
 		return result, nil
 	}
 
-	query := `
+	presentationFactor := usagePresentationFactorSQL("", usePresentation)
+	totalTokensExpr := usagePresentationTotalTokensSQL("", presentationFactor)
+	accountCostExpr := usagePresentationCostSQL("COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)", presentationFactor)
+	standardCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
+	userCostExpr := usagePresentationCostSQL("actual_cost", presentationFactor)
+
+	query := fmt.Sprintf(`
 		SELECT
 			account_id,
 			COUNT(*) as requests,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
-			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as cost,
-			COALESCE(SUM(total_cost), 0) as standard_cost,
-			COALESCE(SUM(actual_cost), 0) as user_cost
+			COALESCE(SUM(%s), 0) as tokens,
+			COALESCE(SUM(%s), 0) as cost,
+			COALESCE(SUM(%s), 0) as standard_cost,
+			COALESCE(SUM(%s), 0) as user_cost
 		FROM usage_logs
 		WHERE account_id = ANY($1) AND created_at >= $2
 		GROUP BY account_id
-	`
+	`, totalTokensExpr, accountCostExpr, standardCostExpr, userCostExpr)
 	rows, err := r.sql.QueryContext(ctx, query, pq.Array(accountIDs), startTime)
 	if err != nil {
 		return nil, err
@@ -2254,7 +2313,14 @@ type APIKeyUsageTrendPoint = usagestats.APIKeyUsageTrendPoint
 
 // GetAPIKeyUsageTrend returns usage trend data grouped by API key and date
 func (r *usageLogRepository) GetAPIKeyUsageTrend(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) (results []APIKeyUsageTrendPoint, err error) {
+	return r.GetAPIKeyUsageTrendForView(ctx, startTime, endTime, granularity, limit, false)
+}
+
+func (r *usageLogRepository) GetAPIKeyUsageTrendForView(ctx context.Context, startTime, endTime time.Time, granularity string, limit int, usePresentation bool) (results []APIKeyUsageTrendPoint, err error) {
 	dateFormat := safeDateFormat(granularity)
+	presentationFactor := usagePresentationFactorSQL("u.", usePresentation)
+	totalTokensExpr := usagePresentationTotalTokensSQL("u.", presentationFactor)
+	topTokensExpr := usagePresentationTotalTokensSQL("", usagePresentationFactorSQL("", usePresentation))
 
 	query := fmt.Sprintf(`
 		WITH top_keys AS (
@@ -2262,7 +2328,7 @@ func (r *usageLogRepository) GetAPIKeyUsageTrend(ctx context.Context, startTime,
 			FROM usage_logs
 			WHERE created_at >= $1 AND created_at < $2
 			GROUP BY api_key_id
-			ORDER BY SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) DESC
+			ORDER BY SUM(%s) DESC
 			LIMIT $3
 		)
 		SELECT
@@ -2270,14 +2336,14 @@ func (r *usageLogRepository) GetAPIKeyUsageTrend(ctx context.Context, startTime,
 			u.api_key_id,
 			COALESCE(k.name, '') as key_name,
 			COUNT(*) as requests,
-			COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens), 0) as tokens
+			COALESCE(SUM(%s), 0) as tokens
 		FROM usage_logs u
 		LEFT JOIN api_keys k ON u.api_key_id = k.id
 		WHERE u.api_key_id IN (SELECT api_key_id FROM top_keys)
 		  AND u.created_at >= $4 AND u.created_at < $5
 		GROUP BY date, u.api_key_id, k.name
 		ORDER BY date ASC, tokens DESC
-	`, dateFormat)
+	`, topTokensExpr, dateFormat, totalTokensExpr)
 
 	rows, err := r.sql.QueryContext(ctx, query, startTime, endTime, limit, startTime, endTime)
 	if err != nil {
@@ -2309,7 +2375,16 @@ func (r *usageLogRepository) GetAPIKeyUsageTrend(ctx context.Context, startTime,
 
 // GetUserUsageTrend returns usage trend data grouped by user and date
 func (r *usageLogRepository) GetUserUsageTrend(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) (results []UserUsageTrendPoint, err error) {
+	return r.GetUserUsageTrendForView(ctx, startTime, endTime, granularity, limit, false)
+}
+
+func (r *usageLogRepository) GetUserUsageTrendForView(ctx context.Context, startTime, endTime time.Time, granularity string, limit int, usePresentation bool) (results []UserUsageTrendPoint, err error) {
 	dateFormat := safeDateFormat(granularity)
+	presentationFactor := usagePresentationFactorSQL("u.", usePresentation)
+	totalTokensExpr := usagePresentationTotalTokensSQL("u.", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("u.total_cost", presentationFactor)
+	actualCostExpr := usagePresentationCostSQL("u.actual_cost", presentationFactor)
+	topTokensExpr := usagePresentationTotalTokensSQL("", usagePresentationFactorSQL("", usePresentation))
 
 	query := fmt.Sprintf(`
 		WITH top_users AS (
@@ -2317,7 +2392,7 @@ func (r *usageLogRepository) GetUserUsageTrend(ctx context.Context, startTime, e
 			FROM usage_logs
 			WHERE created_at >= $1 AND created_at < $2
 			GROUP BY user_id
-			ORDER BY SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) DESC
+			ORDER BY SUM(%s) DESC
 			LIMIT $3
 		)
 		SELECT
@@ -2326,16 +2401,16 @@ func (r *usageLogRepository) GetUserUsageTrend(ctx context.Context, startTime, e
 			COALESCE(us.email, '') as email,
 			COALESCE(us.username, '') as username,
 			COUNT(*) as requests,
-			COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens), 0) as tokens,
-			COALESCE(SUM(u.total_cost), 0) as cost,
-			COALESCE(SUM(u.actual_cost), 0) as actual_cost
+			COALESCE(SUM(%s), 0) as tokens,
+			COALESCE(SUM(%s), 0) as cost,
+			COALESCE(SUM(%s), 0) as actual_cost
 		FROM usage_logs u
 		LEFT JOIN users us ON u.user_id = us.id
 		WHERE u.user_id IN (SELECT user_id FROM top_users)
 		  AND u.created_at >= $4 AND u.created_at < $5
 		GROUP BY date, u.user_id, us.email, us.username
 		ORDER BY date ASC, tokens DESC
-	`, dateFormat)
+	`, topTokensExpr, dateFormat, totalTokensExpr, totalCostExpr, actualCostExpr)
 
 	rows, err := r.sql.QueryContext(ctx, query, startTime, endTime, limit, startTime, endTime)
 	if err != nil {
@@ -2367,18 +2442,25 @@ func (r *usageLogRepository) GetUserUsageTrend(ctx context.Context, startTime, e
 
 // GetUserSpendingRanking returns user spending ranking aggregated within the time range.
 func (r *usageLogRepository) GetUserSpendingRanking(ctx context.Context, startTime, endTime time.Time, limit int) (result *UserSpendingRankingResponse, err error) {
+	return r.GetUserSpendingRankingForView(ctx, startTime, endTime, limit, false)
+}
+
+func (r *usageLogRepository) GetUserSpendingRankingForView(ctx context.Context, startTime, endTime time.Time, limit int, usePresentation bool) (result *UserSpendingRankingResponse, err error) {
 	if limit <= 0 {
 		limit = 12
 	}
+	presentationFactor := usagePresentationFactorSQL("u.", usePresentation)
+	tokensExpr := usagePresentationTotalTokensSQL("u.", presentationFactor)
+	actualCostExpr := usagePresentationCostSQL("u.actual_cost", presentationFactor)
 
-	query := `
+	query := fmt.Sprintf(`
 		WITH user_spend AS (
 			SELECT
 				u.user_id,
 				COALESCE(us.email, '') as email,
-				COALESCE(SUM(u.actual_cost), 0) as actual_cost,
+				COALESCE(SUM(%s), 0) as actual_cost,
 				COUNT(*) as requests,
-				COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens), 0) as tokens
+				COALESCE(SUM(%s), 0) as tokens
 			FROM usage_logs u
 			LEFT JOIN users us ON u.user_id = us.id
 			WHERE u.created_at >= $1 AND u.created_at < $2
@@ -2409,7 +2491,7 @@ func (r *usageLogRepository) GetUserSpendingRanking(ctx context.Context, startTi
 			total_tokens
 		FROM ranked
 		ORDER BY actual_cost DESC, tokens DESC, user_id ASC
-	`
+	`, actualCostExpr, tokensExpr)
 
 	rows, err := r.sql.QueryContext(ctx, query, startTime, endTime, limit)
 	if err != nil {
@@ -2455,6 +2537,16 @@ type PlatformDashboardStats = usagestats.PlatformDashboardStats
 func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID int64) (*UserDashboardStats, error) {
 	stats := &UserDashboardStats{}
 	today := timezone.Today()
+	presentationFactor := usagePresentationFactorSQL("", true)
+	inputTokensExpr := usagePresentationTokenSQL("input_tokens", presentationFactor)
+	outputTokensExpr := usagePresentationOutputTokensSQL("", presentationFactor)
+	cacheCreationTokensExpr := usagePresentationTokenSQL("cache_creation_tokens", presentationFactor)
+	cacheReadTokensExpr := usagePresentationTokenSQL("cache_read_tokens", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
+	actualCostExpr := usagePresentationCostSQL("actual_cost", presentationFactor)
+	ulPresentationFactor := usagePresentationFactorSQL("ul.", true)
+	ulTotalTokensExpr := usagePresentationTotalTokensSQL("ul.", ulPresentationFactor)
+	ulActualCostExpr := usagePresentationCostSQL("ul.actual_cost", ulPresentationFactor)
 
 	// API Key 统计
 	if err := scanSingleRow(
@@ -2480,12 +2572,12 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 	totalStatsQuery := `
 		SELECT
 			COUNT(*) as total_requests,
-			COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-			COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
-			COALESCE(SUM(total_cost), 0) as total_cost,
-			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
+			COALESCE(SUM(` + inputTokensExpr + `), 0) as total_input_tokens,
+			COALESCE(SUM(` + outputTokensExpr + `), 0) as total_output_tokens,
+			COALESCE(SUM(` + cacheCreationTokensExpr + `), 0) as total_cache_creation_tokens,
+			COALESCE(SUM(` + cacheReadTokensExpr + `), 0) as total_cache_read_tokens,
+			COALESCE(SUM(` + totalCostExpr + `), 0) as total_cost,
+			COALESCE(SUM(` + actualCostExpr + `), 0) as total_actual_cost,
 			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
 		FROM usage_logs
 		WHERE user_id = $1
@@ -2512,12 +2604,12 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 	todayStatsQuery := `
 		SELECT
 			COUNT(*) as today_requests,
-			COALESCE(SUM(input_tokens), 0) as today_input_tokens,
-			COALESCE(SUM(output_tokens), 0) as today_output_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as today_cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as today_cache_read_tokens,
-			COALESCE(SUM(total_cost), 0) as today_cost,
-			COALESCE(SUM(actual_cost), 0) as today_actual_cost
+			COALESCE(SUM(` + inputTokensExpr + `), 0) as today_input_tokens,
+			COALESCE(SUM(` + outputTokensExpr + `), 0) as today_output_tokens,
+			COALESCE(SUM(` + cacheCreationTokensExpr + `), 0) as today_cache_creation_tokens,
+			COALESCE(SUM(` + cacheReadTokensExpr + `), 0) as today_cache_read_tokens,
+			COALESCE(SUM(` + totalCostExpr + `), 0) as today_cost,
+			COALESCE(SUM(` + actualCostExpr + `), 0) as today_actual_cost
 		FROM usage_logs
 		WHERE user_id = $1 AND created_at >= $2
 	`
@@ -2539,7 +2631,7 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 	stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens
 
 	// 性能指标：RPM 和 TPM（最近1分钟，仅统计该用户的请求）
-	rpm, tpm, err := r.getPerformanceStats(ctx, userID)
+	rpm, tpm, err := r.getPerformanceStatsForView(ctx, userID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -2556,11 +2648,11 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 		SELECT
 			` + usageLogEffectivePlatformExpr + ` as platform,
 			COUNT(*) as total_requests,
-			COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens), 0) as total_tokens,
-			COALESCE(SUM(ul.actual_cost), 0) as total_actual_cost,
+			COALESCE(SUM(` + ulTotalTokensExpr + `), 0) as total_tokens,
+			COALESCE(SUM(` + ulActualCostExpr + `), 0) as total_actual_cost,
 			COUNT(*) FILTER (WHERE ul.created_at >= $2) as today_requests,
-			COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens) FILTER (WHERE ul.created_at >= $2), 0) as today_tokens,
-			COALESCE(SUM(ul.actual_cost) FILTER (WHERE ul.created_at >= $2), 0) as today_actual_cost
+			COALESCE(SUM(` + ulTotalTokensExpr + `) FILTER (WHERE ul.created_at >= $2), 0) as today_tokens,
+			COALESCE(SUM(` + ulActualCostExpr + `) FILTER (WHERE ul.created_at >= $2), 0) as today_actual_cost
 		FROM usage_logs ul
 		LEFT JOIN groups g ON g.id = ul.group_id
 		LEFT JOIN accounts a ON a.id = ul.account_id
@@ -2602,11 +2694,20 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 
 // getPerformanceStatsByAPIKey 获取指定 API Key 的 RPM 和 TPM（近5分钟平均值）
 func (r *usageLogRepository) getPerformanceStatsByAPIKey(ctx context.Context, apiKeyID int64) (rpm, tpm int64, err error) {
+	return r.getPerformanceStatsByAPIKeyForView(ctx, apiKeyID, false)
+}
+
+func (r *usageLogRepository) getPerformanceStatsByAPIKeyForView(ctx context.Context, apiKeyID int64, usePresentation bool) (rpm, tpm int64, err error) {
 	fiveMinutesAgo := time.Now().Add(-5 * time.Minute)
+	presentationFactor := usagePresentationFactorSQL("", usePresentation)
+	inputTokensExpr := usagePresentationTokenSQL("input_tokens", presentationFactor)
+	outputTokensExpr := usagePresentationOutputTokensSQL("", presentationFactor)
+	cacheCreationTokensExpr := usagePresentationTokenSQL("cache_creation_tokens", presentationFactor)
+	cacheReadTokensExpr := usagePresentationTokenSQL("cache_read_tokens", presentationFactor)
 	query := `
 		SELECT
 			COUNT(*) as request_count,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as token_count
+			COALESCE(SUM(` + inputTokensExpr + ` + ` + outputTokensExpr + ` + ` + cacheCreationTokensExpr + ` + ` + cacheReadTokensExpr + `), 0) as token_count
 		FROM usage_logs
 		WHERE created_at >= $1 AND api_key_id = $2`
 	args := []any{fiveMinutesAgo, apiKeyID}
@@ -2623,6 +2724,13 @@ func (r *usageLogRepository) getPerformanceStatsByAPIKey(ctx context.Context, ap
 func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKeyID int64) (*UserDashboardStats, error) {
 	stats := &UserDashboardStats{}
 	today := timezone.Today()
+	presentationFactor := usagePresentationFactorSQL("", true)
+	inputTokensExpr := usagePresentationTokenSQL("input_tokens", presentationFactor)
+	outputTokensExpr := usagePresentationOutputTokensSQL("", presentationFactor)
+	cacheCreationTokensExpr := usagePresentationTokenSQL("cache_creation_tokens", presentationFactor)
+	cacheReadTokensExpr := usagePresentationTokenSQL("cache_read_tokens", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
+	actualCostExpr := usagePresentationCostSQL("actual_cost", presentationFactor)
 
 	// API Key 维度不需要统计 key 数量，设为 1
 	stats.TotalAPIKeys = 1
@@ -2632,12 +2740,12 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 	totalStatsQuery := `
 		SELECT
 			COUNT(*) as total_requests,
-			COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-			COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
-			COALESCE(SUM(total_cost), 0) as total_cost,
-			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
+			COALESCE(SUM(` + inputTokensExpr + `), 0) as total_input_tokens,
+			COALESCE(SUM(` + outputTokensExpr + `), 0) as total_output_tokens,
+			COALESCE(SUM(` + cacheCreationTokensExpr + `), 0) as total_cache_creation_tokens,
+			COALESCE(SUM(` + cacheReadTokensExpr + `), 0) as total_cache_read_tokens,
+			COALESCE(SUM(` + totalCostExpr + `), 0) as total_cost,
+			COALESCE(SUM(` + actualCostExpr + `), 0) as total_actual_cost,
 			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
 		FROM usage_logs
 		WHERE api_key_id = $1
@@ -2664,12 +2772,12 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 	todayStatsQuery := `
 		SELECT
 			COUNT(*) as today_requests,
-			COALESCE(SUM(input_tokens), 0) as today_input_tokens,
-			COALESCE(SUM(output_tokens), 0) as today_output_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as today_cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as today_cache_read_tokens,
-			COALESCE(SUM(total_cost), 0) as today_cost,
-			COALESCE(SUM(actual_cost), 0) as today_actual_cost
+			COALESCE(SUM(` + inputTokensExpr + `), 0) as today_input_tokens,
+			COALESCE(SUM(` + outputTokensExpr + `), 0) as today_output_tokens,
+			COALESCE(SUM(` + cacheCreationTokensExpr + `), 0) as today_cache_creation_tokens,
+			COALESCE(SUM(` + cacheReadTokensExpr + `), 0) as today_cache_read_tokens,
+			COALESCE(SUM(` + totalCostExpr + `), 0) as today_cost,
+			COALESCE(SUM(` + actualCostExpr + `), 0) as today_actual_cost
 		FROM usage_logs
 		WHERE api_key_id = $1 AND created_at >= $2
 	`
@@ -2691,7 +2799,7 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 	stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens
 
 	// 性能指标：RPM 和 TPM（最近5分钟，按 API Key 过滤）
-	rpm, tpm, err := r.getPerformanceStatsByAPIKey(ctx, apiKeyID)
+	rpm, tpm, err := r.getPerformanceStatsByAPIKeyForView(ctx, apiKeyID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -2704,18 +2812,26 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 // GetUserUsageTrendByUserID 获取指定用户的使用趋势
 func (r *usageLogRepository) GetUserUsageTrendByUserID(ctx context.Context, userID int64, startTime, endTime time.Time, granularity string) (results []TrendDataPoint, err error) {
 	dateFormat := safeDateFormat(granularity)
+	presentationFactor := usagePresentationFactorSQL("", true)
+	inputTokensExpr := usagePresentationTokenSQL("input_tokens", presentationFactor)
+	outputTokensExpr := usagePresentationOutputTokensSQL("", presentationFactor)
+	cacheCreationTokensExpr := usagePresentationTokenSQL("cache_creation_tokens", presentationFactor)
+	cacheReadTokensExpr := usagePresentationTokenSQL("cache_read_tokens", presentationFactor)
+	totalTokensExpr := usagePresentationTotalTokensSQL("", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
+	actualCostExpr := usagePresentationCostSQL("actual_cost", presentationFactor)
 
 	query := fmt.Sprintf(`
 		SELECT
 			TO_CHAR(created_at, '%s') as date,
 			COUNT(*) as requests,
-			COALESCE(SUM(input_tokens), 0) as input_tokens,
-			COALESCE(SUM(output_tokens), 0) as output_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_tokens,
-			COALESCE(SUM(total_cost), 0) as cost,
-			COALESCE(SUM(actual_cost), 0) as actual_cost
+			COALESCE(SUM(`+inputTokensExpr+`), 0) as input_tokens,
+			COALESCE(SUM(`+outputTokensExpr+`), 0) as output_tokens,
+			COALESCE(SUM(`+cacheCreationTokensExpr+`), 0) as cache_creation_tokens,
+			COALESCE(SUM(`+cacheReadTokensExpr+`), 0) as cache_read_tokens,
+			COALESCE(SUM(`+totalTokensExpr+`), 0) as total_tokens,
+			COALESCE(SUM(`+totalCostExpr+`), 0) as cost,
+			COALESCE(SUM(`+actualCostExpr+`), 0) as actual_cost
 		FROM usage_logs
 		WHERE user_id = $1 AND created_at >= $2 AND created_at < $3
 		GROUP BY date
@@ -2744,18 +2860,27 @@ func (r *usageLogRepository) GetUserUsageTrendByUserID(ctx context.Context, user
 
 // GetUserModelStats 获取指定用户的模型统计
 func (r *usageLogRepository) GetUserModelStats(ctx context.Context, userID int64, startTime, endTime time.Time) (results []ModelStat, err error) {
+	presentationFactor := usagePresentationFactorSQL("", true)
+	inputTokensExpr := usagePresentationTokenSQL("input_tokens", presentationFactor)
+	outputTokensExpr := usagePresentationOutputTokensSQL("", presentationFactor)
+	cacheCreationTokensExpr := usagePresentationTokenSQL("cache_creation_tokens", presentationFactor)
+	cacheReadTokensExpr := usagePresentationTokenSQL("cache_read_tokens", presentationFactor)
+	totalTokensExpr := usagePresentationTotalTokensSQL("", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
+	actualCostExpr := usagePresentationCostSQL("actual_cost", presentationFactor)
+	accountCostExpr := usagePresentationCostSQL("COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)", presentationFactor)
 	query := `
 		SELECT
 			model,
 			COUNT(*) as requests,
-			COALESCE(SUM(input_tokens), 0) as input_tokens,
-			COALESCE(SUM(output_tokens), 0) as output_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_tokens,
-			COALESCE(SUM(total_cost), 0) as cost,
-			COALESCE(SUM(actual_cost), 0) as actual_cost,
-			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as account_cost
+			COALESCE(SUM(` + inputTokensExpr + `), 0) as input_tokens,
+			COALESCE(SUM(` + outputTokensExpr + `), 0) as output_tokens,
+			COALESCE(SUM(` + cacheCreationTokensExpr + `), 0) as cache_creation_tokens,
+			COALESCE(SUM(` + cacheReadTokensExpr + `), 0) as cache_read_tokens,
+			COALESCE(SUM(` + totalTokensExpr + `), 0) as total_tokens,
+			COALESCE(SUM(` + totalCostExpr + `), 0) as cost,
+			COALESCE(SUM(` + actualCostExpr + `), 0) as actual_cost,
+			COALESCE(SUM(` + accountCostExpr + `), 0) as account_cost
 		FROM usage_logs
 		WHERE user_id = $1 AND created_at >= $2 AND created_at < $3
 		GROUP BY model
@@ -2882,6 +3007,10 @@ func normalizePositiveInt64IDs(ids []int64) []int64 {
 // GetBatchUserUsageStats gets today and total actual_cost for multiple users within a time range.
 // If startTime is zero, defaults to 30 days ago.
 func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs []int64, startTime, endTime time.Time) (map[int64]*BatchUserUsageStats, error) {
+	return r.GetBatchUserUsageStatsForView(ctx, userIDs, startTime, endTime, false)
+}
+
+func (r *usageLogRepository) GetBatchUserUsageStatsForView(ctx context.Context, userIDs []int64, startTime, endTime time.Time, usePresentation bool) (map[int64]*BatchUserUsageStats, error) {
 	result := make(map[int64]*BatchUserUsageStats)
 	normalizedUserIDs := normalizePositiveInt64IDs(userIDs)
 	if len(normalizedUserIDs) == 0 {
@@ -2902,12 +3031,14 @@ func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs
 
 	// GROUP BY (user_id, effective_platform) 一次查询同时得到总值与按平台拆分。
 	// 应用层把同一 user_id 的多行累加为总值，并把非空 platform 行收集到 ByPlatform。
+	presentationFactor := usagePresentationFactorSQL("ul.", usePresentation)
+	actualCostExpr := usagePresentationCostSQL("ul.actual_cost", presentationFactor)
 	query := `
 		SELECT
 			ul.user_id,
 			` + usageLogEffectivePlatformExpr + ` as platform,
-			COALESCE(SUM(ul.actual_cost) FILTER (WHERE ul.created_at >= $2 AND ul.created_at < $3), 0) as total_cost,
-			COALESCE(SUM(ul.actual_cost) FILTER (WHERE ul.created_at >= $4), 0) as today_cost
+			COALESCE(SUM(` + actualCostExpr + `) FILTER (WHERE ul.created_at >= $2 AND ul.created_at < $3), 0) as total_cost,
+			COALESCE(SUM(` + actualCostExpr + `) FILTER (WHERE ul.created_at >= $4), 0) as today_cost
 		FROM usage_logs ul
 		LEFT JOIN groups g ON g.id = ul.group_id
 		LEFT JOIN accounts a ON a.id = ul.account_id
@@ -2960,6 +3091,10 @@ type BatchAPIKeyUsageStats = usagestats.BatchAPIKeyUsageStats
 // GetBatchAPIKeyUsageStats gets today and total actual_cost for multiple API keys within a time range.
 // If startTime is zero, defaults to 30 days ago.
 func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKeyIDs []int64, startTime, endTime time.Time) (map[int64]*BatchAPIKeyUsageStats, error) {
+	return r.GetBatchAPIKeyUsageStatsForView(ctx, apiKeyIDs, startTime, endTime, false)
+}
+
+func (r *usageLogRepository) GetBatchAPIKeyUsageStatsForView(ctx context.Context, apiKeyIDs []int64, startTime, endTime time.Time, usePresentation bool) (map[int64]*BatchAPIKeyUsageStats, error) {
 	result := make(map[int64]*BatchAPIKeyUsageStats)
 	normalizedAPIKeyIDs := normalizePositiveInt64IDs(apiKeyIDs)
 	if len(normalizedAPIKeyIDs) == 0 {
@@ -2978,11 +3113,13 @@ func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKe
 		result[id] = &BatchAPIKeyUsageStats{APIKeyID: id}
 	}
 
+	presentationFactor := usagePresentationFactorSQL("", usePresentation)
+	actualCostExpr := usagePresentationCostSQL("actual_cost", presentationFactor)
 	query := `
 		SELECT
 			api_key_id,
-			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $2 AND created_at < $3), 0) as total_cost,
-			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $4), 0) as today_cost
+			COALESCE(SUM(` + actualCostExpr + `) FILTER (WHERE created_at >= $2 AND created_at < $3), 0) as total_cost,
+			COALESCE(SUM(` + actualCostExpr + `) FILTER (WHERE created_at >= $4), 0) as today_cost
 		FROM usage_logs
 		WHERE api_key_id = ANY($1)
 		  AND created_at >= LEAST($2, $4)
@@ -3018,7 +3155,11 @@ func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKe
 
 // GetUsageTrendWithFilters returns usage trend data with optional filters
 func (r *usageLogRepository) GetUsageTrendWithFilters(ctx context.Context, startTime, endTime time.Time, granularity string, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8) (results []TrendDataPoint, err error) {
-	if shouldUsePreaggregatedTrend(granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, billingType) {
+	return r.GetUsageTrendWithFiltersForView(ctx, startTime, endTime, granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, billingType, false)
+}
+
+func (r *usageLogRepository) GetUsageTrendWithFiltersForView(ctx context.Context, startTime, endTime time.Time, granularity string, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8, usePresentation bool) (results []TrendDataPoint, err error) {
+	if !usePresentation && shouldUsePreaggregatedTrend(granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, billingType) {
 		aggregated, aggregatedErr := r.getUsageTrendFromAggregates(ctx, startTime, endTime, granularity)
 		if aggregatedErr == nil && len(aggregated) > 0 {
 			return aggregated, nil
@@ -3026,18 +3167,26 @@ func (r *usageLogRepository) GetUsageTrendWithFilters(ctx context.Context, start
 	}
 
 	dateFormat := safeDateFormat(granularity)
+	presentationFactor := usagePresentationFactorSQL("", usePresentation)
+	inputTokensExpr := usagePresentationTokenSQL("input_tokens", presentationFactor)
+	outputTokensExpr := usagePresentationOutputTokensSQL("", presentationFactor)
+	cacheCreationTokensExpr := usagePresentationTokenSQL("cache_creation_tokens", presentationFactor)
+	cacheReadTokensExpr := usagePresentationTokenSQL("cache_read_tokens", presentationFactor)
+	totalTokensExpr := usagePresentationTotalTokensSQL("", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
+	actualCostExpr := usagePresentationCostSQL("actual_cost", presentationFactor)
 
 	query := fmt.Sprintf(`
 		SELECT
 			TO_CHAR(created_at, '%s') as date,
 			COUNT(*) as requests,
-			COALESCE(SUM(input_tokens), 0) as input_tokens,
-			COALESCE(SUM(output_tokens), 0) as output_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_tokens,
-			COALESCE(SUM(total_cost), 0) as cost,
-			COALESCE(SUM(actual_cost), 0) as actual_cost
+			COALESCE(SUM(`+inputTokensExpr+`), 0) as input_tokens,
+			COALESCE(SUM(`+outputTokensExpr+`), 0) as output_tokens,
+			COALESCE(SUM(`+cacheCreationTokensExpr+`), 0) as cache_creation_tokens,
+			COALESCE(SUM(`+cacheReadTokensExpr+`), 0) as cache_read_tokens,
+			COALESCE(SUM(`+totalTokensExpr+`), 0) as total_tokens,
+			COALESCE(SUM(`+totalCostExpr+`), 0) as cost,
+			COALESCE(SUM(`+actualCostExpr+`), 0) as actual_cost
 		FROM usage_logs
 		WHERE created_at >= $1 AND created_at < $2
 	`, dateFormat)
@@ -3163,39 +3312,46 @@ func (r *usageLogRepository) getUsageTrendFromAggregates(ctx context.Context, st
 
 // GetModelStatsWithFilters returns model statistics with optional filters
 func (r *usageLogRepository) GetModelStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8) (results []ModelStat, err error) {
-	return r.getModelStatsWithFiltersBySource(ctx, startTime, endTime, userID, apiKeyID, accountID, groupID, requestType, stream, billingType, usagestats.ModelSourceRequested)
+	return r.GetModelStatsWithFiltersBySourceForView(ctx, startTime, endTime, userID, apiKeyID, accountID, groupID, requestType, stream, billingType, usagestats.ModelSourceRequested, false)
 }
 
 // GetModelStatsWithFiltersBySource returns model statistics with optional filters and model source dimension.
 // source: requested | upstream | mapping.
 func (r *usageLogRepository) GetModelStatsWithFiltersBySource(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8, source string) (results []ModelStat, err error) {
-	return r.getModelStatsWithFiltersBySource(ctx, startTime, endTime, userID, apiKeyID, accountID, groupID, requestType, stream, billingType, source)
+	return r.GetModelStatsWithFiltersBySourceForView(ctx, startTime, endTime, userID, apiKeyID, accountID, groupID, requestType, stream, billingType, source, false)
 }
 
-func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8, source string) (results []ModelStat, err error) {
-	actualCostExpr := "COALESCE(SUM(actual_cost), 0) as actual_cost"
+func (r *usageLogRepository) GetModelStatsWithFiltersBySourceForView(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8, source string, usePresentation bool) (results []ModelStat, err error) {
+	presentationFactor := usagePresentationFactorSQL("", usePresentation)
+	inputTokensExpr := usagePresentationTokenSQL("input_tokens", presentationFactor)
+	outputTokensExpr := usagePresentationOutputTokensSQL("", presentationFactor)
+	cacheCreationTokensExpr := usagePresentationTokenSQL("cache_creation_tokens", presentationFactor)
+	cacheReadTokensExpr := usagePresentationTokenSQL("cache_read_tokens", presentationFactor)
+	totalTokensExpr := usagePresentationTotalTokensSQL("", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
+	actualCostExpr := fmt.Sprintf("COALESCE(SUM(%s), 0) as actual_cost", usagePresentationCostSQL("actual_cost", presentationFactor))
 	// 当仅按 account_id 聚合时，实际费用使用账号倍率（total_cost * account_rate_multiplier）。
 	if accountID > 0 && userID == 0 && apiKeyID == 0 {
-		actualCostExpr = "COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as actual_cost"
+		actualCostExpr = fmt.Sprintf("COALESCE(SUM(%s), 0) as actual_cost", usagePresentationCostSQL("COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)", presentationFactor))
 	}
-	accountCostExpr := "COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as account_cost"
+	accountCostExpr := fmt.Sprintf("COALESCE(SUM(%s), 0) as account_cost", usagePresentationCostSQL("COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)", presentationFactor))
 	modelExpr := resolveModelDimensionExpression(source)
 
 	query := fmt.Sprintf(`
 		SELECT
 			%s as model,
 			COUNT(*) as requests,
-			COALESCE(SUM(input_tokens), 0) as input_tokens,
-			COALESCE(SUM(output_tokens), 0) as output_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_tokens,
-			COALESCE(SUM(total_cost), 0) as cost,
+			COALESCE(SUM(%s), 0) as input_tokens,
+			COALESCE(SUM(%s), 0) as output_tokens,
+			COALESCE(SUM(%s), 0) as cache_creation_tokens,
+			COALESCE(SUM(%s), 0) as cache_read_tokens,
+			COALESCE(SUM(%s), 0) as total_tokens,
+			COALESCE(SUM(%s), 0) as cost,
 			%s,
 			%s
 		FROM usage_logs
 		WHERE created_at >= $1 AND created_at < $2
-	`, modelExpr, actualCostExpr, accountCostExpr)
+	`, modelExpr, inputTokensExpr, outputTokensExpr, cacheCreationTokensExpr, cacheReadTokensExpr, totalTokensExpr, totalCostExpr, actualCostExpr, accountCostExpr)
 
 	args := []any{startTime, endTime}
 	if userID > 0 {
@@ -3243,15 +3399,24 @@ func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Contex
 
 // GetGroupStatsWithFilters returns group usage statistics with optional filters
 func (r *usageLogRepository) GetGroupStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8) (results []usagestats.GroupStat, err error) {
+	return r.GetGroupStatsWithFiltersForView(ctx, startTime, endTime, userID, apiKeyID, accountID, groupID, requestType, stream, billingType, false)
+}
+
+func (r *usageLogRepository) GetGroupStatsWithFiltersForView(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8, usePresentation bool) (results []usagestats.GroupStat, err error) {
+	presentationFactor := usagePresentationFactorSQL("ul.", usePresentation)
+	totalTokensExpr := usagePresentationTotalTokensSQL("ul.", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("ul.total_cost", presentationFactor)
+	actualCostExpr := usagePresentationCostSQL("ul.actual_cost", presentationFactor)
+	accountCostExpr := usagePresentationCostSQL("COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1)", presentationFactor)
 	query := `
 		SELECT
 			COALESCE(ul.group_id, 0) as group_id,
 			COALESCE(g.name, '') as group_name,
 			COUNT(*) as requests,
-			COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens), 0) as total_tokens,
-			COALESCE(SUM(ul.total_cost), 0) as cost,
-			COALESCE(SUM(ul.actual_cost), 0) as actual_cost,
-			COALESCE(SUM(COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1)), 0) as account_cost
+			COALESCE(SUM(` + totalTokensExpr + `), 0) as total_tokens,
+			COALESCE(SUM(` + totalCostExpr + `), 0) as cost,
+			COALESCE(SUM(` + actualCostExpr + `), 0) as actual_cost,
+			COALESCE(SUM(` + accountCostExpr + `), 0) as account_cost
 		FROM usage_logs ul
 		LEFT JOIN groups g ON g.id = ul.group_id
 		WHERE ul.created_at >= $1 AND ul.created_at < $2
@@ -3316,15 +3481,24 @@ func (r *usageLogRepository) GetGroupStatsWithFilters(ctx context.Context, start
 
 // GetUserBreakdownStats returns per-user usage breakdown within a specific dimension.
 func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTime, endTime time.Time, dim usagestats.UserBreakdownDimension, limit int) (results []usagestats.UserBreakdownItem, err error) {
+	return r.GetUserBreakdownStatsForView(ctx, startTime, endTime, dim, limit, false)
+}
+
+func (r *usageLogRepository) GetUserBreakdownStatsForView(ctx context.Context, startTime, endTime time.Time, dim usagestats.UserBreakdownDimension, limit int, usePresentation bool) (results []usagestats.UserBreakdownItem, err error) {
+	presentationFactor := usagePresentationFactorSQL("ul.", usePresentation)
+	totalTokensExpr := usagePresentationTotalTokensSQL("ul.", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("ul.total_cost", presentationFactor)
+	actualCostExpr := usagePresentationCostSQL("ul.actual_cost", presentationFactor)
+	accountCostExpr := usagePresentationCostSQL("COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1)", presentationFactor)
 	query := `
 		SELECT
 			COALESCE(ul.user_id, 0) as user_id,
 			COALESCE(u.email, '') as email,
 			COUNT(*) as requests,
-			COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens), 0) as total_tokens,
-			COALESCE(SUM(ul.total_cost), 0) as cost,
-			COALESCE(SUM(ul.actual_cost), 0) as actual_cost,
-			COALESCE(SUM(COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1)), 0) as account_cost
+			COALESCE(SUM(` + totalTokensExpr + `), 0) as total_tokens,
+			COALESCE(SUM(` + totalCostExpr + `), 0) as cost,
+			COALESCE(SUM(` + actualCostExpr + `), 0) as actual_cost,
+			COALESCE(SUM(` + accountCostExpr + `), 0) as account_cost
 		FROM usage_logs ul
 		LEFT JOIN users u ON u.id = ul.user_id
 		WHERE ul.created_at >= $1 AND ul.created_at < $2
@@ -3413,15 +3587,23 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 // When usage_logs exceeds ~1M rows, consider adding a short-lived cache (30s)
 // or a materialized view / pre-aggregation table for cumulative costs.
 func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, error) {
-	query := `
+	return r.GetAllGroupUsageSummaryForView(ctx, todayStart, false)
+}
+
+// GetAllGroupUsageSummaryForView returns today's and cumulative group costs for the requested usage view.
+func (r *usageLogRepository) GetAllGroupUsageSummaryForView(ctx context.Context, todayStart time.Time, usePresentation bool) ([]usagestats.GroupUsageSummary, error) {
+	presentationFactor := usagePresentationFactorSQL("ul.", usePresentation)
+	actualCostExpr := usagePresentationCostSQL("ul.actual_cost", presentationFactor)
+
+	query := fmt.Sprintf(`
 		SELECT
 			g.id AS group_id,
-			COALESCE(SUM(ul.actual_cost), 0) AS total_cost,
-			COALESCE(SUM(CASE WHEN ul.created_at >= $1 THEN ul.actual_cost ELSE 0 END), 0) AS today_cost
+			COALESCE(SUM(%s), 0) AS total_cost,
+			COALESCE(SUM(CASE WHEN ul.created_at >= $1 THEN %s ELSE 0 END), 0) AS today_cost
 		FROM groups g
 		LEFT JOIN usage_logs ul ON ul.group_id = g.id
 		GROUP BY g.id
-	`
+	`, actualCostExpr, actualCostExpr)
 
 	rows, err := r.sql.QueryContext(ctx, query, todayStart)
 	if err != nil {
@@ -3539,20 +3721,38 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		args = append(args, *filters.EndTime)
 	}
 
+	presentationFactor := usagePresentationFactorSQL("", filters.UsePresentationMultiplier)
+	inputTokensExpr := usagePresentationTokenSQL("input_tokens", presentationFactor)
+	outputTokensExpr := usagePresentationOutputTokensSQL("", presentationFactor)
+	cacheCreationTokensExpr := usagePresentationTokenSQL("cache_creation_tokens", presentationFactor)
+	cacheReadTokensExpr := usagePresentationTokenSQL("cache_read_tokens", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
+	actualCostExpr := usagePresentationCostSQL("actual_cost", presentationFactor)
+	accountCostExpr := usagePresentationCostSQL("COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)", presentationFactor)
+
 	query := fmt.Sprintf(`
 		SELECT
 			COUNT(*) as total_requests,
-			COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-			COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
-			COALESCE(SUM(total_cost), 0) as total_cost,
-				COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-				COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as total_account_cost,
+			COALESCE(SUM(%s), 0) as total_input_tokens,
+			COALESCE(SUM(%s), 0) as total_output_tokens,
+			COALESCE(SUM(%s + %s), 0) as total_cache_tokens,
+			COALESCE(SUM(%s), 0) as total_cost,
+				COALESCE(SUM(%s), 0) as total_actual_cost,
+				COALESCE(SUM(%s), 0) as total_account_cost,
 				COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
 				COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
 			FROM usage_logs
 			%s
-		`, buildWhere(conditions))
+		`,
+		inputTokensExpr,
+		outputTokensExpr,
+		cacheCreationTokensExpr,
+		cacheReadTokensExpr,
+		totalCostExpr,
+		actualCostExpr,
+		accountCostExpr,
+		buildWhere(conditions),
+	)
 
 	stats := &UsageStats{}
 	var totalAccountCost float64
@@ -3585,7 +3785,7 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 	}
 	// endpoint 明细:best-effort(失败 log + 返空),不致命。
 	runEndpoints := func(c context.Context) {
-		res, err := r.GetEndpointStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
+		res, err := r.getEndpointStatsByColumnWithFilters(c, "inbound_endpoint", start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType, filters.UsePresentationMultiplier)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				logger.LegacyPrintf("repository.usage_log", "GetEndpointStatsWithFilters failed in GetStatsWithFilters: %v", err)
@@ -3595,7 +3795,7 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		endpoints = res
 	}
 	runUpstream := func(c context.Context) {
-		res, err := r.GetUpstreamEndpointStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
+		res, err := r.getEndpointStatsByColumnWithFilters(c, "upstream_endpoint", start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType, filters.UsePresentationMultiplier)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				logger.LegacyPrintf("repository.usage_log", "GetUpstreamEndpointStatsWithFilters failed in GetStatsWithFilters: %v", err)
@@ -3605,7 +3805,7 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		upstreamEndpoints = res
 	}
 	runPaths := func(c context.Context) {
-		res, err := r.getEndpointPathStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType)
+		res, err := r.getEndpointPathStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType, filters.UsePresentationMultiplier)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				logger.LegacyPrintf("repository.usage_log", "getEndpointPathStatsWithFilters failed in GetStatsWithFilters: %v", err)
@@ -3656,22 +3856,29 @@ type AccountUsageStatsResponse = usagestats.AccountUsageStatsResponse
 // EndpointStat represents endpoint usage statistics row.
 type EndpointStat = usagestats.EndpointStat
 
-func (r *usageLogRepository) getEndpointStatsByColumnWithFilters(ctx context.Context, endpointColumn string, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8) (results []EndpointStat, err error) {
+func (r *usageLogRepository) getEndpointStatsByColumnWithFilters(ctx context.Context, endpointColumn string, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8, usePresentationMultiplier bool) (results []EndpointStat, err error) {
 	actualCostExpr := "COALESCE(SUM(actual_cost), 0) as actual_cost"
+	presentationFactor := usagePresentationFactorSQL("", usePresentationMultiplier)
+	totalTokensExpr := usagePresentationTotalTokensSQL("", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
+	accountCostExpr := usagePresentationCostSQL("COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)", presentationFactor)
+	if usePresentationMultiplier {
+		actualCostExpr = fmt.Sprintf("COALESCE(SUM(actual_cost * %s), 0) as actual_cost", presentationFactor)
+	}
 	if accountID > 0 && userID == 0 && apiKeyID == 0 {
-		actualCostExpr = "COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as actual_cost"
+		actualCostExpr = fmt.Sprintf("COALESCE(SUM(%s), 0) as actual_cost", accountCostExpr)
 	}
 
 	query := fmt.Sprintf(`
 		SELECT
 			COALESCE(NULLIF(TRIM(%s), ''), 'unknown') AS endpoint,
 			COUNT(*) AS requests,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) AS total_tokens,
-			COALESCE(SUM(total_cost), 0) as cost,
+			COALESCE(SUM(%s), 0) AS total_tokens,
+			COALESCE(SUM(%s), 0) as cost,
 			%s
 		FROM usage_logs
 		WHERE created_at >= $1 AND created_at < $2
-	`, endpointColumn, actualCostExpr)
+	`, endpointColumn, totalTokensExpr, totalCostExpr, actualCostExpr)
 
 	args := []any{startTime, endTime}
 	if userID > 0 {
@@ -3723,10 +3930,17 @@ func (r *usageLogRepository) getEndpointStatsByColumnWithFilters(ctx context.Con
 	return results, nil
 }
 
-func (r *usageLogRepository) getEndpointPathStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8) (results []EndpointStat, err error) {
+func (r *usageLogRepository) getEndpointPathStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8, usePresentationMultiplier bool) (results []EndpointStat, err error) {
 	actualCostExpr := "COALESCE(SUM(actual_cost), 0) as actual_cost"
+	presentationFactor := usagePresentationFactorSQL("", usePresentationMultiplier)
+	totalTokensExpr := usagePresentationTotalTokensSQL("", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
+	accountCostExpr := usagePresentationCostSQL("COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)", presentationFactor)
+	if usePresentationMultiplier {
+		actualCostExpr = fmt.Sprintf("COALESCE(SUM(actual_cost * %s), 0) as actual_cost", presentationFactor)
+	}
 	if accountID > 0 && userID == 0 && apiKeyID == 0 {
-		actualCostExpr = "COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as actual_cost"
+		actualCostExpr = fmt.Sprintf("COALESCE(SUM(%s), 0) as actual_cost", accountCostExpr)
 	}
 
 	query := fmt.Sprintf(`
@@ -3737,12 +3951,12 @@ func (r *usageLogRepository) getEndpointPathStatsWithFilters(ctx context.Context
 				COALESCE(NULLIF(TRIM(upstream_endpoint), ''), 'unknown')
 			) AS endpoint,
 			COUNT(*) AS requests,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) AS total_tokens,
-			COALESCE(SUM(total_cost), 0) as cost,
+			COALESCE(SUM(%s), 0) AS total_tokens,
+			COALESCE(SUM(%s), 0) as cost,
 			%s
 		FROM usage_logs
 		WHERE created_at >= $1 AND created_at < $2
-	`, actualCostExpr)
+	`, totalTokensExpr, totalCostExpr, actualCostExpr)
 
 	args := []any{startTime, endTime}
 	if userID > 0 {
@@ -3796,34 +4010,44 @@ func (r *usageLogRepository) getEndpointPathStatsWithFilters(ctx context.Context
 
 // GetEndpointStatsWithFilters returns inbound endpoint statistics with optional filters.
 func (r *usageLogRepository) GetEndpointStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8) ([]EndpointStat, error) {
-	return r.getEndpointStatsByColumnWithFilters(ctx, "inbound_endpoint", startTime, endTime, userID, apiKeyID, accountID, groupID, model, requestType, stream, billingType)
+	return r.getEndpointStatsByColumnWithFilters(ctx, "inbound_endpoint", startTime, endTime, userID, apiKeyID, accountID, groupID, model, requestType, stream, billingType, false)
 }
 
 // GetUpstreamEndpointStatsWithFilters returns upstream endpoint statistics with optional filters.
 func (r *usageLogRepository) GetUpstreamEndpointStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8) ([]EndpointStat, error) {
-	return r.getEndpointStatsByColumnWithFilters(ctx, "upstream_endpoint", startTime, endTime, userID, apiKeyID, accountID, groupID, model, requestType, stream, billingType)
+	return r.getEndpointStatsByColumnWithFilters(ctx, "upstream_endpoint", startTime, endTime, userID, apiKeyID, accountID, groupID, model, requestType, stream, billingType, false)
 }
 
 // GetAccountUsageStats returns comprehensive usage statistics for an account over a time range
-func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID int64, startTime, endTime time.Time) (resp *AccountUsageStatsResponse, err error) {
+func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID int64, startTime, endTime time.Time) (*AccountUsageStatsResponse, error) {
+	return r.GetAccountUsageStatsForView(ctx, accountID, startTime, endTime, false)
+}
+
+func (r *usageLogRepository) GetAccountUsageStatsForView(ctx context.Context, accountID int64, startTime, endTime time.Time, usePresentation bool) (resp *AccountUsageStatsResponse, err error) {
 	daysCount := int(endTime.Sub(startTime).Hours()/24) + 1
 	if daysCount <= 0 {
 		daysCount = 30
 	}
 
-	query := `
+	presentationFactor := usagePresentationFactorSQL("", usePresentation)
+	totalTokensExpr := usagePresentationTotalTokensSQL("", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
+	accountCostExpr := usagePresentationCostSQL("COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)", presentationFactor)
+	userCostExpr := usagePresentationCostSQL("actual_cost", presentationFactor)
+
+	query := fmt.Sprintf(`
 		SELECT
 			TO_CHAR(created_at, 'YYYY-MM-DD') as date,
 			COUNT(*) as requests,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
-			COALESCE(SUM(total_cost), 0) as cost,
-			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as actual_cost,
-			COALESCE(SUM(actual_cost), 0) as user_cost
+			COALESCE(SUM(%s), 0) as tokens,
+			COALESCE(SUM(%s), 0) as cost,
+			COALESCE(SUM(%s), 0) as actual_cost,
+			COALESCE(SUM(%s), 0) as user_cost
 		FROM usage_logs
 		WHERE account_id = $1 AND created_at >= $2 AND created_at < $3
 		GROUP BY date
 		ORDER BY date ASC
-	`
+	`, totalTokensExpr, totalCostExpr, accountCostExpr, userCostExpr)
 
 	rows, err := r.sql.QueryContext(ctx, query, accountID, startTime, endTime)
 	if err != nil {
@@ -3962,16 +4186,16 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		}
 	}
 
-	models, err := r.GetModelStatsWithFilters(ctx, startTime, endTime, 0, 0, accountID, 0, nil, nil, nil)
+	models, err := r.GetModelStatsWithFiltersBySourceForView(ctx, startTime, endTime, 0, 0, accountID, 0, nil, nil, nil, usagestats.ModelSourceRequested, usePresentation)
 	if err != nil {
 		models = []ModelStat{}
 	}
-	endpoints, endpointErr := r.GetEndpointStatsWithFilters(ctx, startTime, endTime, 0, 0, accountID, 0, "", nil, nil, nil)
+	endpoints, endpointErr := r.getEndpointStatsByColumnWithFilters(ctx, "inbound_endpoint", startTime, endTime, 0, 0, accountID, 0, "", nil, nil, nil, usePresentation)
 	if endpointErr != nil {
 		logger.LegacyPrintf("repository.usage_log", "GetEndpointStatsWithFilters failed in GetAccountUsageStats: %v", endpointErr)
 		endpoints = []EndpointStat{}
 	}
-	upstreamEndpoints, upstreamEndpointErr := r.GetUpstreamEndpointStatsWithFilters(ctx, startTime, endTime, 0, 0, accountID, 0, "", nil, nil, nil)
+	upstreamEndpoints, upstreamEndpointErr := r.getEndpointStatsByColumnWithFilters(ctx, "upstream_endpoint", startTime, endTime, 0, 0, accountID, 0, "", nil, nil, nil, usePresentation)
 	if upstreamEndpointErr != nil {
 		logger.LegacyPrintf("repository.usage_log", "GetUpstreamEndpointStatsWithFilters failed in GetAccountUsageStats: %v", upstreamEndpointErr)
 		upstreamEndpoints = []EndpointStat{}
@@ -4251,57 +4475,58 @@ func (r *usageLogRepository) loadSubscriptions(ctx context.Context, ids []int64)
 
 func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, error) {
 	var (
-		id                    int64
-		userID                int64
-		apiKeyID              int64
-		accountID             int64
-		requestID             sql.NullString
-		model                 string
-		requestedModel        sql.NullString
-		upstreamModel         sql.NullString
-		groupID               sql.NullInt64
-		subscriptionID        sql.NullInt64
-		inputTokens           int
-		outputTokens          int
-		cacheCreationTokens   int
-		cacheReadTokens       int
-		cacheCreation5m       int
-		cacheCreation1h       int
-		imageOutputTokens     int
-		imageOutputCost       float64
-		inputCost             float64
-		outputCost            float64
-		cacheCreationCost     float64
-		cacheReadCost         float64
-		totalCost             float64
-		actualCost            float64
-		rateMultiplier        float64
-		accountRateMultiplier sql.NullFloat64
-		billingType           int16
-		requestTypeRaw        int16
-		stream                bool
-		openaiWSMode          bool
-		durationMs            sql.NullInt64
-		firstTokenMs          sql.NullInt64
-		userAgent             sql.NullString
-		ipAddress             sql.NullString
-		imageCount            int
-		imageSize             sql.NullString
-		imageInputSize        sql.NullString
-		imageOutputSize       sql.NullString
-		imageSizeSource       sql.NullString
-		imageSizeBreakdown    sql.NullString
-		serviceTier           sql.NullString
-		reasoningEffort       sql.NullString
-		inboundEndpoint       sql.NullString
-		upstreamEndpoint      sql.NullString
-		cacheTTLOverridden    bool
-		channelID             sql.NullInt64
-		modelMappingChain     sql.NullString
-		billingTier           sql.NullString
-		billingMode           sql.NullString
-		accountStatsCost      sql.NullFloat64
-		createdAt             time.Time
+		id                     int64
+		userID                 int64
+		apiKeyID               int64
+		accountID              int64
+		requestID              sql.NullString
+		model                  string
+		requestedModel         sql.NullString
+		upstreamModel          sql.NullString
+		groupID                sql.NullInt64
+		subscriptionID         sql.NullInt64
+		inputTokens            int
+		outputTokens           int
+		cacheCreationTokens    int
+		cacheReadTokens        int
+		cacheCreation5m        int
+		cacheCreation1h        int
+		imageOutputTokens      int
+		imageOutputCost        float64
+		inputCost              float64
+		outputCost             float64
+		cacheCreationCost      float64
+		cacheReadCost          float64
+		totalCost              float64
+		actualCost             float64
+		rateMultiplier         float64
+		presentationMultiplier float64
+		accountRateMultiplier  sql.NullFloat64
+		billingType            int16
+		requestTypeRaw         int16
+		stream                 bool
+		openaiWSMode           bool
+		durationMs             sql.NullInt64
+		firstTokenMs           sql.NullInt64
+		userAgent              sql.NullString
+		ipAddress              sql.NullString
+		imageCount             int
+		imageSize              sql.NullString
+		imageInputSize         sql.NullString
+		imageOutputSize        sql.NullString
+		imageSizeSource        sql.NullString
+		imageSizeBreakdown     sql.NullString
+		serviceTier            sql.NullString
+		reasoningEffort        sql.NullString
+		inboundEndpoint        sql.NullString
+		upstreamEndpoint       sql.NullString
+		cacheTTLOverridden     bool
+		channelID              sql.NullInt64
+		modelMappingChain      sql.NullString
+		billingTier            sql.NullString
+		billingMode            sql.NullString
+		accountStatsCost       sql.NullFloat64
+		createdAt              time.Time
 	)
 
 	if err := scanner.Scan(
@@ -4330,6 +4555,7 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		&totalCost,
 		&actualCost,
 		&rateMultiplier,
+		&presentationMultiplier,
 		&accountRateMultiplier,
 		&billingType,
 		&requestTypeRaw,
@@ -4361,33 +4587,34 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 	}
 
 	log := &service.UsageLog{
-		ID:                    id,
-		UserID:                userID,
-		APIKeyID:              apiKeyID,
-		AccountID:             accountID,
-		Model:                 model,
-		RequestedModel:        coalesceTrimmedString(requestedModel, model),
-		InputTokens:           inputTokens,
-		OutputTokens:          outputTokens,
-		CacheCreationTokens:   cacheCreationTokens,
-		CacheReadTokens:       cacheReadTokens,
-		CacheCreation5mTokens: cacheCreation5m,
-		CacheCreation1hTokens: cacheCreation1h,
-		ImageOutputTokens:     imageOutputTokens,
-		ImageOutputCost:       imageOutputCost,
-		InputCost:             inputCost,
-		OutputCost:            outputCost,
-		CacheCreationCost:     cacheCreationCost,
-		CacheReadCost:         cacheReadCost,
-		TotalCost:             totalCost,
-		ActualCost:            actualCost,
-		RateMultiplier:        rateMultiplier,
-		AccountRateMultiplier: nullFloat64Ptr(accountRateMultiplier),
-		BillingType:           int8(billingType),
-		RequestType:           service.RequestTypeFromInt16(requestTypeRaw),
-		ImageCount:            imageCount,
-		CacheTTLOverridden:    cacheTTLOverridden,
-		CreatedAt:             createdAt,
+		ID:                     id,
+		UserID:                 userID,
+		APIKeyID:               apiKeyID,
+		AccountID:              accountID,
+		Model:                  model,
+		RequestedModel:         coalesceTrimmedString(requestedModel, model),
+		InputTokens:            inputTokens,
+		OutputTokens:           outputTokens,
+		CacheCreationTokens:    cacheCreationTokens,
+		CacheReadTokens:        cacheReadTokens,
+		CacheCreation5mTokens:  cacheCreation5m,
+		CacheCreation1hTokens:  cacheCreation1h,
+		ImageOutputTokens:      imageOutputTokens,
+		ImageOutputCost:        imageOutputCost,
+		InputCost:              inputCost,
+		OutputCost:             outputCost,
+		CacheCreationCost:      cacheCreationCost,
+		CacheReadCost:          cacheReadCost,
+		TotalCost:              totalCost,
+		ActualCost:             actualCost,
+		RateMultiplier:         rateMultiplier,
+		PresentationMultiplier: presentationMultiplier,
+		AccountRateMultiplier:  nullFloat64Ptr(accountRateMultiplier),
+		BillingType:            int8(billingType),
+		RequestType:            service.RequestTypeFromInt16(requestTypeRaw),
+		ImageCount:             imageCount,
+		CacheTTLOverridden:     cacheTTLOverridden,
+		CreatedAt:              createdAt,
 	}
 	// 先回填 legacy 字段，再基于 legacy + request_type 计算最终请求类型，保证历史数据兼容。
 	log.Stream = stream
@@ -4524,6 +4751,40 @@ func buildWhere(conditions []string) string {
 		return ""
 	}
 	return "WHERE " + strings.Join(conditions, " AND ")
+}
+
+func usagePresentationFactorSQL(prefix string, usePresentation bool) string {
+	if !usePresentation {
+		return "1"
+	}
+	return fmt.Sprintf("COALESCE(NULLIF(%spresentation_multiplier, 0), 1)", prefix)
+}
+
+func usagePresentationTokenSQL(column, factor string) string {
+	if factor == "1" {
+		return column
+	}
+	return fmt.Sprintf("FLOOR(%s * %s)::BIGINT", column, factor)
+}
+
+func usagePresentationOutputTokensSQL(prefix, factor string) string {
+	return usagePresentationTokenSQL(fmt.Sprintf("GREATEST(%soutput_tokens, %simage_output_tokens)", prefix, prefix), factor)
+}
+
+func usagePresentationCostSQL(expr, factor string) string {
+	if factor == "1" {
+		return expr
+	}
+	return fmt.Sprintf("%s * %s", expr, factor)
+}
+
+func usagePresentationTotalTokensSQL(prefix, factor string) string {
+	return strings.Join([]string{
+		usagePresentationTokenSQL(prefix+"input_tokens", factor),
+		usagePresentationOutputTokensSQL(prefix, factor),
+		usagePresentationTokenSQL(prefix+"cache_creation_tokens", factor),
+		usagePresentationTokenSQL(prefix+"cache_read_tokens", factor),
+	}, " + ")
 }
 
 func appendRequestTypeOrStreamWhereCondition(conditions []string, args []any, requestType *int16, stream *bool) ([]string, []any) {

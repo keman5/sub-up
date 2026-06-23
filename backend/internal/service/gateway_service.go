@@ -5465,7 +5465,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	var firstTokenMs *int
 	var clientDisconnect bool
 	if reqStream {
-		streamResult, err := s.handleStreamingResponse(ctx, resp, c, account, startTime, originalModel, reqModel, shouldMimicClaudeCode)
+		streamResult, err := s.handleStreamingResponse(ctx, resp, c, account, parsed.Group, startTime, originalModel, reqModel, shouldMimicClaudeCode)
 		if err != nil {
 			var sseErr *sseStreamErrorEventError
 			if errors.As(err, &sseErr) {
@@ -5515,7 +5515,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		firstTokenMs = streamResult.firstTokenMs
 		clientDisconnect = streamResult.clientDisconnect
 	} else {
-		usage, err = s.handleNonStreamingResponse(ctx, resp, c, account, originalModel, reqModel)
+		usage, err = s.handleNonStreamingResponse(ctx, resp, c, account, parsed.Group, originalModel, reqModel)
 		if err != nil {
 			return nil, err
 		}
@@ -5540,6 +5540,13 @@ type anthropicPassthroughForwardInput struct {
 	OriginalModel string
 	RequestStream bool
 	StartTime     time.Time
+}
+
+func parsedRequestGroup(parsed *ParsedRequest) *Group {
+	if parsed == nil {
+		return nil
+	}
+	return parsed.Group
 }
 
 func (s *GatewayService) forwardAnthropicAPIKeyPassthrough(
@@ -5767,7 +5774,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	var firstTokenMs *int
 	var clientDisconnect bool
 	if input.RequestStream {
-		streamResult, err := s.handleStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, account, input.StartTime, input.RequestModel)
+		streamResult, err := s.handleStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, account, parsedRequestGroup(input.Parsed), input.StartTime, input.RequestModel)
 		if err != nil {
 			return nil, err
 		}
@@ -5864,6 +5871,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	resp *http.Response,
 	c *gin.Context,
 	account *Account,
+	group *Group,
 	startTime time.Time,
 	model string,
 ) (*streamingResult, error) {
@@ -6006,6 +6014,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			}
 
 			line := ev.line
+			clientLine := line
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
 				if anthropicStreamEventIsTerminal("", trimmed) {
@@ -6014,6 +6023,26 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
+				}
+				if trimmed != "" && trimmed != "[DONE]" {
+					multiplier := ResolvePresentationMultiplierWithImageOutput(
+						group,
+						claudeUsageInputTokensFromBytes([]byte(data)),
+						claudeUsageOutputTokensFromBytes([]byte(data)),
+						claudeUsageCacheCreationTokensFromBytes([]byte(data)),
+						claudeUsageCacheReadTokensFromBytes([]byte(data)),
+						claudeUsageImageOutputTokensFromBytes([]byte(data)),
+					)
+					var event map[string]any
+					if err := json.Unmarshal([]byte(data), &event); err == nil {
+						if patch := s.extractSSEUsagePatch(event); patch != nil {
+							multiplier = resolveClaudeUsagePatchPresentationMultiplier(group, usage, patch)
+						}
+					}
+					clientData := rewriteClaudeUsageForPresentation([]byte(data), multiplier)
+					if !bytes.Equal(clientData, []byte(data)) {
+						clientLine = "data: " + string(clientData)
+					}
 				}
 				s.parseSSEUsagePassthrough(data, usage)
 			} else {
@@ -6024,7 +6053,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			}
 
 			if !clientDisconnected {
-				restored := string(reverseToolNamesIfPresent(c, []byte(line)))
+				restored := string(reverseToolNamesIfPresent(c, []byte(clientLine)))
 				if _, err := io.WriteString(w, restored); err != nil {
 					clientDisconnected = true
 					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
@@ -6100,6 +6129,7 @@ func (s *GatewayService) parseSSEUsagePassthrough(data string, usage *ClaudeUsag
 			usage.InputTokens = int(msgUsage.Get("input_tokens").Int())
 			usage.CacheCreationInputTokens = int(msgUsage.Get("cache_creation_input_tokens").Int())
 			usage.CacheReadInputTokens = int(msgUsage.Get("cache_read_input_tokens").Int())
+			usage.ImageOutputTokens = int(msgUsage.Get("image_output_tokens").Int())
 
 			// 保持与通用解析一致：message_start 允许覆盖 5m/1h 明细（包括 0）。
 			cc5m := msgUsage.Get("cache_creation.ephemeral_5m_input_tokens")
@@ -6117,6 +6147,9 @@ func (s *GatewayService) parseSSEUsagePassthrough(data string, usage *ClaudeUsag
 			}
 			if v := deltaUsage.Get("output_tokens").Int(); v > 0 {
 				usage.OutputTokens = int(v)
+			}
+			if v := deltaUsage.Get("image_output_tokens").Int(); v > 0 {
+				usage.ImageOutputTokens = int(v)
 			}
 			if v := deltaUsage.Get("cache_creation_input_tokens").Int(); v > 0 {
 				usage.CacheCreationInputTokens = int(v)
@@ -6174,6 +6207,7 @@ func parseClaudeUsageFromResponseBody(body []byte) *ClaudeUsage {
 	usage.OutputTokens = int(usageNode.Get("output_tokens").Int())
 	usage.CacheCreationInputTokens = int(usageNode.Get("cache_creation_input_tokens").Int())
 	usage.CacheReadInputTokens = int(usageNode.Get("cache_read_input_tokens").Int())
+	usage.ImageOutputTokens = int(usageNode.Get("image_output_tokens").Int())
 
 	cc5m := usageNode.Get("cache_creation.ephemeral_5m_input_tokens").Int()
 	cc1h := usageNode.Get("cache_creation.ephemeral_1h_input_tokens").Int()
@@ -6190,6 +6224,82 @@ func parseClaudeUsageFromResponseBody(body []byte) *ClaudeUsage {
 		}
 	}
 	return usage
+}
+
+func claudeUsageIntFromBytes(data []byte, paths ...string) int {
+	for _, path := range paths {
+		if v := int(gjson.GetBytes(data, path).Int()); v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+func claudeUsageInputTokensFromBytes(data []byte) int {
+	return claudeUsageIntFromBytes(data, "usage.input_tokens", "message.usage.input_tokens")
+}
+
+func claudeUsageOutputTokensFromBytes(data []byte) int {
+	return claudeUsageIntFromBytes(data, "usage.output_tokens", "message.usage.output_tokens")
+}
+
+func claudeUsageCacheCreationTokensFromBytes(data []byte) int {
+	if v := claudeUsageIntFromBytes(data, "usage.cache_creation_input_tokens", "message.usage.cache_creation_input_tokens"); v > 0 {
+		return v
+	}
+	return int(gjson.GetBytes(data, "usage.cache_creation.ephemeral_5m_input_tokens").Int()) +
+		int(gjson.GetBytes(data, "usage.cache_creation.ephemeral_1h_input_tokens").Int()) +
+		int(gjson.GetBytes(data, "message.usage.cache_creation.ephemeral_5m_input_tokens").Int()) +
+		int(gjson.GetBytes(data, "message.usage.cache_creation.ephemeral_1h_input_tokens").Int())
+}
+
+func claudeUsageCacheReadTokensFromBytes(data []byte) int {
+	return claudeUsageIntFromBytes(data,
+		"usage.cache_read_input_tokens",
+		"usage.cached_tokens",
+		"message.usage.cache_read_input_tokens",
+		"message.usage.cached_tokens",
+	)
+}
+
+func claudeUsageImageOutputTokensFromBytes(data []byte) int {
+	return claudeUsageIntFromBytes(data, "usage.image_output_tokens", "message.usage.image_output_tokens")
+}
+
+func rewriteClaudeUsageForPresentation(body []byte, multiplier float64) []byte {
+	if multiplier <= 1 || len(body) == 0 || !gjson.ValidBytes(body) {
+		return body
+	}
+	usagePath := "usage"
+	if !gjson.GetBytes(body, usagePath).Exists() {
+		usagePath = "message.usage"
+		if !gjson.GetBytes(body, usagePath).Exists() {
+			return body
+		}
+	}
+	updated := body
+	for _, field := range []string{
+		"input_tokens",
+		"output_tokens",
+		"cache_creation_input_tokens",
+		"cache_read_input_tokens",
+		"cached_tokens",
+		"image_output_tokens",
+		"cache_creation.ephemeral_5m_input_tokens",
+		"cache_creation.ephemeral_1h_input_tokens",
+	} {
+		path := usagePath + "." + field
+		value := gjson.GetBytes(updated, path)
+		if !value.Exists() || value.Type != gjson.Number {
+			continue
+		}
+		next, err := sjson.SetBytes(updated, path, multiplyInt(int(value.Int()), multiplier))
+		if err != nil {
+			return body
+		}
+		updated = next
+	}
+	return updated
 }
 
 func (s *GatewayService) invalidNonStreamingJSONFailoverError(
@@ -8081,7 +8191,7 @@ type streamingResult struct {
 	clientDisconnect bool // 客户端是否在流式传输过程中断开
 }
 
-func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string, mimicClaudeCode bool) (*streamingResult, error) {
+func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, group *Group, startTime time.Time, originalModel, mappedModel string, mimicClaudeCode bool) (*streamingResult, error) {
 	// 更新5h窗口状态
 	s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 
@@ -8311,16 +8421,28 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		if anthropicStreamEventIsTerminal(eventName, dataLine) {
 			sawTerminalEvent = true
 		}
+		clientEvent := event
+		clientDataLine := dataLine
+		clientEventChanged := eventChanged
+		if usagePatch != nil {
+			clientBytes := rewriteClaudeUsageForPresentation([]byte(dataLine), resolveClaudeUsagePatchPresentationMultiplier(group, usage, usagePatch))
+			if !bytes.Equal(clientBytes, []byte(dataLine)) {
+				if err := json.Unmarshal(clientBytes, &clientEvent); err == nil {
+					clientDataLine = string(clientBytes)
+					clientEventChanged = true
+				}
+			}
+		}
 		if !eventChanged {
 			block := ""
 			if eventName != "" {
 				block = "event: " + eventName + "\n"
 			}
-			block += "data: " + dataLine + "\n\n"
+			block += "data: " + clientDataLine + "\n\n"
 			return []string{block}, dataLine, usagePatch, nil
 		}
 
-		newData, err := json.Marshal(event)
+		newData, err := json.Marshal(clientEvent)
 		if err != nil {
 			// 序列化失败，直接透传原始数据
 			block := ""
@@ -8336,7 +8458,10 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			block = "event: " + eventName + "\n"
 		}
 		block += "data: " + string(newData) + "\n\n"
-		return []string{block}, string(newData), usagePatch, nil
+		if !clientEventChanged {
+			return []string{block}, dataLine, usagePatch, nil
+		}
+		return []string{block}, dataLine, usagePatch, nil
 	}
 
 	for {
@@ -8491,6 +8616,8 @@ type sseUsagePatch struct {
 	hasInputTokens           bool
 	outputTokens             int
 	hasOutputTokens          bool
+	imageOutputTokens        int
+	hasImageOutputTokens     bool
 	cacheCreationInputTokens int
 	hasCacheCreationInput    bool
 	cacheReadInputTokens     int
@@ -8528,6 +8655,10 @@ func (s *GatewayService) extractSSEUsagePatch(event map[string]any) *sseUsagePat
 		if v, ok := parseSSEUsageInt(usageObj["cache_read_input_tokens"]); ok {
 			patch.cacheReadInputTokens = v
 		}
+		if v, ok := parseSSEUsageInt(usageObj["image_output_tokens"]); ok {
+			patch.imageOutputTokens = v
+			patch.hasImageOutputTokens = true
+		}
 		if cc, ok := usageObj["cache_creation"].(map[string]any); ok {
 			if v, exists := parseSSEUsageInt(cc["ephemeral_5m_input_tokens"]); exists {
 				patch.cacheCreation5mTokens = v
@@ -8563,6 +8694,10 @@ func (s *GatewayService) extractSSEUsagePatch(event map[string]any) *sseUsagePat
 			patch.cacheReadInputTokens = v
 			patch.hasCacheReadInput = true
 		}
+		if v, ok := parseSSEUsageInt(usageObj["image_output_tokens"]); ok && v > 0 {
+			patch.imageOutputTokens = v
+			patch.hasImageOutputTokens = true
+		}
 		if cc, ok := usageObj["cache_creation"].(map[string]any); ok {
 			if v, exists := parseSSEUsageInt(cc["ephemeral_5m_input_tokens"]); exists && v > 0 {
 				patch.cacheCreation5mTokens = v
@@ -8596,12 +8731,31 @@ func mergeSSEUsagePatch(usage *ClaudeUsage, patch *sseUsagePatch) {
 	if patch.hasOutputTokens {
 		usage.OutputTokens = patch.outputTokens
 	}
+	if patch.hasImageOutputTokens {
+		usage.ImageOutputTokens = patch.imageOutputTokens
+	}
 	if patch.hasCacheCreation5m {
 		usage.CacheCreation5mTokens = patch.cacheCreation5mTokens
 	}
 	if patch.hasCacheCreation1h {
 		usage.CacheCreation1hTokens = patch.cacheCreation1hTokens
 	}
+}
+
+func resolveClaudeUsagePatchPresentationMultiplier(group *Group, usage *ClaudeUsage, patch *sseUsagePatch) float64 {
+	if usage == nil || patch == nil {
+		return ResolvePresentationMultiplierWithImageOutput(group, 0, 0, 0, 0, 0)
+	}
+	projected := *usage
+	mergeSSEUsagePatch(&projected, patch)
+	return ResolvePresentationMultiplierWithImageOutput(
+		group,
+		projected.InputTokens,
+		projected.OutputTokens,
+		projected.CacheCreationInputTokens,
+		projected.CacheReadInputTokens,
+		projected.ImageOutputTokens,
+	)
 }
 
 func parseSSEUsageInt(value any) (int, bool) {
@@ -8703,7 +8857,7 @@ func (s *GatewayService) resolveCacheTTLUsageOverrideTarget(ctx context.Context,
 	return "", false
 }
 
-func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, mappedModel string) (*ClaudeUsage, error) {
+func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, group *Group, originalModel, mappedModel string) (*ClaudeUsage, error) {
 	// 更新5h窗口状态
 	s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 
@@ -8771,6 +8925,14 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 	}
 
 	body = reverseToolNamesIfPresent(c, body)
+	body = rewriteClaudeUsageForPresentation(body, ResolvePresentationMultiplierWithImageOutput(
+		group,
+		response.Usage.InputTokens,
+		response.Usage.OutputTokens,
+		response.Usage.CacheCreationInputTokens,
+		response.Usage.CacheReadInputTokens,
+		response.Usage.ImageOutputTokens,
+	))
 
 	// 写入响应
 	c.Data(resp.StatusCode, contentType, body)
@@ -9670,6 +9832,14 @@ func (s *GatewayService) buildRecordUsageLog(
 		CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,
 		ImageOutputTokens:     result.Usage.ImageOutputTokens,
 		RateMultiplier:        multiplier,
+		PresentationMultiplier: ResolvePresentationMultiplierWithImageOutput(
+			apiKey.Group,
+			result.Usage.InputTokens,
+			result.Usage.OutputTokens,
+			result.Usage.CacheCreationInputTokens,
+			result.Usage.CacheReadInputTokens,
+			result.Usage.ImageOutputTokens,
+		),
 		AccountRateMultiplier: &accountRateMultiplier,
 		BillingType:           billingType,
 		BillingMode:           resolveBillingMode(result, cost),

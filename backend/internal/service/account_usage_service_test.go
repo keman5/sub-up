@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 )
 
 type accountUsageCodexProbeRepo struct {
@@ -559,5 +561,102 @@ func TestAccountUsageService_GetOpenAIUsageZerosExpiredMainSnapshotFields(t *tes
 	}
 	if usage.CodexMain7dUsedPercent == nil || *usage.CodexMain7dUsedPercent != 0 {
 		t.Fatalf("codex_main_7d_used_percent = %v, want 0", usage.CodexMain7dUsedPercent)
+	}
+}
+
+func TestWindowStatsForViewHidesAccountCostForPresentation(t *testing.T) {
+	stats := &WindowStats{
+		Requests:     3,
+		Tokens:       2400,
+		Cost:         8,
+		StandardCost: 10,
+		UserCost:     4,
+	}
+
+	got := windowStatsForView(stats, UsageViewPresentation)
+
+	if got == stats {
+		t.Fatal("presentation view must return a copy")
+	}
+	if got.Requests != 3 || got.Tokens != 2400 {
+		t.Fatalf("window counters = requests %d tokens %d, want requests 3 tokens 2400", got.Requests, got.Tokens)
+	}
+	if got.Cost != 4 || got.StandardCost != 4 || got.UserCost != 4 {
+		t.Fatalf("presentation costs = cost %v standard %v user %v, want all 4", got.Cost, got.StandardCost, got.UserCost)
+	}
+	if stats.Cost != 8 || stats.StandardCost != 10 {
+		t.Fatalf("presentation view mutated raw stats: cost %v standard %v", stats.Cost, stats.StandardCost)
+	}
+}
+
+func TestWindowStatsForViewKeepsRawForSuperAdmin(t *testing.T) {
+	stats := &WindowStats{
+		Requests:     3,
+		Tokens:       1200,
+		Cost:         8,
+		StandardCost: 10,
+		UserCost:     4,
+	}
+
+	got := windowStatsForView(stats, UsageViewRaw)
+
+	if got != stats {
+		t.Fatal("raw view should return the original stats")
+	}
+	if got.Cost != 8 || got.StandardCost != 10 || got.UserCost != 4 {
+		t.Fatalf("raw costs = cost %v standard %v user %v, want 8/10/4", got.Cost, got.StandardCost, got.UserCost)
+	}
+}
+
+type accountWindowStatsForViewRepoStub struct {
+	UsageLogRepository
+	stats               *usagestats.AccountStats
+	lastUsePresentation bool
+}
+
+func (r *accountWindowStatsForViewRepoStub) GetAccountTodayStatsForView(ctx context.Context, accountID int64, usePresentation bool) (*usagestats.AccountStats, error) {
+	r.lastUsePresentation = usePresentation
+	return r.stats, nil
+}
+
+func (r *accountWindowStatsForViewRepoStub) GetAccountWindowStatsForView(ctx context.Context, accountID int64, startTime time.Time, usePresentation bool) (*usagestats.AccountStats, error) {
+	r.lastUsePresentation = usePresentation
+	return r.stats, nil
+}
+
+func (r *accountWindowStatsForViewRepoStub) GetAccountWindowStatsBatchForView(ctx context.Context, accountIDs []int64, startTime time.Time, usePresentation bool) (map[int64]*usagestats.AccountStats, error) {
+	r.lastUsePresentation = usePresentation
+	result := make(map[int64]*usagestats.AccountStats, len(accountIDs))
+	for _, accountID := range accountIDs {
+		result[accountID] = r.stats
+	}
+	return result, nil
+}
+
+func TestAccountUsageServiceGetAccountWindowStatsForViewUsesPresentation(t *testing.T) {
+	repo := &accountWindowStatsForViewRepoStub{
+		stats: &usagestats.AccountStats{
+			Requests:     2,
+			Tokens:       3000,
+			Cost:         8,
+			StandardCost: 10,
+			UserCost:     4,
+		},
+	}
+	svc := &AccountUsageService{usageLogRepo: repo}
+
+	got, err := svc.GetAccountWindowStatsForView(context.Background(), 7, time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC), UsageViewPresentation)
+
+	if err != nil {
+		t.Fatalf("GetAccountWindowStatsForView() error = %v", err)
+	}
+	if !repo.lastUsePresentation {
+		t.Fatal("GetAccountWindowStatsForView() did not request presentation stats")
+	}
+	if got.Cost != 4 || got.StandardCost != 4 || got.UserCost != 4 {
+		t.Fatalf("presentation window costs = cost %v standard %v user %v, want all 4", got.Cost, got.StandardCost, got.UserCost)
+	}
+	if got.Tokens != 3000 || got.Requests != 2 {
+		t.Fatalf("presentation window counters = requests %d tokens %d, want 2/3000", got.Requests, got.Tokens)
 	}
 }

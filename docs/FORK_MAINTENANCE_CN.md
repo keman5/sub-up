@@ -1132,6 +1132,29 @@ pnpm --dir frontend typecheck
 **同步官方后的复查：**
 继续搜索 `requiresRiskControl`、`risk_control_enabled`、`refreshAndResolveFeatureFlag`、`FeatureFlags.riskControl`。如果官方引入统一的异步 feature flag 守卫，可以删除本地 helper；否则所有由 public settings opt-in 控制、且可能从设置页保存后立刻跳转的后台入口，都应在拦截前刷新一次 public settings。
 
+### 2026-06-21 分组用量展示倍率与超级管理员 raw 视图
+
+**业务目的：**
+为套餐/分组增加一个可开关的“展示用量倍率”：数据库和计费仍保存真实用量，分组开启后仅对新请求写入 `usage_logs.presentation_multiplier` 快照；普通用户和普通管理员看到的 token、cost、接口返回 usage 按快照倍率展示，`rate_multiplier` 和用户侧分组倍率始终显示为 `1`；`super_admin` 可查看真实用量、真实消耗和真实倍率配置。倍率只在真实输入、输出、cache creation、cache read 合计达到 1000 token 后生效，避免极小请求被放大。
+
+**修改：**
+- `backend/migrations/159_add_usage_presentation_multiplier.sql`、`backend/ent/**`、`backend/internal/service/group.go`、`backend/internal/service/usage_log.go`、`backend/internal/repository/group_repo.go`、`backend/internal/repository/usage_log_repo.go`：新增分组开关/倍率和 usage log 快照字段，保存原始 usage 的同时记录展示倍率。
+- `backend/internal/service/usage_presentation.go`、`backend/internal/handler/dto/mappers.go`、`backend/internal/handler/usage_handler.go`、`backend/internal/handler/admin/usage_handler.go`、`backend/internal/handler/admin/group_handler.go`、`backend/internal/pkg/usagestats/usage_log_types.go`：按 viewer role 选择 raw/presentation 视图，用户/普通管理员走 presentation，`super_admin` 走 raw；用户侧和普通管理员分组 DTO 隐藏真实展示倍率，普通管理员创建/更新分组时忽略 `usage_multiplier_enabled` / `usage_multiplier`。
+- `backend/internal/service/dashboard_service.go`、`backend/internal/handler/admin/dashboard_handler.go`、`backend/internal/handler/admin/dashboard_query_cache.go`、`backend/internal/handler/admin/account_handler.go`、`backend/internal/handler/admin/account_today_stats_cache.go`、`backend/internal/repository/usage_log_repo.go`、`backend/internal/service/account_usage_service.go`：dashboard、账号统计、批量 API Key/用户统计和实时 RPM/TPM 按 raw/presentation 分流，并在缓存 key 中区分视图。
+- `backend/internal/service/openai_gateway_service.go`、`backend/internal/service/gateway_service.go`、`backend/internal/handler/gateway_handler.go`、`backend/internal/service/gateway_request.go`：非流式和可判断完整 usage 的流式事件只改写发给客户端的 usage JSON，内部返回给记录/计费的 usage 仍保持真实值。
+- `frontend/src/stores/auth.ts`、`frontend/src/components/layout/AppLayout.vue`、`frontend/src/components/layout/AppHeader.vue`、`frontend/src/composables/useOnboardingTour.ts`、`frontend/src/views/admin/GroupsView.vue`：前端把 `super_admin` 识别为管理员并使用管理员布局/引导；分组页仅 `super_admin` 显示和提交展示倍率配置。
+
+**验证：**
+```bash
+cd backend
+go test ./internal/handler/dto ./internal/handler ./internal/handler/admin ./internal/repository -run 'Test(Group(Create|Update).*UsageMultiplier|GroupFromService|UsageLogFromService|UserUsage|AdminUsage|UsageLogRepositoryGetStatsWithFilters|UsageLogRepositoryGetModelStats|UsageLogRepositoryGetGroupStats|UsageLogRepositoryGet(DashboardStatsForView|UserDashboardStats|APIKeyDashboardStats)UsesPresentationMultiplierForTPM|UsageLogRepositoryCreate|PrepareUsageLog|BuildUsageLog|ExecUsageLog|AccountUsageStatsForView|GroupUsageSummary)' -count=1 -tags unit
+go test ./internal/service -run 'Test(OpenAIStreaming(Response|Passthrough)_RewritesClientUsageForPresentation|HandleStreamingResponse_RewritesClientUsageForPresentation|GatewayService_AnthropicAPIKeyPassthrough_RewritesClientUsageForPresentation|HandleNonStreamingResponse_RewritesClientUsageForPresentation|ClaudeHandleNonStreamingResponse_RewritesClientUsageForPresentation|RewriteOpenAIUsageForPresentation|Usage(ViewModeForRole|LogForView|PresentationMultiplier|ResolvePresentationMultiplier)|DashboardService_GetDashboardStatsForViewMasksAccountCostForPresentation|DashboardService_ForViewMasksAccountCostSlicesForPresentation|DashboardService_GetGroupUsageSummaryForViewUsesPresentation)' -count=1 -tags unit
+pnpm --dir frontend run typecheck
+```
+
+**同步官方后的复查：**
+继续搜索 `usage_multiplier_enabled`、`usage_multiplier`、`presentation_multiplier`、`UsageViewMode`、`UsePresentationMultiplier`、`ResolvePresentationMultiplier`、`rewriteOpenAIUsageForPresentation`、`rewriteClaudeUsageForPresentation`、`RoleSuperAdmin`。如果官方引入类似展示倍率/超级管理员 raw 视图，优先合并到官方实现；否则保留本地补丁，并重点复查所有新增 usage 展示入口、导出入口、dashboard 聚合和 gateway response rewrite 是否仍通过 presentation/raw 分层。
+
 ### 2026-06-22 订阅级总量上限耗尽预检
 
 **业务目的：**

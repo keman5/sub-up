@@ -2229,6 +2229,8 @@ export default {
         platform: '平台',
         rateMultiplier: '费率倍数',
         displayRateMultiplier: '用户显示倍率',
+        usageMultiplierEnabled: '启用用量展示倍率',
+        usageMultiplier: '用量展示倍率',
         status: '状态',
         exclusive: '专属分组',
         nameLabel: '分组名称',
@@ -2266,6 +2268,7 @@ export default {
       },
       rateMultiplierHint: '真实计费倍率：1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
       displayRateMultiplierHint: '仅用户端展示使用，默认 1 倍，不影响实际扣费。',
+      usageMultiplierHint: '开启后，仅新请求且真实输入/输出/cache 合计达到 1000 token 时，用户和普通管理员看到的用量按该倍率展示；真实计费数据不变。',
       platforms: {
         all: '全部平台',
         anthropic: 'Anthropic',

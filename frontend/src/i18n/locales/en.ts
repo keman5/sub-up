@@ -2178,6 +2178,8 @@ export default {
         platform: 'Platform',
         rateMultiplier: 'Rate Multiplier',
         displayRateMultiplier: 'User Display Multiplier',
+        usageMultiplierEnabled: 'Enable Usage Display Multiplier',
+        usageMultiplier: 'Usage Display Multiplier',
         status: 'Status',
         exclusive: 'Exclusive Group',
         rpmLimit: 'Requests Per Minute (RPM)',
@@ -2190,6 +2192,7 @@ export default {
       platformNotEditable: 'Platform cannot be changed after creation',
       rateMultiplierHint: 'Actual billing multiplier for this group (e.g., 1.5 = 150% of base cost)',
       displayRateMultiplierHint: 'Multiplier shown to users only. Defaults to 1x and does not affect billing.',
+      usageMultiplierHint: 'When enabled, new requests at or above 1000 real tokens are shown to users/admins with this multiplier. Raw accounting is unchanged.',
       exclusiveHint: 'Exclusive group, manually assign to specific users',
       exclusiveTooltip: {
         title: 'What is an exclusive group?',
