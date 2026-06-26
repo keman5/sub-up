@@ -2379,6 +2379,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
+import { useAppDialog } from '@/composables/useAppDialog'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import type {
   Account,
@@ -2434,6 +2435,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const appDialog = useAppDialog()
 const authStore = useAuthStore()
 
 // Platform-specific hint for Base URL
@@ -3287,16 +3289,16 @@ const syncAntigravityUpstreamModels = async () => {
 }
 
 // Error code toggle helper
-const toggleErrorCode = (code: number) => {
+const toggleErrorCode = async (code: number) => {
   const index = selectedErrorCodes.value.indexOf(code)
   if (index === -1) {
     // Adding code - check for 429/529 warning
     if (code === 429) {
-      if (!confirm(t('admin.accounts.customErrorCodes429Warning'))) {
+      if (!(await appDialog.confirm(t('admin.accounts.customErrorCodes429Warning')))) {
         return
       }
     } else if (code === 529) {
-      if (!confirm(t('admin.accounts.customErrorCodes529Warning'))) {
+      if (!(await appDialog.confirm(t('admin.accounts.customErrorCodes529Warning')))) {
         return
       }
     }
@@ -3307,7 +3309,7 @@ const toggleErrorCode = (code: number) => {
 }
 
 // Add custom error code from input
-const addCustomErrorCode = () => {
+const addCustomErrorCode = async () => {
   const code = customErrorCodeInput.value
   if (code === null || code < 100 || code > 599) {
     appStore.showError(t('admin.accounts.invalidErrorCode'))
@@ -3319,11 +3321,11 @@ const addCustomErrorCode = () => {
   }
   // Check for 429/529 warning
   if (code === 429) {
-    if (!confirm(t('admin.accounts.customErrorCodes429Warning'))) {
+    if (!(await appDialog.confirm(t('admin.accounts.customErrorCodes429Warning')))) {
       return
     }
   } else if (code === 529) {
-    if (!confirm(t('admin.accounts.customErrorCodes529Warning'))) {
+    if (!(await appDialog.confirm(t('admin.accounts.customErrorCodes529Warning')))) {
       return
     }
   }

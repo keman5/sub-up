@@ -3,6 +3,7 @@ import { RouterView, useRouter, useRoute } from 'vue-router'
 import { onBeforeUnmount, onMounted, watch } from 'vue'
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
+import AppDialogHost from '@/components/common/AppDialogHost.vue'
 import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
 import { resolveRouteDocumentTitle } from '@/router/title'
 import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
@@ -166,6 +167,7 @@ watch(
   <NavigationProgress />
   <RouterView />
   <Toast />
+  <AppDialogHost />
   <AnnouncementPopup />
   <AdminComplianceDialog />
 </template>

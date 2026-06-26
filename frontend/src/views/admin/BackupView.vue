@@ -283,10 +283,12 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import { useAppStore } from '@/stores'
+import { useAppDialog } from '@/composables/useAppDialog'
 import type { BackupS3Config, BackupScheduleConfig, BackupRecord } from '@/api/admin/backup'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const appDialog = useAppDialog()
 
 // S3 config
 const s3Form = ref<BackupS3Config>({
@@ -547,8 +549,15 @@ async function downloadBackup(id: string) {
 }
 
 async function restoreBackup(id: string) {
-  if (!window.confirm(t('admin.backup.actions.restoreConfirm'))) return
-  const password = window.prompt(t('admin.backup.actions.restorePasswordPrompt'))
+  const confirmed = await appDialog.confirm({
+    message: t('admin.backup.actions.restoreConfirm'),
+    danger: true,
+  })
+  if (!confirmed) return
+  const password = await appDialog.askText({
+    message: t('admin.backup.actions.restorePasswordPrompt'),
+    inputType: 'password',
+  })
   if (!password) return
   restoringId.value = id
   try {
@@ -566,7 +575,11 @@ async function restoreBackup(id: string) {
 }
 
 async function removeBackup(id: string) {
-  if (!window.confirm(t('admin.backup.actions.deleteConfirm'))) return
+  const confirmed = await appDialog.confirm({
+    message: t('admin.backup.actions.deleteConfirm'),
+    danger: true,
+  })
+  if (!confirmed) return
   try {
     await adminAPI.backup.deleteBackup(id)
     appStore.showSuccess(t('admin.backup.actions.deleted'))

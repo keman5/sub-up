@@ -91,7 +91,7 @@
           </template>
           <!-- Subscribe Tab -->
           <template v-else-if="activeTab === 'subscription'">
-            <!-- Subscription confirm (inline, replaces plan list) -->
+            <!-- Subscription confirmation (inline, replaces plan list) -->
             <template v-if="selectedPlan">
               <div class="card p-5">
                 <!-- Header: platform badge + plan name -->

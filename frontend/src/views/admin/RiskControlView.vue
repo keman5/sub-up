@@ -1117,6 +1117,7 @@ import Toggle from '@/components/common/Toggle.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import { adminAPI } from '@/api/admin'
+import { useAppDialog } from '@/composables/useAppDialog'
 import type {
   ContentModerationAPIKeyLoad,
   ContentModerationAPIKeyStatus,
@@ -1184,6 +1185,7 @@ const riskThresholdCategories = Object.keys(riskThresholdDefaults)
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const appDialog = useAppDialog()
 
 const loading = ref(true)
 const saving = ref(false)
@@ -1904,7 +1906,10 @@ async function deleteFlaggedHash() {
 
 async function clearFlaggedHashes() {
   if (hashActionLoading.value) return
-  const confirmed = window.confirm(t('admin.riskControl.clearFlaggedHashesConfirm'))
+  const confirmed = await appDialog.confirm({
+    message: t('admin.riskControl.clearFlaggedHashesConfirm'),
+    danger: true,
+  })
   if (!confirmed) return
   hashActionLoading.value = true
   try {

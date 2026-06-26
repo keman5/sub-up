@@ -407,6 +407,7 @@ import { adminAPI } from '@/api/admin'
 import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
+import { useAppDialog } from '@/composables/useAppDialog'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -445,6 +446,7 @@ const TLSFingerprintProfilesModal = defineAsyncComponent(() => import('@/compone
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const appDialog = useAppDialog()
 const authStore = useAuthStore()
 
 const proxies = ref<AccountProxy[]>([])
@@ -1237,9 +1239,21 @@ const toggleSelectAllVisible = (event: Event) => {
   const target = event.target as HTMLInputElement
   toggleVisible(target.checked)
 }
-const handleBulkDelete = async () => { if(!confirm(t('common.confirm'))) return; try { await Promise.all(selIds.value.map(id => adminAPI.accounts.delete(id))); clearSelection(); reload() } catch (error) { console.error('Failed to bulk delete accounts:', error) } }
+const handleBulkDelete = async () => {
+  if (!(await appDialog.confirm({
+    message: t('common.confirm'),
+    danger: true,
+  }))) return
+  try {
+    await Promise.all(selIds.value.map(id => adminAPI.accounts.delete(id)))
+    clearSelection()
+    reload()
+  } catch (error) {
+    console.error('Failed to bulk delete accounts:', error)
+  }
+}
 const handleBulkResetStatus = async () => {
-  if (!confirm(t('common.confirm'))) return
+  if (!(await appDialog.confirm(t('common.confirm')))) return
   try {
     const result = await adminAPI.accounts.batchClearError(selIds.value)
     if (result.failed > 0) {
@@ -1255,7 +1269,7 @@ const handleBulkResetStatus = async () => {
   }
 }
 const handleBulkRefreshToken = async () => {
-  if (!confirm(t('common.confirm'))) return
+  if (!(await appDialog.confirm(t('common.confirm')))) return
   try {
     const result = await adminAPI.accounts.batchRefresh(selIds.value)
     if (result.failed > 0) {

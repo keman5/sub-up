@@ -238,10 +238,12 @@ import type {
   EmailTemplateOption,
 } from "@/api/admin/settings";
 import { useAppStore } from "@/stores";
+import { useAppDialog } from "@/composables/useAppDialog";
 import { extractApiErrorMessage } from "@/utils/apiError";
 
 const { t, locale } = useI18n();
 const appStore = useAppStore();
+const appDialog = useAppDialog();
 
 const fallbackPlaceholders = [
   "{{site_name}}",
@@ -659,7 +661,7 @@ async function refreshPreview() {
 
 async function restoreOfficial() {
   if (!selectedEvent.value || !selectedLocale.value) return;
-  if (!window.confirm(t("admin.settings.emailTemplates.restoreConfirm"))) return;
+  if (!(await appDialog.confirm(t("admin.settings.emailTemplates.restoreConfirm")))) return;
 
   restoring.value = true;
   try {

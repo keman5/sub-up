@@ -4,8 +4,10 @@ import { opsAPI, type OpsRuntimeLogConfig, type OpsSystemLog, type OpsSystemLogS
 import Pagination from '@/components/common/Pagination.vue'
 import Select from '@/components/common/Select.vue'
 import { useAppStore } from '@/stores'
+import { useAppDialog } from '@/composables/useAppDialog'
 
 const appStore = useAppStore()
+const appDialog = useAppDialog()
 
 const props = withDefaults(defineProps<{
   platformFilter?: string
@@ -250,7 +252,10 @@ const saveRuntimeConfig = async () => {
 }
 
 const resetRuntimeConfig = async () => {
-  const ok = window.confirm('确认回滚为启动配置（env/yaml）并立即生效？')
+  const ok = await appDialog.confirm({
+    message: '确认回滚为启动配置（env/yaml）并立即生效？',
+    danger: true,
+  })
   if (!ok) return
 
   runtimeSaving.value = true
@@ -274,7 +279,10 @@ const resetRuntimeConfig = async () => {
 }
 
 const cleanupCurrentFilter = async () => {
-  const ok = window.confirm('确认按当前筛选条件清理系统日志？该操作不可撤销。')
+  const ok = await appDialog.confirm({
+    message: '确认按当前筛选条件清理系统日志？该操作不可撤销。',
+    danger: true,
+  })
   if (!ok) return
   try {
     const payload = {

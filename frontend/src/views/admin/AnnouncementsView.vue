@@ -416,8 +416,8 @@ const isEditing = computed(() => !!editingAnnouncement.value)
 const form = reactive({
   title: '',
   content: '',
-  status: 'draft',
-  notify_mode: 'silent',
+  status: 'active',
+  notify_mode: 'popup',
   starts_at_str: '',
   ends_at_str: '',
   targeting: { any_of: [] } as AnnouncementTargeting
@@ -438,8 +438,8 @@ async function loadSubscriptionGroups() {
 function resetForm() {
   form.title = ''
   form.content = ''
-  form.status = 'draft'
-  form.notify_mode = 'silent'
+  form.status = 'active'
+  form.notify_mode = 'popup'
   form.starts_at_str = ''
   form.ends_at_str = ''
   form.targeting = { any_of: [] }
