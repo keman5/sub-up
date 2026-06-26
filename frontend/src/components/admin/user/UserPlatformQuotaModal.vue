@@ -130,7 +130,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const appDialog = useAppDialog()
 
-const PLATFORMS: PlatformQuotaPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity']
+const PLATFORMS: PlatformQuotaPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok']
 
 interface QuotaRow {
   platform: PlatformQuotaPlatform

@@ -3736,16 +3736,20 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			COALESCE(SUM(%s), 0) as total_input_tokens,
 			COALESCE(SUM(%s), 0) as total_output_tokens,
 			COALESCE(SUM(%s + %s), 0) as total_cache_tokens,
+			COALESCE(SUM(%s), 0) as total_cache_creation_tokens,
+			COALESCE(SUM(%s), 0) as total_cache_read_tokens,
 			COALESCE(SUM(%s), 0) as total_cost,
-				COALESCE(SUM(%s), 0) as total_actual_cost,
-				COALESCE(SUM(%s), 0) as total_account_cost,
-				COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
-				COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
-			FROM usage_logs
-			%s
-		`,
+			COALESCE(SUM(%s), 0) as total_actual_cost,
+			COALESCE(SUM(%s), 0) as total_account_cost,
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
+			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
+		FROM usage_logs
+		%s
+	`,
 		inputTokensExpr,
 		outputTokensExpr,
+		cacheCreationTokensExpr,
+		cacheReadTokensExpr,
 		cacheCreationTokensExpr,
 		cacheReadTokensExpr,
 		totalCostExpr,
@@ -3776,6 +3780,8 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			&stats.TotalInputTokens,
 			&stats.TotalOutputTokens,
 			&stats.TotalCacheTokens,
+			&stats.TotalCacheCreationTokens,
+			&stats.TotalCacheReadTokens,
 			&stats.TotalCost,
 			&stats.TotalActualCost,
 			&totalAccountCost,
