@@ -371,7 +371,7 @@ Cloudflare Dashboard：
 如果已经关闭了 VPS 旧前台入口，需要先恢复 Caddy 备份或重新把对应域名加回 server block，再 reload：
 
 ```bash
-ssh 51token-vps '
+ssh 51tokens '
   cp /opt/cf-origin-ssl/Caddyfile.bak-disable-a2-origin-20260613081656 /opt/cf-origin-ssl/Caddyfile
   docker exec cf-origin-ssl caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 '

@@ -1,6 +1,6 @@
 # VPS 部署与更新排障记录
 
-本文记录将 `https://github.com/keman5/51token.git` 部署到 VPS 时遇到的问题、判断方法和可复用处理方案。适用于已有 `new-api` 容器、需要更新到当前仓库代码的场景。
+本文记录将当前 `sub2api` 服务部署到 VPS 时遇到的问题、判断方法和可复用处理方案。当前线上以后端容器 `sub2api`、`sub2api-ap1`、`sub2api-ap2` 和 Cloudflare Pages 前台为准。
 
 > 注意：不要把 `SQL_DSN`、`SESSION_SECRET`、`CRYPTO_SECRET`、Redis 密码等环境变量写入文档、聊天记录或公开日志。排障时只确认变量是否存在，避免展开具体值。
 
@@ -13,10 +13,10 @@
 推荐在本机 `~/.ssh/config` 中维护别名，例如：
 
 ```bash
-ssh 51token-vps
+ssh 51tokens
 ```
 
-后续文档里的 `ssh`、`scp` 和部署脚本示例统一使用 `51token-vps`，不要把真实 IP、私钥路径等敏感连接信息写进仓库。
+后续文档里的 `ssh`、`scp` 和部署脚本示例统一使用 `51tokens`，不要把真实 IP、私钥路径等敏感连接信息写进仓库。
 
 ### 1. 确认本地代码已经提交并推送
 
@@ -41,159 +41,30 @@ fatal: could not read Username for 'https://github.com': Device not configured
 
 ### 2. 确认线上容器的启动参数
 
-如果 VPS 上已有旧容器，不要直接覆盖。先记录旧容器的端口、挂载、网络和重启策略：
+如果 VPS 上已有旧容器，不要直接覆盖。先记录当前容器的镜像、端口、挂载、网络和重启策略：
 
 ```bash
 docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
-docker inspect new-api --format '{{json .Mounts}}'
-docker inspect new-api --format '{{json .HostConfig.PortBindings}}'
-docker inspect new-api --format '{{json .NetworkSettings.Networks}}'
-docker inspect new-api --format '{{.HostConfig.RestartPolicy.Name}}'
+docker inspect sub2api --format '{{json .Mounts}}'
+docker inspect sub2api --format '{{json .HostConfig.PortBindings}}'
+docker inspect sub2api --format '{{json .NetworkSettings.Networks}}'
+docker inspect sub2api --format '{{.HostConfig.RestartPolicy.Name}}'
 ```
 
-本次线上容器的关键配置是：
+当前线上后端容器：
 
-- 容器名：`new-api`
-- 网络：`new-api-net`
-- 端口：`80:3000` 和 `3000:3000`
-- 数据挂载：`/opt/new-api/data:/data`
-- 日志挂载：`/opt/new-api/logs:/app/logs`
-- Redis 容器：`new-api-redis`
+- 主环境：`sub2api`
+- a1：`sub2api-ap1`
+- a2：`sub2api-ap2`
+- 共享依赖：`sub2api-postgres`、`sub2api-redis`
 
 ***
 
-## 二、GitHub 仓库 Docker 构建问题
-
-### 1. `web/classic/.npmrc` 缺失
-
-当前 `Dockerfile` 里有：
-
-```dockerfile
-COPY web/classic/.npmrc .
-```
-
-如果仓库里没有 `web/classic/.npmrc`，干净构建会在该步骤失败。应提交一个最小配置：
-
-```text
-registry=https://registry.npmjs.org/
-```
-
-### 2. VPS 无法访问 npm registry
-
-曾遇到：
-
-```text
-Error when performing the request to https://registry.npmjs.org/pnpm/-/pnpm-10.33.2.tgz
-ETIMEDOUT
-```
-
-这说明 VPS 到 npm registry 的出口网络不可用或不稳定。可以先测试：
-
-```bash
-curl -I --max-time 15 https://registry.npmjs.org/pnpm/-/pnpm-10.33.2.tgz
-curl -I --max-time 15 https://registry.npmmirror.com/pnpm/-/pnpm-10.33.2.tgz
-```
-
-如果镜像源可达，可以临时给构建阶段加：
-
-```dockerfile
-ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
-ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
-```
-
-如果 Corepack 仍超时，可以绕过 Corepack：
-
-```dockerfile
-RUN npm install -g pnpm@10.33.2 --registry=https://registry.npmmirror.com \
-    && pnpm install --frozen-lockfile
-```
-
-### 3. VPS 无法访问 Debian apt 源
-
-曾遇到：
-
-```text
-Could not connect to deb.debian.org:80
-Package 'ca-certificates' has no installation candidate
-Unable to locate package libasan8
-```
-
-这说明运行镜像构建阶段无法执行 `apt-get update`。如果只是更新应用二进制，且 VPS 已有可用的 `calciumion/new-api:latest` 镜像，可以复用旧运行镜像作为基础镜像，仅替换 `/new-api`：
-
-```dockerfile
-FROM calciumion/new-api:latest
-COPY new-api /new-api
-EXPOSE 3000
-WORKDIR /data
-ENTRYPOINT ["/new-api"]
-```
-
-### 4. VPS 上 Go 依赖下载过慢或卡住
-
-曾遇到 `go mod download` 长时间无输出。可尝试：
-
-```dockerfile
-ENV GOPROXY=https://goproxy.cn,direct
-```
-
-如果 VPS 出口仍不稳定，建议改为本机交叉编译，再把二进制传到 VPS。
-
-***
-
-## 三、网络不稳定时的可用替代部署方案
+## 二、网络不稳定时的可用替代部署方案
 
 当 VPS 无法稳定访问 npm、apt、Go proxy 时，可以采用“本机构建前端和后端，VPS 只打运行镜像”的方式。
 
-### 1. 本机构建前端
-
-```bash
-cd web/default
-pnpm run build
-
-cd ../classic
-pnpm run build
-```
-
-### 2. 本机交叉编译 Linux amd64 后端
-
-在项目根目录执行：
-
-```bash
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 GOEXPERIMENT=greenteagc \
-go build -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$(cat VERSION)'" \
-  -o /tmp/51token-new-api
-```
-
-确认二进制：
-
-```bash
-file /tmp/51token-new-api
-```
-
-应看到类似：
-
-```text
-ELF 64-bit LSB executable, x86-64, statically linked
-```
-
-### 3. 上传到 VPS
-
-链路慢时，先压缩再上传：
-
-```bash
-gzip -c /tmp/51token-new-api > /tmp/51token-new-api.gz
-scp -C /tmp/51token-new-api.gz 51token-vps:/opt/51token-build/new-api.gz
-```
-
-在 VPS 解压：
-
-```bash
-cd /opt/51token-build
-gzip -df new-api.gz
-chmod +x new-api
-```
-
-### 3.1 sub2api 本地构建产物的 gzip 分块上传与远端解压方案
+### 1. sub2api 本地构建产物的 gzip 分块上传与远端解压方案
 
 当前 sub2api 嵌入前端后的 Linux amd64 二进制约 86 MB。VPS 出口和本地到 VPS 链路不稳定时，不要直接 `scp` 原始二进制，也不要在 VPS 上重新拉取 npm / Go / apt 依赖。gzip 分块上传流程是：
 
@@ -268,7 +139,7 @@ deploy/local-gzip-binary-deploy.sh --apply --deploy
 可用环境变量或参数覆盖目标：
 
 ```bash
-HOST=51token-vps \
+HOST=51tokens \
 BASE_IMAGE=sub2api:subapi-6b800b77-logo-dbterms-20260530222347 \
 IMAGE_TAG=sub2api:subapi-$(git rev-parse --short HEAD)-gzip-$(date +%Y%m%d%H%M%S) \
 deploy/local-gzip-binary-deploy.sh --apply --deploy --skip-frontend-build
@@ -312,8 +183,8 @@ deploy/local-gzip-binary-deploy.sh --apply --deploy --skip-frontend-build
 上线后检查：
 
 ```bash
-ssh 51token-vps 'docker exec sub2api env | grep GATEWAY_MODEL_ROUTER'
-ssh 51token-vps 'docker exec sub2api-ap1 env | grep GATEWAY_MODEL_ROUTER'
+ssh 51tokens 'docker exec sub2api env | grep GATEWAY_MODEL_ROUTER'
+ssh 51tokens 'docker exec sub2api-ap1 env | grep GATEWAY_MODEL_ROUTER'
 curl -fsS https://ai.upit.top/health
 curl -fsS https://a1.upit.top/health
 ```
@@ -336,15 +207,15 @@ curl -fsS https://a1.upit.top/health
 
 ```bash
 IMAGE_TAG="sub2api:subapi-<git-sha>-ap2-redeploy-$(date +%Y%m%d%H%M%S)" \
-HOST=51token-vps \
-BASE_IMAGE="$(ssh 51token-vps \"grep '^IMAGE_TAG=' /opt/sub2api-ap2-deploy/.env | cut -d= -f2-\")" \
+HOST=51tokens \
+BASE_IMAGE="$(ssh 51tokens \"grep '^IMAGE_TAG=' /opt/sub2api-ap2-deploy/.env | cut -d= -f2-\")" \
 deploy/local-gzip-binary-deploy.sh --apply
 ```
 
 2. 然后仅修改 `ap2` 目录下的 `.env` 并重启 `sub2api-ap2`：
 
 ```bash
-ssh 51token-vps '
+ssh 51tokens '
   set -eu
   cd /opt/sub2api-ap2-deploy
   TS=$(date +%Y%m%d%H%M%S)
@@ -358,7 +229,7 @@ ssh 51token-vps '
 3. 再确认容器与镜像：
 
 ```bash
-ssh 51token-vps '
+ssh 51tokens '
   docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" sub2api-ap2
   docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | grep sub2api-ap2
 '
@@ -376,7 +247,7 @@ ssh 51token-vps '
 底层等价命令示例：
 
 ```bash
-gzip -c /tmp/sub2api-build-output/sub2api | ssh 51token-vps '
+gzip -c /tmp/sub2api-build-output/sub2api | ssh 51tokens '
   set -eu
   mkdir -p /opt/sub2api-runtime-build
   gz=/opt/sub2api-runtime-build/sub2api.$(date +%Y%m%d%H%M%S).gz
@@ -466,7 +337,7 @@ networks:
 验证命令：
 
 ```bash
-ssh 51token-vps '
+ssh 51tokens '
   docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
   docker ps -a --format "{{.Names}}" | egrep "grafana|pdc-agent|sub2api-ap1-postgres|sub2api-ap1-redis|sub2api-ap2-postgres|sub2api-ap2-redis" || echo none
 
@@ -516,7 +387,7 @@ ssh 51token-vps '
 调整和回滚前必须先备份 `.env`：
 
 ```bash
-ssh 51token-vps '
+ssh 51tokens '
   stamp=$(date +%Y%m%d%H%M%S)
   for d in /opt/sub2api-deploy /opt/sub2api-ap1-deploy /opt/sub2api-ap2-deploy; do
     cp "$d/.env" "$d/.env.bak-pool-tuning-$stamp"
@@ -527,7 +398,7 @@ ssh 51token-vps '
 修改后按低风险顺序滚动重启：先内测 `ap2`，再 `ap1`，最后 `primary`。每个容器健康后再继续下一个：
 
 ```bash
-ssh 51token-vps '
+ssh 51tokens '
   cd /opt/sub2api-ap2-deploy && docker compose up -d --no-deps sub2api-ap2
   curl -fsS http://127.0.0.1:8083/health
   docker inspect -f "{{.State.Health.Status}}" sub2api-ap2
@@ -545,7 +416,7 @@ ssh 51token-vps '
 验证运行时环境变量和 PostgreSQL idle 连接数：
 
 ```bash
-ssh 51token-vps '
+ssh 51tokens '
   for c in sub2api sub2api-ap1 sub2api-ap2; do
     echo "### $c"
     docker exec "$c" sh -c "env | grep -E \"^(DATABASE_MAX_OPEN_CONNS|DATABASE_MAX_IDLE_CONNS|REDIS_POOL_SIZE|REDIS_MIN_IDLE_CONNS)=\" | sort"
@@ -644,7 +515,7 @@ environment:
 调整前先备份 compose：
 
 ```bash
-ssh 51token-vps '
+ssh 51tokens '
   stamp=$(date +%Y%m%d%H%M%S)
   cp /opt/sub2api-deploy/docker-compose.yml /opt/sub2api-deploy/docker-compose.yml.bak-headroom-limits-$stamp
   cp /opt/sub2api-ap1-deploy/docker-compose.yml /opt/sub2api-ap1-deploy/docker-compose.yml.bak-headroom-limits-$stamp
@@ -654,7 +525,7 @@ ssh 51token-vps '
 修改后先验证 compose，再只重建两个 Headroom 容器，不要重启 `sub2api`、`sub2api-ap1`、`sub2api-ap2`：
 
 ```bash
-ssh 51token-vps '
+ssh 51tokens '
   cd /opt/sub2api-deploy && docker compose config --quiet
   cd /opt/sub2api-ap1-deploy && docker compose config --quiet
 
@@ -666,7 +537,7 @@ ssh 51token-vps '
 验证必须看 `/health` 的 `compression_executor`，不能只看容器 env：
 
 ```bash
-ssh 51token-vps '
+ssh 51tokens '
   docker exec headroom-main python -c '\''import json,urllib.request; h=json.load(urllib.request.urlopen("http://127.0.0.1:8787/health")); print(h["runtime"]["compression_executor"])'\''
   docker exec headroom-a1 python -c '\''import json,urllib.request; h=json.load(urllib.request.urlopen("http://127.0.0.1:8787/health")); print(h["runtime"]["compression_executor"])'\''
 
@@ -721,7 +592,7 @@ ssh 51tokens '
 确认方式：
 
 ```bash
-ssh 51token-vps '
+ssh 51tokens '
   if command -v snap >/dev/null 2>&1; then snap list; else echo "snap removed"; fi
   systemctl list-units "snap*" --no-pager --all || true
 '
@@ -744,7 +615,7 @@ AccuracySec=10s
 常用查询：
 
 ```bash
-ssh 51token-vps '
+ssh 51tokens '
   sar -u
   sar -u -s 16:00:00 -e 17:30:00
   sar -r
@@ -752,151 +623,6 @@ ssh 51token-vps '
   systemctl list-timers "*sysstat*" --no-pager
 '
 ```
-
-### 4. 构建只替换二进制的运行镜像
-
-```bash
-cat > /opt/51token-build/Dockerfile.replace-binary <<'EOF'
-FROM calciumion/new-api:latest
-COPY new-api /new-api
-EXPOSE 3000
-WORKDIR /data
-ENTRYPOINT ["/new-api"]
-EOF
-
-docker build \
-  -f /opt/51token-build/Dockerfile.replace-binary \
-  -t 51token:$(date +%Y%m%d%H%M%S) \
-  /opt/51token-build
-```
-
-***
-
-## 四、更新容器时保留旧容器以便回滚
-
-### 1. 导出旧容器环境变量
-
-```bash
-TS=$(date +%Y%m%d%H%M%S)
-ENV_FILE=/opt/new-api/new-api.env.$TS
-docker inspect new-api --format '{{range .Config.Env}}{{println .}}{{end}}' > "$ENV_FILE"
-```
-
-此文件包含敏感信息，部署完成后应删除：
-
-```bash
-rm -f /opt/new-api/new-api.env.*
-```
-
-### 2. 启动新容器
-
-```bash
-BACKUP_NAME=new-api-prev-$TS
-
-docker stop new-api
-docker rename new-api "$BACKUP_NAME"
-
-docker run -d \
-  --name new-api \
-  --restart unless-stopped \
-  --network new-api-net \
-  --env-file "$ENV_FILE" \
-  -p 80:3000 \
-  -p 3000:3000 \
-  -v /opt/new-api/data:/data \
-  -v /opt/new-api/logs:/app/logs \
-  51token:YOUR_TAG
-```
-
-### 3. 健康检查
-
-```bash
-curl -I --max-time 10 http://127.0.0.1:3000/
-docker logs --tail 80 new-api
-```
-
-期望结果：
-
-```text
-HTTP/1.1 200 OK
-New API started
-ready in ... ms
-```
-
-***
-
-## 五、启动迁移很慢导致误判失败
-
-本次更新时，新容器会对 PostgreSQL 做 GORM 自动迁移和表结构检查。日志里会出现大量类似内容：
-
-```text
-SLOW SQL >= 200ms
-SELECT ... FROM information_schema.columns ...
-ALTER TABLE ...
-```
-
-启动期间 `curl http://127.0.0.1:3000/` 可能反复出现：
-
-```text
-Empty reply from server
-Recv failure: Connection reset by peer
-```
-
-这不一定代表容器崩溃，可能只是迁移尚未结束。短健康检查窗口（如 5 秒、90 秒、180 秒）都可能误判并触发回滚。建议：
-
-- 给首次启动至少 10-15 分钟健康检查窗口
-- 观察 `docker logs -f new-api`，确认迁移是否仍在推进
-- 不要在迁移仍推进时反复杀容器，否则每次都会重新走一部分启动检查
-
-### 可选：预热迁移
-
-可以先开一个不占用公网端口的临时容器，让迁移先跑完：
-
-```bash
-docker rm -f new-api-warmup 2>/dev/null || true
-
-docker run -d \
-  --name new-api-warmup \
-  --network new-api-net \
-  --env-file "$ENV_FILE" \
-  -v /opt/new-api/data:/data \
-  -v /opt/new-api/logs:/app/logs \
-  51token:YOUR_TAG
-
-for i in $(seq 1 360); do
-  if docker exec new-api-warmup wget -qO- --timeout=3 http://127.0.0.1:3000/ >/dev/null 2>&1; then
-    echo "warmup-ready"
-    break
-  fi
-  sleep 2
-done
-
-docker rm -f new-api-warmup
-```
-
-注意：预热容器和正式容器同时连接同一个数据库时，只建议用于一次性迁移预热，不要长期并行运行两个应用实例。
-
-***
-
-## 六、回滚方式
-
-如果新容器无法启动：
-
-```bash
-docker logs --tail 200 new-api
-docker rm -f new-api
-docker rename new-api-prev-YYYYMMDDHHMMSS new-api
-docker start new-api
-```
-
-回滚后再确认：
-
-```bash
-docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
-curl -I --max-time 10 http://127.0.0.1:3000/
-```
-
-***
 
 ## 七、Cloudflare Pages 前台与 VPS 旧入口关闭
 
@@ -997,7 +723,7 @@ ssh 51tokens '
 回滚时，只把确实需要从 Pages 回退到 VPS 的前台域名加回 Caddy；不要移除 API 回源域名。a2 的历史回滚示例：
 
 ```bash
-ssh 51token-vps '
+ssh 51tokens '
   cp /opt/cf-origin-ssl/Caddyfile.bak-disable-a2-origin-20260613081656 /opt/cf-origin-ssl/Caddyfile
   docker exec cf-origin-ssl caddy validate --config /etc/caddy/Caddyfile
   docker exec cf-origin-ssl caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
@@ -1374,26 +1100,6 @@ docker run --rm --network container:sub2api curlimages/curl:8.16.0 \
 
 ***
 
-## 十、本次实际结论
-
-本次最终可行路径是：
-
-1. 本机完成前端构建和 Linux amd64 后端编译
-2. 压缩上传后端二进制到 VPS
-3. 基于 VPS 已有的 `calciumion/new-api:latest` 镜像替换 `/new-api`
-4. 使用旧容器的端口、挂载、网络和环境变量启动新容器
-5. 把健康检查窗口拉长，等待 PostgreSQL 迁移完成
-
-最终验证：
-
-```text
-new-api   51token:<tag>   Up
-HTTP/1.1 200 OK
-New API started
-```
-
-***
-
 ## 十一、2026-06-13 线上相关改动记录
 
 ### 1. a2 前台迁 Cloudflare Pages 后关闭 VPS 旧前台入口
@@ -1497,7 +1203,7 @@ pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a2 --project-name sub2api-fron
 
 当前没有三套独立 Redis/PostgreSQL。三套环境已经共用一组数据库和缓存容器，以不同 PostgreSQL database 和 Redis DB 隔离。不要再把 `sub2api-ap1-postgres`、`sub2api-ap1-redis`、`sub2api-ap2-postgres`、`sub2api-ap2-redis` 加回 compose。
 
-### 3. 旧 VPS 备份和下线边界
+### 3. 旧 VPS 备份记录
 
 2026-06-14 旧 VPS 最终备份已放在新 VPS：
 
@@ -1512,17 +1218,7 @@ old-vps-final-20260614-210956.tar.zst
 old-vps-final-20260614-210956.tar.zst.sha256
 ```
 
-已在新 VPS 手工比对 sha256，压缩包大小约 `315M`。用户明确要求不需要下载到本地；本地临时 rsync 目录已移除。
-
-旧 VPS 下线前仍需确认：
-
-- Cloudflare DNS 已全部指向新路径。
-- `api/ap1/ap2` 健康检查均通过。
-- `ai/a1/a2` 登录页均由 Pages 返回。
-- 新 VPS 上 `sub2api`、`sub2api-ap1`、`sub2api-ap2`、`sub2api-postgres`、`sub2api-redis`、`cf-origin-ssl` 状态正常。
-- 旧 VPS 没有残留必须继续提供服务的 cron、Caddy、sidecar、备份任务或数据写入。
-
-不要在没有上述证据时直接销毁旧 VPS。
+已在新 VPS 手工比对 sha256，压缩包大小约 `315M`。用户明确要求不需要下载到本地；本地临时 rsync 目录已移除。后续部署和排障统一使用 `51tokens`。
 
 ### 4. Headroom 启用范围和压缩 worker 限制
 
