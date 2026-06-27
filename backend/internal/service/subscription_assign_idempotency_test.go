@@ -122,7 +122,7 @@ func (userSubRepoNoop) ResetMonthlyUsage(context.Context, int64, time.Time) erro
 func (userSubRepoNoop) IncrementUsage(context.Context, int64, float64) error {
 	panic("unexpected IncrementUsage call")
 }
-func (userSubRepoNoop) BatchUpdateExpiredStatus(context.Context) (int64, error) {
+func (userSubRepoNoop) BatchUpdateExpiredStatus(context.Context) ([]UserSubscription, error) {
 	panic("unexpected BatchUpdateExpiredStatus call")
 }
 

@@ -80,7 +80,7 @@
             type="button"
             class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors"
             :disabled="activeQueryLoading"
-            @click="loadActiveUsage"
+            @click="refreshActiveUsage"
           >
             <svg
               class="h-2.5 w-2.5"
@@ -180,7 +180,7 @@
               type="button"
               class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="activeQueryLoading"
-              @click="loadActiveUsage"
+              @click="refreshActiveUsage"
             >
               <svg
                 class="h-2.5 w-2.5"
@@ -627,6 +627,7 @@ import type { Account, AccountUsageInfo, GeminiCredentials, UsageProgress, Windo
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import { formatCompactNumber, formatRelativeTime } from '@/utils/format'
+import { queryOpenAIQuota } from '@/api/admin/accounts'
 import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
@@ -1499,9 +1500,17 @@ const attachVisibilityObserver = () => {
   visibilityObserver.observe(rootRef.value)
 }
 
-const loadActiveUsage = async () => {
+const loadActiveUsage = async (options?: { refreshQuotaFromUpstream?: boolean }) => {
+  const { refreshQuotaFromUpstream = false } = options ?? {}
   activeQueryLoading.value = true
   try {
+    if (refreshQuotaFromUpstream && props.account.platform === 'openai' && props.account.type === 'oauth') {
+      try {
+        await queryOpenAIQuota(props.account.id)
+      } catch (e) {
+        console.error('Failed to refresh OpenAI quota before active usage refresh:', e)
+      }
+    }
     const result = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
     usageInfo.value = result
     _usageCache.set(props.account.id, { data: result, ts: Date.now() })
@@ -1510,6 +1519,10 @@ const loadActiveUsage = async () => {
   } finally {
     activeQueryLoading.value = false
   }
+}
+
+const refreshActiveUsage = async () => {
+  await loadActiveUsage({ refreshQuotaFromUpstream: true })
 }
 
 const handleOpenAIQuotaQueried = async () => {

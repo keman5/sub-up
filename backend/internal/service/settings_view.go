@@ -227,6 +227,9 @@ type SystemSettings struct {
 
 	// 订阅到期提醒
 	SubscriptionExpiryNotifyEnabled bool
+	// 订阅过期管理员提醒
+	SubscriptionExpiredAdminNotifyEnabled bool
+	SubscriptionExpiredAdminNotifyEmails  []NotifyEmailEntry
 
 	// 账号限额通知
 	AccountQuotaNotifyEnabled bool

@@ -11,7 +11,10 @@ import (
 )
 
 type subscriptionExpiryRepoStub struct {
-	listCalls int
+	listCalls             int
+	expiredSubscriptions  []UserSubscription
+	subscriptionsByStatus map[string][]UserSubscription
+	receivedListStatuses  []string
 }
 
 func (r *subscriptionExpiryRepoStub) Create(context.Context, *UserSubscription) error {
@@ -50,8 +53,14 @@ func (r *subscriptionExpiryRepoStub) ListByGroupID(context.Context, int64, pagin
 	return nil, nil, nil
 }
 
-func (r *subscriptionExpiryRepoStub) List(context.Context, pagination.PaginationParams, *int64, *int64, string, string, string, string) ([]UserSubscription, *pagination.PaginationResult, error) {
+func (r *subscriptionExpiryRepoStub) List(_ context.Context, _ pagination.PaginationParams, _ *int64, _ *int64, status string, _ string, _ string, _ string) ([]UserSubscription, *pagination.PaginationResult, error) {
 	r.listCalls++
+	r.receivedListStatuses = append(r.receivedListStatuses, status)
+	if r.subscriptionsByStatus != nil {
+		if subs, ok := r.subscriptionsByStatus[status]; ok {
+			return subs, &pagination.PaginationResult{Page: 1, Pages: 1}, nil
+		}
+	}
 	return nil, &pagination.PaginationResult{Page: 1, Pages: 1}, nil
 }
 
@@ -91,8 +100,8 @@ func (r *subscriptionExpiryRepoStub) IncrementUsage(context.Context, int64, floa
 	return nil
 }
 
-func (r *subscriptionExpiryRepoStub) BatchUpdateExpiredStatus(context.Context) (int64, error) {
-	return 0, nil
+func (r *subscriptionExpiryRepoStub) BatchUpdateExpiredStatus(context.Context) ([]UserSubscription, error) {
+	return r.expiredSubscriptions, nil
 }
 
 type subscriptionExpirySettingRepoStub struct {
@@ -161,4 +170,65 @@ func TestSubscriptionExpiryService_ExpiryReminderSettingReadErrorFailsClosed(t *
 	svc.SetSettingRepository(&subscriptionExpirySettingRepoStub{err: errors.New("db down")})
 
 	require.False(t, svc.expiryReminderEnabled(context.Background()))
+}
+
+func TestSubscriptionExpiryService_ExpiredAdminNotifyEnabledDefaultsToFalse(t *testing.T) {
+	cases := []struct {
+		name   string
+		values map[string]string
+		err    error
+	}{
+		{name: "missing setting", values: map[string]string{}},
+		{name: "empty setting", values: map[string]string{SettingKeySubscriptionExpiredAdminNotifyEnabled: ""}},
+		{name: "false setting", values: map[string]string{SettingKeySubscriptionExpiredAdminNotifyEnabled: "false"}},
+		{name: "read error", err: errors.New("db down")},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := NewSubscriptionExpiryService(nil, time.Minute)
+			svc.SetSettingRepository(&subscriptionExpirySettingRepoStub{values: tc.values, err: tc.err})
+
+			require.False(t, svc.expiredAdminNotifyEnabled(context.Background()))
+		})
+	}
+}
+
+func TestSubscriptionExpiryService_RunOnceSendsExpiredAdminNotification(t *testing.T) {
+	smtpServer := startNotificationEmailTestSMTPServer(t)
+	defer smtpServer.close()
+
+	settings := newNotificationEmailMemorySettingRepo()
+	for key, value := range smtpServer.settings() {
+		require.NoError(t, settings.Set(context.Background(), key, value))
+	}
+	require.NoError(t, settings.Set(context.Background(), SettingKeySiteName, "51token"))
+	require.NoError(t, settings.Set(context.Background(), SettingKeySubscriptionExpiredAdminNotifyEnabled, "true"))
+	require.NoError(t, settings.Set(context.Background(), SettingKeySubscriptionExpiredAdminNotifyEmails, MarshalNotifyEmails([]NotifyEmailEntry{
+		{Email: "macseek@upit.top", Verified: true},
+	})))
+
+	expiresAt := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
+	repo := &subscriptionExpiryRepoStub{
+		expiredSubscriptions: []UserSubscription{
+			{
+				ID:        42,
+				UserID:    7,
+				GroupID:   3,
+				ExpiresAt: expiresAt,
+				Status:    SubscriptionStatusExpired,
+				User:      &User{ID: 7, Email: "user@example.com", Username: "demo"},
+				Group:     &Group{ID: 3, Name: "Pro"},
+			},
+		},
+	}
+	emailSvc := NewEmailService(settings, nil)
+	notificationSvc := NewNotificationEmailService(settings, emailSvc)
+	svc := NewSubscriptionExpiryService(repo, time.Minute)
+	svc.SetSettingRepository(settings)
+	svc.SetNotificationEmailService(notificationSvc)
+
+	svc.runOnce()
+
+	require.EqualValues(t, 1, smtpServer.messageCount())
 }

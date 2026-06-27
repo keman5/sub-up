@@ -2231,6 +2231,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyBalanceLowNotifyThreshold] = strconv.FormatFloat(settings.BalanceLowNotifyThreshold, 'f', 8, 64)
 	updates[SettingKeyBalanceLowNotifyRechargeURL] = settings.BalanceLowNotifyRechargeURL
 	updates[SettingKeySubscriptionExpiryNotifyEnabled] = strconv.FormatBool(settings.SubscriptionExpiryNotifyEnabled)
+	updates[SettingKeySubscriptionExpiredAdminNotifyEnabled] = strconv.FormatBool(settings.SubscriptionExpiredAdminNotifyEnabled)
+	updates[SettingKeySubscriptionExpiredAdminNotifyEmails] = MarshalNotifyEmails(settings.SubscriptionExpiredAdminNotifyEmails)
 	updates[SettingKeyAccountQuotaNotifyEnabled] = strconv.FormatBool(settings.AccountQuotaNotifyEnabled)
 	updates[SettingKeyAccountQuotaNotifyEmails] = MarshalNotifyEmails(settings.AccountQuotaNotifyEmails)
 
@@ -3756,6 +3758,13 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.BalanceLowNotifyRechargeURL = settings[SettingKeyBalanceLowNotifyRechargeURL]
 	result.SubscriptionExpiryNotifyEnabled = !isFalseSettingValue(settings[SettingKeySubscriptionExpiryNotifyEnabled])
+	result.SubscriptionExpiredAdminNotifyEnabled = settings[SettingKeySubscriptionExpiredAdminNotifyEnabled] == "true"
+	if raw := strings.TrimSpace(settings[SettingKeySubscriptionExpiredAdminNotifyEmails]); raw != "" {
+		result.SubscriptionExpiredAdminNotifyEmails = ParseNotifyEmails(raw)
+	}
+	if result.SubscriptionExpiredAdminNotifyEmails == nil {
+		result.SubscriptionExpiredAdminNotifyEmails = []NotifyEmailEntry{}
+	}
 
 	// 账号限额通知
 	result.AccountQuotaNotifyEnabled = settings[SettingKeyAccountQuotaNotifyEnabled] == "true"

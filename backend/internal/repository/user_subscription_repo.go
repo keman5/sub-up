@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -376,16 +377,61 @@ func (r *userSubscriptionRepository) IncrementUsage(ctx context.Context, id int6
 	return service.ErrSubscriptionNotFound
 }
 
-func (r *userSubscriptionRepository) BatchUpdateExpiredStatus(ctx context.Context) (int64, error) {
-	client := clientFromContext(ctx, r.client)
-	n, err := client.UserSubscription.Update().
+func (r *userSubscriptionRepository) BatchUpdateExpiredStatus(ctx context.Context) ([]service.UserSubscription, error) {
+	tx, err := r.client.Tx(ctx)
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+		return nil, err
+	}
+
+	client := r.client
+	txCtx := ctx
+	if err == nil {
+		defer func() { _ = tx.Rollback() }()
+		client = tx.Client()
+		txCtx = dbent.NewTxContext(ctx, tx)
+	} else {
+		client = clientFromContext(ctx, r.client)
+	}
+
+	now := time.Now()
+	due, err := client.UserSubscription.Query().
 		Where(
 			usersubscription.StatusEQ(service.SubscriptionStatusActive),
-			usersubscription.ExpiresAtLTE(time.Now()),
+			usersubscription.ExpiresAtLTE(now),
 		).
-		SetStatus(service.SubscriptionStatusExpired).
-		Save(ctx)
-	return int64(n), err
+		WithUser().
+		WithGroup().
+		All(txCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	expired := make([]service.UserSubscription, 0, len(due))
+	for _, sub := range due {
+		n, err := client.UserSubscription.Update().
+			Where(
+				usersubscription.IDEQ(sub.ID),
+				usersubscription.StatusEQ(service.SubscriptionStatusActive),
+				usersubscription.ExpiresAtLTE(now),
+			).
+			SetStatus(service.SubscriptionStatusExpired).
+			Save(txCtx)
+		if err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			sub.Status = service.SubscriptionStatusExpired
+			if svcSub := userSubscriptionEntityToService(sub); svcSub != nil {
+				expired = append(expired, *svcSub)
+			}
+		}
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+	}
+	return expired, nil
 }
 
 // Extra repository helpers (currently used only by integration tests).

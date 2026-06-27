@@ -120,7 +120,9 @@ func (r *fallbackSubRepo) ResetDailyUsage(context.Context, int64, time.Time) err
 func (r *fallbackSubRepo) ResetWeeklyUsage(context.Context, int64, time.Time) error  { return nil }
 func (r *fallbackSubRepo) ResetMonthlyUsage(context.Context, int64, time.Time) error { return nil }
 func (r *fallbackSubRepo) IncrementUsage(context.Context, int64, float64) error      { return nil }
-func (r *fallbackSubRepo) BatchUpdateExpiredStatus(context.Context) (int64, error)   { return 0, nil }
+func (r *fallbackSubRepo) BatchUpdateExpiredStatus(context.Context) ([]service.UserSubscription, error) {
+	return nil, nil
+}
 
 func testOpenAIContext(method, path string) *gin.Context {
 	rec := httptest.NewRecorder()

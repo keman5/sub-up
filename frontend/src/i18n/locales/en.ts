@@ -4606,12 +4606,20 @@ export default {
         silent: 'Silent',
         popup: 'Popup'
       },
+      emailPushModeLabels: {
+        none: 'Do not email',
+        all: 'Email all users',
+        selected: 'Email selected users'
+      },
       form: {
         title: 'Title',
         content: 'Content (Markdown supported)',
         status: 'Status',
         notifyMode: 'Notify Mode',
         notifyModeHint: 'Popup mode will show a popup notification to users',
+        emailPush: 'Email Push',
+        emailPushHint: 'Email push is a one-time action when saving the announcement. Editing defaults to no email.',
+        emailPushUserPlaceholder: 'Search user email or name',
         startsAt: 'Starts At',
         endsAt: 'Ends At',
         startsAtHint: 'Leave empty to start immediately',
@@ -6287,6 +6295,15 @@ export default {
         description: 'Control whether users receive subscription expiry reminder emails.',
         enabled: 'Enable Subscription Expiry Reminder',
         enabledHint: 'When enabled, the system sends reminders 7, 3, and 1 day before expiry.'
+      },
+      subscriptionExpiredAdminNotify: {
+        title: 'Subscription Expired Admin Alert',
+        description: 'Send a one-time alert to configured admin emails after a subscription expires.',
+        enabled: 'Enable Subscription Expired Admin Alert',
+        emails: 'Admin Notification Emails',
+        emailsHint: 'Each expired subscription sends at most one email per recipient. Leave empty to disable alerts.',
+        addEmail: 'Add Email',
+        emailPlaceholder: 'macseek@upit.top',
       },
       smtp: {
         title: 'SMTP Settings',

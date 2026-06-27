@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -103,15 +104,79 @@ func (s *SubscriptionExpiryService) runOnce() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	updated, err := s.userSubRepo.BatchUpdateExpiredStatus(ctx)
+	expired, err := s.userSubRepo.BatchUpdateExpiredStatus(ctx)
 	if err != nil {
 		log.Printf("[SubscriptionExpiry] Update expired subscriptions failed: %v", err)
 		return
 	}
-	if updated > 0 {
-		log.Printf("[SubscriptionExpiry] Updated %d expired subscriptions", updated)
+	if len(expired) > 0 {
+		log.Printf("[SubscriptionExpiry] Updated %d expired subscriptions", len(expired))
+		s.sendExpiredAdminNotifications(ctx, expired)
 	}
 	s.sendExpiryReminders(ctx)
+}
+
+func (s *SubscriptionExpiryService) sendExpiredAdminNotifications(ctx context.Context, expired []UserSubscription) {
+	if s == nil || s.userSubRepo == nil || s.settingRepo == nil || s.notificationEmailService == nil {
+		return
+	}
+	if !s.expiredAdminNotifyEnabled(ctx) {
+		return
+	}
+	recipients := s.expiredAdminNotifyEmails(ctx)
+	if len(recipients) == 0 {
+		return
+	}
+
+	for i := range expired {
+		s.sendExpiredAdminNotification(ctx, &expired[i], recipients)
+	}
+}
+
+func (s *SubscriptionExpiryService) expiredAdminNotifyEnabled(ctx context.Context) bool {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeySubscriptionExpiredAdminNotifyEnabled)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return false
+		}
+		log.Printf("[SubscriptionExpiry] Read expired admin notification switch failed: %v", err)
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(value), "true")
+}
+
+func (s *SubscriptionExpiryService) expiredAdminNotifyEmails(ctx context.Context) []string {
+	raw, err := s.settingRepo.GetValue(ctx, SettingKeySubscriptionExpiredAdminNotifyEmails)
+	if err != nil || strings.TrimSpace(raw) == "" || strings.TrimSpace(raw) == "[]" {
+		return nil
+	}
+	return filterVerifiedEmails(ParseNotifyEmails(raw))
+}
+
+func (s *SubscriptionExpiryService) sendExpiredAdminNotification(ctx context.Context, sub *UserSubscription, recipients []string) {
+	if sub == nil || sub.User == nil || sub.Group == nil {
+		return
+	}
+	for _, recipient := range recipients {
+		if err := s.notificationEmailService.Send(ctx, NotificationEmailSendInput{
+			Event:          NotificationEmailEventSubscriptionExpiredAdmin,
+			RecipientEmail: recipient,
+			RecipientName:  emailRecipientName(recipient),
+			SourceType:     "user_subscription_expired",
+			SourceID:       strconv.FormatInt(sub.ID, 10),
+			ReminderKey:    "expired",
+			Variables: map[string]string{
+				"subscription_id":    strconv.FormatInt(sub.ID, 10),
+				"subscription_group": sub.Group.Name,
+				"user_id":            strconv.FormatInt(sub.UserID, 10),
+				"user_email":         sub.User.Email,
+				"user_name":          firstNonEmpty(sub.User.Username, sub.User.Email),
+				"expiry_time":        sub.ExpiresAt.Format("2006-01-02 15:04"),
+			},
+		}); err != nil {
+			log.Printf("[SubscriptionExpiry] Send expired admin notification failed: subscription=%d recipient=%s err=%v", sub.ID, recipient, err)
+		}
+	}
 }
 
 func (s *SubscriptionExpiryService) sendExpiryReminders(ctx context.Context) {

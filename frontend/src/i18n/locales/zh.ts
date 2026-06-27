@@ -4759,12 +4759,20 @@ export default {
         silent: '静默',
         popup: '弹窗'
       },
+      emailPushModeLabels: {
+        none: '不推送邮件',
+        all: '推送给全部用户',
+        selected: '推送给指定用户'
+      },
       form: {
         title: '标题',
         content: '内容（支持 Markdown）',
         status: '状态',
         notifyMode: '通知方式',
         notifyModeHint: '弹窗模式会自动弹出通知给用户',
+        emailPush: '邮件推送',
+        emailPushHint: '邮件推送是保存公告时的一次性动作；编辑公告默认不再次推送。',
+        emailPushUserPlaceholder: '搜索用户邮箱或名称',
         startsAt: '开始时间',
         endsAt: '结束时间',
         startsAtHint: '留空表示立即生效',
@@ -6443,6 +6451,15 @@ export default {
         description: '控制是否向用户发送订阅即将到期的邮件提醒。',
         enabled: '启用订阅到期提醒',
         enabledHint: '开启后，系统会在订阅到期前 7 天、3 天、1 天各发送一次提醒。'
+      },
+      subscriptionExpiredAdminNotify: {
+        title: '订阅过期管理员提醒',
+        description: '订阅过期后向指定管理员邮箱发送一次提醒。',
+        enabled: '启用订阅过期管理员提醒',
+        emails: '管理员通知邮箱',
+        emailsHint: '每个订阅过期后会对每个邮箱最多发送一次；留空则不发送。',
+        addEmail: '添加邮箱',
+        emailPlaceholder: 'macseek@upit.top',
       },
       smtp: {
         title: 'SMTP 设置',

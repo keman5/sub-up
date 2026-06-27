@@ -1075,6 +1075,7 @@
           <GroupSelector
             v-model="groupIds"
             :groups="groups"
+            :show-select-all="true"
             aria-labelledby="bulk-edit-groups-label"
           />
         </div>

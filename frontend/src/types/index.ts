@@ -286,6 +286,7 @@ export interface UpdateSubscriptionRequest {
 
 export type AnnouncementStatus = 'draft' | 'active' | 'archived'
 export type AnnouncementNotifyMode = 'silent' | 'popup'
+export type AnnouncementEmailPushMode = 'none' | 'all' | 'selected'
 
 export type AnnouncementConditionType = 'subscription' | 'balance'
 
@@ -341,6 +342,8 @@ export interface CreateAnnouncementRequest {
   targeting: AnnouncementTargeting
   starts_at?: number
   ends_at?: number
+  email_push_mode?: AnnouncementEmailPushMode
+  email_push_user_ids?: number[]
 }
 
 export interface UpdateAnnouncementRequest {
@@ -351,6 +354,8 @@ export interface UpdateAnnouncementRequest {
   targeting?: AnnouncementTargeting
   starts_at?: number
   ends_at?: number
+  email_push_mode?: AnnouncementEmailPushMode
+  email_push_user_ids?: number[]
 }
 
 export interface AnnouncementUserReadStatus {

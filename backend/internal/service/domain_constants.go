@@ -472,6 +472,9 @@ const (
 
 	// 订阅到期提醒
 	SettingKeySubscriptionExpiryNotifyEnabled = "subscription_expiry_notify_enabled" // 订阅到期提醒全局开关，默认开启
+	// 订阅过期管理员提醒
+	SettingKeySubscriptionExpiredAdminNotifyEnabled = "subscription_expired_admin_notify_enabled" // 全局开关
+	SettingKeySubscriptionExpiredAdminNotifyEmails  = "subscription_expired_admin_notify_emails"  // 管理员通知邮箱列表（JSON 数组）
 
 	// 账号限额通知
 	SettingKeyAccountQuotaNotifyEnabled = "account_quota_notify_enabled" // 全局开关

@@ -276,6 +276,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		BalanceLowNotifyThreshold:              settings.BalanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:            settings.BalanceLowNotifyRechargeURL,
 		SubscriptionExpiryNotifyEnabled:        settings.SubscriptionExpiryNotifyEnabled,
+		SubscriptionExpiredAdminNotifyEnabled:  settings.SubscriptionExpiredAdminNotifyEnabled,
+		SubscriptionExpiredAdminNotifyEmails:   dto.NotifyEmailEntriesFromService(settings.SubscriptionExpiredAdminNotifyEmails),
 		AccountQuotaNotifyEnabled:              settings.AccountQuotaNotifyEnabled,
 		AccountQuotaNotifyEmails:               dto.NotifyEmailEntriesFromService(settings.AccountQuotaNotifyEmails),
 		PaymentEnabled:                         paymentCfg.Enabled,
@@ -619,12 +621,14 @@ type UpdateSettingsRequest struct {
 	OpenAIHeadroomEnabled          *bool `json:"openai_headroom_enabled"`
 
 	// 余额不足提醒
-	BalanceLowNotifyEnabled         *bool                   `json:"balance_low_notify_enabled"`
-	BalanceLowNotifyThreshold       *float64                `json:"balance_low_notify_threshold"`
-	BalanceLowNotifyRechargeURL     *string                 `json:"balance_low_notify_recharge_url"`
-	SubscriptionExpiryNotifyEnabled *bool                   `json:"subscription_expiry_notify_enabled"`
-	AccountQuotaNotifyEnabled       *bool                   `json:"account_quota_notify_enabled"`
-	AccountQuotaNotifyEmails        *[]dto.NotifyEmailEntry `json:"account_quota_notify_emails"`
+	BalanceLowNotifyEnabled               *bool                   `json:"balance_low_notify_enabled"`
+	BalanceLowNotifyThreshold             *float64                `json:"balance_low_notify_threshold"`
+	BalanceLowNotifyRechargeURL           *string                 `json:"balance_low_notify_recharge_url"`
+	SubscriptionExpiryNotifyEnabled       *bool                   `json:"subscription_expiry_notify_enabled"`
+	SubscriptionExpiredAdminNotifyEnabled *bool                   `json:"subscription_expired_admin_notify_enabled"`
+	SubscriptionExpiredAdminNotifyEmails  *[]dto.NotifyEmailEntry `json:"subscription_expired_admin_notify_emails"`
+	AccountQuotaNotifyEnabled             *bool                   `json:"account_quota_notify_enabled"`
+	AccountQuotaNotifyEmails              *[]dto.NotifyEmailEntry `json:"account_quota_notify_emails"`
 
 	// Payment configuration (integrated into settings, full replace)
 	PaymentEnabled                   *bool    `json:"payment_enabled"`
@@ -1814,6 +1818,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.SubscriptionExpiryNotifyEnabled
 		}(),
+		SubscriptionExpiredAdminNotifyEnabled: func() bool {
+			if req.SubscriptionExpiredAdminNotifyEnabled != nil {
+				return *req.SubscriptionExpiredAdminNotifyEnabled
+			}
+			return previousSettings.SubscriptionExpiredAdminNotifyEnabled
+		}(),
+		SubscriptionExpiredAdminNotifyEmails: func() []service.NotifyEmailEntry {
+			if req.SubscriptionExpiredAdminNotifyEmails != nil {
+				return dto.NotifyEmailEntriesToService(*req.SubscriptionExpiredAdminNotifyEmails)
+			}
+			return previousSettings.SubscriptionExpiredAdminNotifyEmails
+		}(),
 		AccountQuotaNotifyEnabled: func() bool {
 			if req.AccountQuotaNotifyEnabled != nil {
 				return *req.AccountQuotaNotifyEnabled
@@ -2167,6 +2183,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		BalanceLowNotifyThreshold:              updatedSettings.BalanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:            updatedSettings.BalanceLowNotifyRechargeURL,
 		SubscriptionExpiryNotifyEnabled:        updatedSettings.SubscriptionExpiryNotifyEnabled,
+		SubscriptionExpiredAdminNotifyEnabled:  updatedSettings.SubscriptionExpiredAdminNotifyEnabled,
+		SubscriptionExpiredAdminNotifyEmails:   dto.NotifyEmailEntriesFromService(updatedSettings.SubscriptionExpiredAdminNotifyEmails),
 		AccountQuotaNotifyEnabled:              updatedSettings.AccountQuotaNotifyEnabled,
 		AccountQuotaNotifyEmails:               dto.NotifyEmailEntriesFromService(updatedSettings.AccountQuotaNotifyEmails),
 		PaymentEnabled:                         updatedPaymentCfg.Enabled,
@@ -2687,6 +2705,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.SubscriptionExpiryNotifyEnabled != after.SubscriptionExpiryNotifyEnabled {
 		changed = append(changed, "subscription_expiry_notify_enabled")
+	}
+	if before.SubscriptionExpiredAdminNotifyEnabled != after.SubscriptionExpiredAdminNotifyEnabled {
+		changed = append(changed, "subscription_expired_admin_notify_enabled")
+	}
+	if !equalNotifyEmailEntries(before.SubscriptionExpiredAdminNotifyEmails, after.SubscriptionExpiredAdminNotifyEmails) {
+		changed = append(changed, "subscription_expired_admin_notify_emails")
 	}
 	if before.AccountQuotaNotifyEnabled != after.AccountQuotaNotifyEnabled {
 		changed = append(changed, "account_quota_notify_enabled")

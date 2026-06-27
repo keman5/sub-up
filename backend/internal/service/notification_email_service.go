@@ -25,6 +25,8 @@ const (
 	NotificationEmailEventNotificationEmailVerifyCode = "notification_email.verify_code"
 	NotificationEmailEventSubscriptionPurchaseSuccess = "subscription.purchase_success"
 	NotificationEmailEventSubscriptionExpiryReminder  = "subscription.expiry_reminder"
+	NotificationEmailEventSubscriptionExpiredAdmin    = "subscription.expired_admin"
+	NotificationEmailEventAnnouncementPublish         = "announcement.publish"
 	NotificationEmailEventBalanceLow                  = "balance.low"
 	NotificationEmailEventBalanceRechargeSuccess      = "balance.recharge_success"
 	NotificationEmailEventAccountQuotaAlert           = "account.quota_alert"
@@ -943,6 +945,8 @@ var notificationEmailEventOrder = []string{
 	NotificationEmailEventNotificationEmailVerifyCode,
 	NotificationEmailEventSubscriptionPurchaseSuccess,
 	NotificationEmailEventSubscriptionExpiryReminder,
+	NotificationEmailEventSubscriptionExpiredAdmin,
+	NotificationEmailEventAnnouncementPublish,
 	NotificationEmailEventBalanceLow,
 	NotificationEmailEventBalanceRechargeSuccess,
 	NotificationEmailEventAccountQuotaAlert,
@@ -993,6 +997,24 @@ var notificationEmailEventDefinitions = map[string]NotificationEmailEventInfo{
 		Category:     "subscription",
 		Optional:     true,
 		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...), "subscription_group", "expiry_time", "days_remaining", "unsubscribe_url"),
+	},
+	NotificationEmailEventSubscriptionExpiredAdmin: {
+		Event:       NotificationEmailEventSubscriptionExpiredAdmin,
+		Label:       "Subscription expired admin alert",
+		Description: "Sent to configured admin notification emails after a subscription expires.",
+		Category:    "admin",
+		Optional:    false,
+		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...),
+			"subscription_id", "subscription_group", "user_id", "user_email", "user_name", "expiry_time"),
+	},
+	NotificationEmailEventAnnouncementPublish: {
+		Event:       NotificationEmailEventAnnouncementPublish,
+		Label:       "Announcement email push",
+		Description: "Optional email push sent to selected users or all active users when an admin saves an announcement.",
+		Category:    "announcement",
+		Optional:    false,
+		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...),
+			"announcement_id", "announcement_title", "announcement_content", "announcement_url"),
 	},
 	NotificationEmailEventBalanceLow: {
 		Event:        NotificationEmailEventBalanceLow,
@@ -1164,6 +1186,48 @@ var notificationEmailOfficialTemplates = map[string]map[string]notificationEmail
 <p>您的 <strong>{{subscription_group}}</strong> 订阅将在 <strong>{{days_remaining}}</strong> 天后到期。</p>
 <p>到期时间：<strong>{{expiry_time}}</strong></p>
 <p class="muted"><a href="{{unsubscribe_url}}">退订此类订阅提醒</a></p>`),
+		},
+	},
+	NotificationEmailEventSubscriptionExpiredAdmin: {
+		notificationEmailDefaultLocale: {
+			Subject: "[{{site_name}}] Subscription expired: #{{subscription_id}}",
+			HTML: notificationEmailCard("#dc2626", "Subscription expired", `
+<p>Hello {{recipient_name}},</p>
+<p>A user subscription has expired.</p>
+<p>Subscription: <strong>#{{subscription_id}}</strong></p>
+<p>Group: <strong>{{subscription_group}}</strong></p>
+<p>User: <strong>{{user_email}}</strong> (ID: {{user_id}}, name: {{user_name}})</p>
+<p>Expired at: <strong>{{expiry_time}}</strong></p>`),
+		},
+		notificationEmailLocaleChinese: {
+			Subject: "[{{site_name}}] 订阅已过期：#{{subscription_id}}",
+			HTML: notificationEmailCard("#dc2626", "订阅已过期", `
+<p>{{recipient_name}}，您好：</p>
+<p>有用户订阅已过期。</p>
+<p>订阅：<strong>#{{subscription_id}}</strong></p>
+<p>分组：<strong>{{subscription_group}}</strong></p>
+<p>用户：<strong>{{user_email}}</strong>（ID：{{user_id}}，名称：{{user_name}}）</p>
+<p>过期时间：<strong>{{expiry_time}}</strong></p>`),
+		},
+	},
+	NotificationEmailEventAnnouncementPublish: {
+		notificationEmailDefaultLocale: {
+			Subject: "[{{site_name}}] {{announcement_title}}",
+			HTML: notificationEmailCard("#2563eb", "Announcement", `
+<p>Hello {{recipient_name}},</p>
+<p>A new announcement has been published:</p>
+<p><strong>{{announcement_title}}</strong></p>
+<p style="white-space: pre-wrap;">{{announcement_content}}</p>
+<p><a class="button" href="{{announcement_url}}">View announcement</a></p>`),
+		},
+		notificationEmailLocaleChinese: {
+			Subject: "[{{site_name}}] {{announcement_title}}",
+			HTML: notificationEmailCard("#2563eb", "系统公告", `
+<p>{{recipient_name}}，您好：</p>
+<p>有一条新的系统公告：</p>
+<p><strong>{{announcement_title}}</strong></p>
+<p style="white-space: pre-wrap;">{{announcement_content}}</p>
+<p><a class="button" href="{{announcement_url}}">查看公告</a></p>`),
 		},
 	},
 	NotificationEmailEventBalanceLow: {

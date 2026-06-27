@@ -1427,6 +1427,66 @@ docker exec sub2api-ap1 sh -lc "wget -qO- http://headroom-a1:8787/readyz || curl
 - 发布后用 `super_admin` 和普通 `admin` 各查一次 `/api/v1/admin/usage/stats`、`/api/v1/admin/dashboard/stats` 与分组编辑页：普通 admin 应看到展示后的 token/cost/RPM/TPM，分组页不显示展示倍率配置；`super_admin` 应看到 raw token/cost/RPM/TPM 和真实倍率配置；用户侧 group DTO 的 `usage_multiplier` 始终是 `1`。
 - 用大于等于 1000 token 的非流式和流式请求各验证一次客户端响应 usage；低于 1000 token 的请求应保持 `presentation_multiplier=1`。
 
+## 十五、2026-06-27 订阅过期管理员邮件提醒部署说明
+
+本 fork 增加“订阅过期管理员提醒”系统设置：后台任务把订阅从 `active` 标记为 `expired` 后，只对本轮刚过期的订阅向配置的管理员邮箱发送一次通知。功能默认关闭，避免升级后对历史过期订阅批量补发邮件。提醒与“订阅到期前 7/3/1 天用户提醒”是独立开关。
+
+部署注意：
+
+- 必须部署包含 `backend/migrations/160_subscription_expired_admin_notify.sql` 的后端镜像，让目标环境先写入默认关闭的系统设置键。
+- 后端部署完成后，在“系统设置 -> 邮件设置/通知”中开启“订阅过期管理员提醒”，并添加 `macseek@upit.top` 或其它管理员通知邮箱。后台录入的邮箱默认视为已确认；关闭开关或留空邮箱都不会发送。
+- 需要先确认 SMTP 设置可用，否则提醒会被邮件服务拒绝。可用系统设置里的测试邮件功能验证。
+- 该功能只通知新一轮状态变更的订阅，不会扫描所有历史 `expired` 订阅；如需补发历史提醒，需要单独写脚本并明确幂等规则。
+- 邮件模板事件为 `subscription.expired_admin`，可在邮件模板编辑器中查看或调整。幂等键使用订阅 ID 和 `expired` reminder key，同一订阅对同一收件人不会重复发送。
+
+本地复查命令：
+
+```bash
+cd backend
+go test ./internal/service ./internal/repository ./internal/handler/dto ./internal/handler/admin ./internal/server/middleware -count=1
+go test ./internal/server ./internal/handler -count=1
+cd ..
+/opt/homebrew/bin/pnpm --dir frontend run typecheck
+/opt/homebrew/bin/pnpm --dir frontend run build
+git diff --check
+```
+
+发布后验证：
+
+```bash
+curl -fsS https://ap2.upit.top/health
+curl -fsS https://a2.upit.top/api/v1/settings/public
+# 登录后台后检查 /api/v1/admin/settings 返回 subscription_expired_admin_notify_enabled 与 subscription_expired_admin_notify_emails
+```
+
+后续同步官方或重构订阅任务时，继续搜索 `subscription_expired_admin_notify_enabled`、`subscription.expired_admin`、`BatchUpdateExpiredStatus`、`user_subscription_expired`。必须保持默认关闭、只通知本轮刚过期订阅、管理员邮箱不进入公开设置接口这三个约束。
+
+## 十六、2026-06-27 公告邮件推送部署说明
+
+本 fork 增加公告邮件推送：管理员创建或更新公告时，可选择“不推送邮件”“推送给全部用户”或“推送给指定用户”。邮件推送是保存公告时的一次性动作，不改变站内公告的展示条件、弹窗/静默模式和已读逻辑。
+
+部署注意：
+
+- 不需要新增迁移；功能复用现有用户表、公告表、SMTP 配置和通知邮件模板系统。
+- 邮件模板事件为 `announcement.publish`，可在邮件模板编辑器中调整标题和正文。
+- “全部用户”只推送 `active` 用户；“指定用户”会过滤重复 ID、非 active 用户、无邮箱用户和不存在用户。
+- 编辑公告时表单默认仍为“不推送邮件”，避免普通编辑误触发二次群发。
+- 幂等键使用公告 ID、用户 ID 和收件邮箱；同一公告对同一用户邮箱不会重复发送。
+- 发送失败只记录日志，不回滚公告保存。上线前应先用系统设置里的 SMTP 测试邮件确认邮件链路可用。
+
+本地复查命令：
+
+```bash
+cd backend
+go test ./internal/service ./internal/handler/admin -run 'TestAnnouncement|TestNotificationEmail' -count=1
+cd ..
+/opt/homebrew/bin/pnpm --dir frontend run typecheck
+/opt/homebrew/bin/pnpm --dir frontend run build
+git diff --check
+```
+
+后续同步官方或重构公告时，继续搜索 `announcement.publish`、`AnnouncementEmailPushMode`、`email_push_mode`、`email_push_user_ids`。必须保持邮件推送为显式一次性动作，不能变成用户打开公告或公告到达 `starts_at` 后自动补发。
+
 ### 7. OpenAI OAuth Headroom 代理选择复查
 
 不要按客户端访问路径是否包含 `/v1/` 来决定是否绕过账号 proxy。线上同样是 `/v1/responses` 或 `/v1/chat/completions`，可能最终去外部 OpenAI / 第三方兼容上游，也可能被后端转换后去 `http://headroom-a1:8787/v1/responses`。只有最终 upstream URL 是本机、私网 IP、loopback 或 Docker 内网 service name，并且 scheme 为 `http` / `ws` 时，才允许不走账号 proxy。
