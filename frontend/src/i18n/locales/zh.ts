@@ -3580,6 +3580,12 @@ export default {
       },
       bulkDeleteTitle: '批量删除账号',
       bulkDeleteConfirm: '确定要删除选中的 {count} 个账号吗？此操作无法撤销。',
+      bulkResetStatusTitle: '批量重置账号状态',
+      bulkResetStatusConfirm:
+        '确定要重置选中的 {count} 个账号状态吗？系统会清除错误、限流和临时不可调度等运行状态，账号可能重新参与调度。',
+      bulkRefreshTokenTitle: '批量刷新账号令牌',
+      bulkRefreshTokenConfirm:
+        '确定要刷新选中的 {count} 个账号令牌吗？系统会向上游重新换取访问令牌，失败账号会保留原状态。',
       bulkDeleteSuccess: '成功删除 {count} 个账号',
       bulkDeletePartial: '部分删除成功：成功 {success} 个，失败 {failed} 个',
       bulkDeleteFailed: '批量删除失败',
@@ -3745,6 +3751,8 @@ export default {
       supportsAllModels: '（支持所有模型）',
       requestModel: '请求模型',
       actualModel: '实际模型',
+      fromModel: '请求模型，例如 gpt-5.4',
+      toModel: '上游模型，例如 gpt-5.4-compact',
       addMapping: '添加映射',
       mappingExists: '模型 {model} 的映射已存在',
       wildcardOnlyAtEnd: '通配符 * 只能放在末尾',

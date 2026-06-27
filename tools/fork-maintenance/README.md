@@ -34,6 +34,8 @@ It regenerates `favicon.ico` from the current `frontend/public/logo.png` before 
 
 `check-doc` and `record` keep the local patch table sorted by ascending date. Use `sort-doc` to normalize the order manually after editing old records.
 
+Long records should be moved into `docs/fork-maintenance/YYYY-MM.md` before commit, with `docs/FORK_MAINTENANCE_CN.md` keeping only the main index and a short link to the monthly detail file. This keeps the central doc readable and reduces merge conflicts during upstream syncs.
+
 For binary deployment over slow links, use the gzip transfer/decompress helper:
 
 ```bash

@@ -1,16 +1,14 @@
 <template>
   <div>
-    <label class="input-label">
-      {{ t('admin.users.groups') }}
-      <span class="font-normal text-gray-400">{{ t('common.selectedCount', { count: modelValue.length }) }}</span>
-    </label>
-    <div
-      v-if="showSelectAll && filteredGroups.length > 0"
-      class="mb-1 flex items-center justify-end gap-2"
-    >
+    <div class="mb-1 flex items-center justify-between gap-3">
+      <label class="input-label mb-0">
+        {{ t('admin.users.groups') }}
+        <span class="font-normal text-gray-400">{{ t('common.selectedCount', { count: modelValue.length }) }}</span>
+      </label>
       <button
+        v-if="showSelectAll && filteredGroups.length > 0"
         type="button"
-        class="rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 transition hover:bg-gray-100 dark:border-dark-500 dark:text-gray-300 dark:hover:bg-dark-700"
+        class="shrink-0 rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 transition hover:bg-gray-100 dark:border-dark-500 dark:text-gray-300 dark:hover:bg-dark-700"
         @click="toggleAllVisible"
       >
         {{ areAllVisibleGroupsSelected ? t('common.clear') : t('common.selectAll') }}

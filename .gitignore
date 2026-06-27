@@ -143,6 +143,8 @@ docs/*
 !docs/VPS_DEPLOY_NOTES.md
 !docs/CLOUDFLARE_PAGES_DEPLOY_CN.md
 !docs/RISK_CONTROL_KEYWORDS_CN.md
+!docs/fork-maintenance/
+!docs/fork-maintenance/*.md
 !docs/risk-control-keywords/
 !docs/risk-control-keywords/*.txt
 !docs/risk-control-keywords/*.md

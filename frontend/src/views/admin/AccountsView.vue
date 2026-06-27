@@ -1241,7 +1241,9 @@ const toggleSelectAllVisible = (event: Event) => {
 }
 const handleBulkDelete = async () => {
   if (!(await appDialog.confirm({
-    message: t('common.confirm'),
+    title: t('admin.accounts.bulkDeleteTitle'),
+    message: t('admin.accounts.bulkDeleteConfirm', { count: selIds.value.length }),
+    confirmText: t('admin.accounts.bulkActions.delete'),
     danger: true,
   }))) return
   try {
@@ -1253,7 +1255,11 @@ const handleBulkDelete = async () => {
   }
 }
 const handleBulkResetStatus = async () => {
-  if (!(await appDialog.confirm(t('common.confirm')))) return
+  if (!(await appDialog.confirm({
+    title: t('admin.accounts.bulkResetStatusTitle'),
+    message: t('admin.accounts.bulkResetStatusConfirm', { count: selIds.value.length }),
+    confirmText: t('admin.accounts.bulkActions.resetStatus'),
+  }))) return
   try {
     const result = await adminAPI.accounts.batchClearError(selIds.value)
     if (result.failed > 0) {
@@ -1269,7 +1275,11 @@ const handleBulkResetStatus = async () => {
   }
 }
 const handleBulkRefreshToken = async () => {
-  if (!(await appDialog.confirm(t('common.confirm')))) return
+  if (!(await appDialog.confirm({
+    title: t('admin.accounts.bulkRefreshTokenTitle'),
+    message: t('admin.accounts.bulkRefreshTokenConfirm', { count: selIds.value.length }),
+    confirmText: t('admin.accounts.bulkActions.refreshToken'),
+  }))) return
   try {
     const result = await adminAPI.accounts.batchRefresh(selIds.value)
     if (result.failed > 0) {

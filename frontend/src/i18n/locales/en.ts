@@ -3407,6 +3407,12 @@ export default {
       },
       bulkDeleteTitle: 'Bulk Delete Accounts',
       bulkDeleteConfirm: 'Delete the selected {count} account(s)? This action cannot be undone.',
+      bulkResetStatusTitle: 'Reset Account Status',
+      bulkResetStatusConfirm:
+        'Reset status for the selected {count} account(s)? This clears error, rate-limit, and temporary unschedulable runtime state, so accounts may re-enter scheduling.',
+      bulkRefreshTokenTitle: 'Refresh Account Tokens',
+      bulkRefreshTokenConfirm:
+        'Refresh tokens for the selected {count} account(s)? The system will request new upstream access tokens, and failed accounts will keep their current state.',
       bulkDeleteSuccess: 'Deleted {count} account(s)',
       bulkDeletePartial: 'Partially deleted: {success} succeeded, {failed} failed',
       bulkDeleteFailed: 'Bulk delete failed',
@@ -3576,6 +3582,8 @@ export default {
       supportsAllModels: '(supports all models)',
       requestModel: 'Request model',
       actualModel: 'Actual model',
+      fromModel: 'Request model, e.g. gpt-5.4',
+      toModel: 'Upstream model, e.g. gpt-5.4-compact',
       addMapping: 'Add Mapping',
       mappingExists: 'Mapping for {model} already exists',
       wildcardOnlyAtEnd: 'Wildcard * can only be at the end',
