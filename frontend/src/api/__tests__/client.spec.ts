@@ -127,6 +127,8 @@ describe('API Client', () => {
     })
 
     it('code!=0 时拒绝并返回结构化错误', async () => {
+      const listener = vi.fn()
+      window.addEventListener('sub2api-api-error', listener)
       const adapter = vi.fn().mockResolvedValue({
         status: 200,
         data: { code: 1001, message: '参数错误', data: null },
@@ -142,6 +144,34 @@ describe('API Client', () => {
           message: '参数错误',
         })
       )
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
+        message: '参数错误',
+      })
+      window.removeEventListener('sub2api-api-error', listener)
+    })
+
+    it('请求显式关闭全局错误提示时不广播错误 toast 事件', async () => {
+      const listener = vi.fn()
+      window.addEventListener('sub2api-api-error', listener)
+      const adapter = vi.fn((config) => Promise.resolve({
+        status: 200,
+        data: { code: 1001, message: '静默错误', data: null },
+        headers: {},
+        config,
+        statusText: 'OK',
+      }))
+      apiClient.defaults.adapter = adapter
+
+      await expect(apiClient.get('/test', { skipGlobalErrorToast: true })).rejects.toEqual(
+        expect.objectContaining({
+          code: 1001,
+          message: '静默错误',
+        })
+      )
+
+      expect(listener).not.toHaveBeenCalled()
+      window.removeEventListener('sub2api-api-error', listener)
     })
 
     it('部署与运营合规未确认时广播事件且保留登录态', async () => {
@@ -198,6 +228,8 @@ describe('API Client', () => {
     it('无 refresh_token 时 401 清除 localStorage', async () => {
       localStorage.setItem('auth_token', 'expired-token')
       // 不设置 refresh_token
+      const listener = vi.fn()
+      window.addEventListener('sub2api-api-error', listener)
 
       // Mock window.location
       const originalLocation = window.location
@@ -222,17 +254,21 @@ describe('API Client', () => {
       await expect(apiClient.get('/test')).rejects.toBeDefined()
 
       expect(localStorage.getItem('auth_token')).toBeNull()
+      expect(listener).not.toHaveBeenCalled()
 
       // 恢复 location
       Object.defineProperty(window, 'location', {
         value: originalLocation,
         writable: true,
       })
+      window.removeEventListener('sub2api-api-error', listener)
     })
 
     it('refresh 接口自身 401 时不再次刷新，避免 refresh 请求循环', async () => {
       localStorage.setItem('auth_token', 'expired-token')
       localStorage.setItem('refresh_token', 'stale-refresh')
+      const listener = vi.fn()
+      window.addEventListener('sub2api-api-error', listener)
 
       const originalLocation = window.location
       Object.defineProperty(window, 'location', {
@@ -263,18 +299,22 @@ describe('API Client', () => {
       expect(adapter).toHaveBeenCalledTimes(1)
       expect(localStorage.getItem('auth_token')).toBeNull()
       expect(localStorage.getItem('refresh_token')).toBeNull()
+      expect(listener).not.toHaveBeenCalled()
 
       Object.defineProperty(window, 'location', {
         value: originalLocation,
         writable: true,
       })
+      window.removeEventListener('sub2api-api-error', listener)
     })
 
     it('刷新成功后广播新 token 事件并重试原请求', async () => {
       localStorage.setItem('auth_token', 'expired-token')
       localStorage.setItem('refresh_token', 'old-refresh-token')
       const listener = vi.fn()
+      const errorListener = vi.fn()
       window.addEventListener('auth-token-refreshed', listener)
+      window.addEventListener('sub2api-api-error', errorListener)
       const axiosPost = vi.spyOn(axios, 'post').mockResolvedValue({
         data: {
           code: 0,
@@ -322,8 +362,10 @@ describe('API Client', () => {
         refresh_token: 'new-refresh-token',
         expires_in: 3600,
       })
+      expect(errorListener).not.toHaveBeenCalled()
 
       window.removeEventListener('auth-token-refreshed', listener)
+      window.removeEventListener('sub2api-api-error', errorListener)
     })
   })
 
@@ -331,6 +373,8 @@ describe('API Client', () => {
 
   describe('网络错误', () => {
     it('网络错误返回 status 0 的错误', async () => {
+      const listener = vi.fn()
+      window.addEventListener('sub2api-api-error', listener)
       const adapter = vi.fn().mockRejectedValue({
         code: 'ERR_NETWORK',
         message: 'Network Error',
@@ -345,6 +389,11 @@ describe('API Client', () => {
           message: 'Network error. Please check your connection.',
         })
       )
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
+        message: 'Network error. Please check your connection.',
+      })
+      window.removeEventListener('sub2api-api-error', listener)
     })
   })
 
@@ -362,6 +411,24 @@ describe('API Client', () => {
       await expect(
         apiClient.get('/test', { cancelToken: source.token })
       ).rejects.toBeDefined()
+    })
+
+    it('取消请求不广播全局错误 toast 事件', async () => {
+      const listener = vi.fn()
+      window.addEventListener('sub2api-api-error', listener)
+      const source = axios.CancelToken.source()
+
+      const adapter = vi.fn().mockRejectedValue(
+        new axios.Cancel('Operation canceled')
+      )
+      apiClient.defaults.adapter = adapter
+
+      await expect(
+        apiClient.get('/test', { cancelToken: source.token })
+      ).rejects.toBeDefined()
+
+      expect(listener).not.toHaveBeenCalled()
+      window.removeEventListener('sub2api-api-error', listener)
     })
   })
 })

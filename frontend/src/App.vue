@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterView, useRouter, useRoute } from 'vue-router'
 import { onBeforeUnmount, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
 import AppDialogHost from '@/components/common/AppDialogHost.vue'
@@ -19,6 +20,7 @@ const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
 const adminComplianceStore = useAdminComplianceStore()
 const adminSettingsStore = useAdminSettingsStore()
+const { t } = useI18n()
 let routeSetupCheckSeq = 0
 
 function updateDocumentTitle() {
@@ -64,6 +66,11 @@ function onVisibilityChange() {
 function onAdminComplianceRequired(event: Event) {
   const detail = (event as CustomEvent<Record<string, string>>).detail || {}
   adminComplianceStore.requireAcknowledgement(detail)
+}
+
+function onApiError(event: Event) {
+  const detail = (event as CustomEvent<{ message?: string }>).detail || {}
+  appStore.showError(detail.message || t('common.unknownError'))
 }
 
 watch(
@@ -114,6 +121,7 @@ router.afterEach(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
   window.removeEventListener('admin-compliance-required', onAdminComplianceRequired)
+  window.removeEventListener('sub2api-api-error', onApiError)
 })
 
 async function initializeRouteEnvironment() {
@@ -152,6 +160,7 @@ async function initializeRouteEnvironment() {
 
 onMounted(() => {
   window.addEventListener('admin-compliance-required', onAdminComplianceRequired)
+  window.addEventListener('sub2api-api-error', onApiError)
 })
 
 watch(

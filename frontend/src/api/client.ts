@@ -7,6 +7,25 @@ import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResp
 import type { ApiResponse } from '@/types'
 import { getLocale } from '@/i18n'
 
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    skipGlobalErrorToast?: boolean
+  }
+}
+
+type ApiClientErrorDetail = {
+  message: string
+}
+
+type ApiClientError = {
+  status?: number
+  code?: unknown
+  reason?: unknown
+  error?: unknown
+  message: string
+  metadata?: unknown
+}
+
 // ==================== Axios Instance Configuration ====================
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
@@ -40,6 +59,28 @@ function subscribeTokenRefresh(callback: (token: string) => void): void {
 function onTokenRefreshed(token: string): void {
   refreshSubscribers.forEach((callback) => callback(token))
   refreshSubscribers = []
+}
+
+function isAuthEndpoint(url?: string): boolean {
+  const value = String(url || '')
+  return value.includes('/auth/login') || value.includes('/auth/register') || value.includes('/auth/refresh')
+}
+
+function shouldSkipGlobalErrorToast(config?: InternalAxiosRequestConfig | null, status?: number): boolean {
+  if (config?.skipGlobalErrorToast === true) return true
+  if (status === 401) return true
+  return isAuthEndpoint(config?.url)
+}
+
+function dispatchGlobalErrorToast(message: string, config?: InternalAxiosRequestConfig | null, status?: number): void {
+  if (shouldSkipGlobalErrorToast(config, status)) return
+  try {
+    window.dispatchEvent(new CustomEvent<ApiClientErrorDetail>('sub2api-api-error', {
+      detail: { message }
+    }))
+  } catch {
+    // ignore browser event failures
+  }
 }
 
 // ==================== Request Interceptor ====================
@@ -94,13 +135,15 @@ apiClient.interceptors.response.use(
       } else {
         // API error
         const resp = apiResponse as unknown as Record<string, unknown>
-        return Promise.reject({
+        const apiError: ApiClientError = {
           status: response.status,
           code: apiResponse.code,
           message: apiResponse.message || 'Unknown error',
           reason: resp.reason,
           metadata: resp.metadata,
-        })
+        }
+        dispatchGlobalErrorToast(apiError.message, response.config, response.status)
+        return Promise.reject(apiError)
       }
     }
     return response
@@ -296,21 +339,25 @@ apiClient.interceptors.response.use(
       }
 
       // Return structured error
-      return Promise.reject({
+      const structuredError: ApiClientError = {
         status,
         code: apiData.code,
         reason: apiData.reason,
         error: apiData.error,
         message: apiData.message || apiData.detail || error.message,
         metadata: apiData.metadata,
-      })
+      }
+      dispatchGlobalErrorToast(structuredError.message, originalRequest, status)
+      return Promise.reject(structuredError)
     }
 
     // Network error
-    return Promise.reject({
+    const networkError: ApiClientError = {
       status: 0,
       message: 'Network error. Please check your connection.'
-    })
+    }
+    dispatchGlobalErrorToast(networkError.message, originalRequest)
+    return Promise.reject(networkError)
   }
 )
 
