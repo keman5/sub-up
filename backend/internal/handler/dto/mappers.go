@@ -596,7 +596,7 @@ func AccountSummaryFromService(a *service.Account) *AccountSummary {
 }
 
 func usageLogFromServiceUser(l *service.UsageLog, mode service.UsageViewMode) UsageLog {
-	// 普通用户 DTO：严禁包含管理员字段（例如 account_rate_multiplier、ip_address、account）。
+	// 普通用户 DTO：严禁包含管理员字段（例如 account_rate_multiplier、account、upstream_model）。
 	viewLog := service.UsageLogForView(l, mode)
 	l = &viewLog
 	requestType := l.EffectiveRequestType()
@@ -615,7 +615,6 @@ func usageLogFromServiceUser(l *service.UsageLog, mode service.UsageViewMode) Us
 		ServiceTier:           l.ServiceTier,
 		ReasoningEffort:       l.ReasoningEffort,
 		InboundEndpoint:       l.InboundEndpoint,
-		UpstreamEndpoint:      l.UpstreamEndpoint,
 		GroupID:               l.GroupID,
 		SubscriptionID:        l.SubscriptionID,
 		InputTokens:           l.InputTokens,
@@ -647,6 +646,7 @@ func usageLogFromServiceUser(l *service.UsageLog, mode service.UsageViewMode) Us
 		ImageSizeBreakdown:    l.ImageSizeBreakdown,
 		MediaType:             l.MediaType,
 		UserAgent:             l.UserAgent,
+		IPAddress:             l.IPAddress,
 		CacheTTLOverridden:    l.CacheTTLOverridden,
 		BillingMode:           l.BillingMode,
 		CreatedAt:             l.CreatedAt,
@@ -658,7 +658,7 @@ func usageLogFromServiceUser(l *service.UsageLog, mode service.UsageViewMode) Us
 }
 
 // UsageLogFromService converts a service UsageLog to DTO for regular users.
-// It excludes Account details and IP address - users should not see these.
+// It excludes admin-only account/upstream internals while keeping user billing and request metadata.
 func UsageLogFromService(l *service.UsageLog) *UsageLog {
 	return UsageLogFromServiceWithViewer(l, service.UsageViewPresentation)
 }
@@ -681,8 +681,10 @@ func UsageLogFromServiceAdminWithViewer(l *service.UsageLog, mode service.UsageV
 	if l == nil {
 		return nil
 	}
+	usageLog := usageLogFromServiceUser(l, mode)
+	usageLog.UpstreamEndpoint = l.UpstreamEndpoint
 	out := &AdminUsageLog{
-		UsageLog:          usageLogFromServiceUser(l, mode),
+		UsageLog:          usageLog,
 		UpstreamModel:     l.UpstreamModel,
 		ChannelID:         l.ChannelID,
 		ModelMappingChain: l.ModelMappingChain,
