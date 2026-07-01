@@ -479,6 +479,8 @@ const (
 	// 账号限额通知
 	SettingKeyAccountQuotaNotifyEnabled = "account_quota_notify_enabled" // 全局开关
 	SettingKeyAccountQuotaNotifyEmails  = "account_quota_notify_emails"  // 管理员通知邮箱列表（JSON 数组）
+	// 账号池全不可用通知状态
+	SettingKeyAccountPoolUnavailableOutageID = "account_pool_unavailable_outage_id"
 
 	// Web Search Emulation
 	SettingKeyWebSearchEmulationConfig = "web_search_emulation_config" // JSON 配置

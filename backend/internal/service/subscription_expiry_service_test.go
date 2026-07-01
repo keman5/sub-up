@@ -227,8 +227,76 @@ func TestSubscriptionExpiryService_RunOnceSendsExpiredAdminNotification(t *testi
 	svc := NewSubscriptionExpiryService(repo, time.Minute)
 	svc.SetSettingRepository(settings)
 	svc.SetNotificationEmailService(notificationSvc)
+	svc.nowFunc = func() time.Time { return expiresAt }
 
 	svc.runOnce()
 
+	require.EqualValues(t, 0, smtpServer.messageCount())
+
+	repo.expiredSubscriptions = nil
+	svc.nowFunc = func() time.Time { return expiresAt.Add(10*time.Minute + time.Second) }
+	svc.runOnce()
+
 	require.EqualValues(t, 1, smtpServer.messageCount())
+}
+
+func TestSubscriptionExpiryService_ExpiredAdminNotificationsAreBatched(t *testing.T) {
+	smtpServer := startNotificationEmailTestSMTPServer(t)
+	defer smtpServer.close()
+
+	settings := newNotificationEmailMemorySettingRepo()
+	for key, value := range smtpServer.settings() {
+		require.NoError(t, settings.Set(context.Background(), key, value))
+	}
+	require.NoError(t, settings.Set(context.Background(), SettingKeySiteName, "51token"))
+	require.NoError(t, settings.Set(context.Background(), SettingKeySubscriptionExpiredAdminNotifyEnabled, "true"))
+	require.NoError(t, settings.Set(context.Background(), SettingKeySubscriptionExpiredAdminNotifyEmails, MarshalNotifyEmails([]NotifyEmailEntry{
+		{Email: "macseek@upit.top", Verified: true},
+	})))
+
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	repo := &subscriptionExpiryRepoStub{
+		expiredSubscriptions: []UserSubscription{
+			{
+				ID:        42,
+				UserID:    7,
+				GroupID:   3,
+				ExpiresAt: now.Add(-time.Minute),
+				Status:    SubscriptionStatusExpired,
+				User:      &User{ID: 7, Email: "alpha@example.com", Username: "alpha", Notes: "alpha admin note"},
+				Group:     &Group{ID: 3, Name: "Pro"},
+			},
+			{
+				ID:        43,
+				UserID:    8,
+				GroupID:   4,
+				ExpiresAt: now.Add(-2 * time.Minute),
+				Status:    SubscriptionStatusExpired,
+				User:      &User{ID: 8, Email: "beta@example.com", Username: "beta", Notes: "beta admin note"},
+				Group:     &Group{ID: 4, Name: "Spark"},
+			},
+		},
+	}
+	emailSvc := NewEmailService(settings, nil)
+	notificationSvc := NewNotificationEmailService(settings, emailSvc)
+	svc := NewSubscriptionExpiryService(repo, time.Minute)
+	svc.SetSettingRepository(settings)
+	svc.SetNotificationEmailService(notificationSvc)
+	svc.nowFunc = func() time.Time { return now }
+
+	svc.runOnce()
+
+	require.EqualValues(t, 0, smtpServer.messageCount(), "first scan should only open the 10 minute aggregation window")
+
+	repo.expiredSubscriptions = nil
+	svc.nowFunc = func() time.Time { return now.Add(10*time.Minute + time.Second) }
+	svc.runOnce()
+
+	require.EqualValues(t, 1, smtpServer.messageCount())
+	bodies := smtpServer.messageBodies()
+	require.Len(t, bodies, 1)
+	require.Contains(t, bodies[0], "alpha@example.com")
+	require.Contains(t, bodies[0], "beta@example.com")
+	require.Contains(t, bodies[0], "alpha admin note")
+	require.Contains(t, bodies[0], "beta admin note")
 }

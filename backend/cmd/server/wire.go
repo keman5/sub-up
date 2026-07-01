@@ -84,6 +84,7 @@ func provideCleanup(
 	openAIQuotaRefresh *service.OpenAIQuotaRefreshService,
 	proxyExpiry *service.ProxyExpiryService,
 	subscriptionExpiry *service.SubscriptionExpiryService,
+	accountPoolHealthNotify *service.AccountPoolHealthNotifyService,
 	usageCleanup *service.UsageCleanupService,
 	idempotencyCleanup *service.IdempotencyCleanupService,
 	pricing *service.PricingService,
@@ -190,6 +191,12 @@ func provideCleanup(
 			}},
 			{"SubscriptionExpiryService", func() error {
 				subscriptionExpiry.Stop()
+				return nil
+			}},
+			{"AccountPoolHealthNotifyService", func() error {
+				if accountPoolHealthNotify != nil {
+					accountPoolHealthNotify.Stop()
+				}
 				return nil
 			}},
 			{"SubscriptionService", func() error {

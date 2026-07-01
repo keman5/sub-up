@@ -65,6 +65,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		openAIQuotaRefreshSvc,
 		proxyExpirySvc,
 		subscriptionExpirySvc,
+		nil, // accountPoolHealthNotify
 		&service.UsageCleanupService{},
 		idempotencyCleanupSvc,
 		pricingSvc,

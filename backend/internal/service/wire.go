@@ -226,6 +226,13 @@ func ProvideSubscriptionExpiryService(userSubRepo UserSubscriptionRepository, se
 	return svc
 }
 
+// ProvideAccountPoolHealthNotifyService creates and starts AccountPoolHealthNotifyService.
+func ProvideAccountPoolHealthNotifyService(accountRepo AccountRepository, settingRepo SettingRepository, notificationEmailService *NotificationEmailService) *AccountPoolHealthNotifyService {
+	svc := NewAccountPoolHealthNotifyService(accountRepo, settingRepo, notificationEmailService, time.Minute)
+	svc.Start()
+	return svc
+}
+
 // ProvideTimingWheelService creates and starts TimingWheelService
 func ProvideTimingWheelService() (*TimingWheelService, error) {
 	svc, err := NewTimingWheelService()
@@ -634,6 +641,7 @@ var ProviderSet = wire.NewSet(
 	ProvideOpenAIQuotaRefreshService,
 	ProvideProxyExpiryService,
 	ProvideSubscriptionExpiryService,
+	ProvideAccountPoolHealthNotifyService,
 	ProvideTimingWheelService,
 	ProvideDashboardAggregationService,
 	ProvideUsageCleanupService,

@@ -81,6 +81,27 @@ func TestNotificationEmailTemplateRejectsUnsupportedPlaceholder(t *testing.T) {
 	require.Contains(t, err.Error(), "unsupported placeholder")
 }
 
+func TestNotificationEmailSubscriptionExpiredAdminAllowsBatchHTML(t *testing.T) {
+	rendered, err := renderNotificationEmail(
+		NotificationEmailEventSubscriptionExpiredAdmin,
+		"[{{site_name}}] {{expired_count}} 个订阅已过期",
+		"<p>{{expired_count}}</p>{{expired_subscriptions}}",
+		map[string]string{
+			"site_name":     "51token",
+			"expired_count": "2",
+		},
+		map[string]string{
+			"expired_subscriptions": "<table><tbody><tr><td>alpha@example.com</td></tr></tbody></table>",
+		},
+	)
+
+	require.NoError(t, err)
+	require.Contains(t, rendered.Subject, "2")
+	require.Contains(t, rendered.HTML, "<table>")
+	require.Contains(t, rendered.HTML, "alpha@example.com")
+	require.NotContains(t, rendered.HTML, "&lt;table&gt;")
+}
+
 func TestNotificationEmailAuthTemplatesAreListedAndPreviewable(t *testing.T) {
 	ctx := context.Background()
 	svc := NewNotificationEmailService(newNotificationEmailMemorySettingRepo(), nil)
@@ -138,6 +159,7 @@ func TestNotificationEmailAdditionalEventsAreListedAndPreviewable(t *testing.T) 
 	}{
 		{NotificationEmailEventNotificationEmailVerifyCode, "verification_code"},
 		{NotificationEmailEventAccountQuotaAlert, "account_name"},
+		{NotificationEmailEventAccountPoolUnavailable, "account_count"},
 		{NotificationEmailEventContentModerationViolation, "moderation_category"},
 		{NotificationEmailEventContentModerationDisabled, "violation_count"},
 		{NotificationEmailEventCyberPolicyNotice, "upstream_message"},
@@ -458,6 +480,8 @@ type notificationEmailTestSMTPServer struct {
 	listener net.Listener
 	wg       sync.WaitGroup
 	messages atomic.Int64
+	mu       sync.Mutex
+	bodies   []string
 }
 
 func startNotificationEmailTestSMTPServer(t *testing.T) *notificationEmailTestSMTPServer {
@@ -487,6 +511,12 @@ func (s *notificationEmailTestSMTPServer) settings() map[string]string {
 
 func (s *notificationEmailTestSMTPServer) messageCount() int64 {
 	return s.messages.Load()
+}
+
+func (s *notificationEmailTestSMTPServer) messageBodies() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.bodies...)
 }
 
 func (s *notificationEmailTestSMTPServer) close() {
@@ -547,6 +577,7 @@ func (s *notificationEmailTestSMTPServer) handleConn(conn net.Conn) {
 			if !writeLine("354 End data with <CR><LF>.<CR><LF>") {
 				return
 			}
+			var body strings.Builder
 			for {
 				dataLine, err := rw.ReadString('\n')
 				if err != nil {
@@ -555,7 +586,11 @@ func (s *notificationEmailTestSMTPServer) handleConn(conn net.Conn) {
 				if strings.TrimRight(dataLine, "\r\n") == "." {
 					break
 				}
+				body.WriteString(dataLine)
 			}
+			s.mu.Lock()
+			s.bodies = append(s.bodies, body.String())
+			s.mu.Unlock()
 			s.messages.Add(1)
 			if !writeLine("250 2.0.0 OK") {
 				return
