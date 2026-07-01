@@ -163,6 +163,12 @@ vi.mock("vue-i18n", async () => {
     "admin.settings.openaiExperimentalScheduler.description": "默认关闭。开启后仅影响本网关在 OpenAI 账号间的实验性调度选择逻辑，不代表上游 OpenAI 官方能力。",
     "admin.settings.openaiHeadroom.title": "Headroom 压缩代理",
     "admin.settings.openaiHeadroom.description": "默认关闭。开启后，已配置 Headroom sidecar 的 OpenAI OAuth Codex 请求会先经过 Headroom 压缩；关闭时直接访问上游 Codex。",
+    "admin.settings.emailDefaultLocale.title": "默认邮件语言",
+    "admin.settings.emailDefaultLocale.description": "当收件人没有语言记录时，系统通知邮件使用此语言。",
+    "admin.settings.emailDefaultLocale.label": "默认语言",
+    "admin.settings.emailDefaultLocale.zh": "中文",
+    "admin.settings.emailDefaultLocale.en": "英文",
+    "admin.settings.emailDefaultLocale.hint": "用户或邮箱已记住的语言优先。",
     "admin.settings.site.uploadImage": "上传图片",
     "admin.settings.site.remove": "移除",
     "admin.settings.platformQuota.platform": "平台",
@@ -324,6 +330,7 @@ const baseSettingsResponse = {
   smtp_from_email: "",
   smtp_from_name: "",
   smtp_use_tls: true,
+  notification_email_default_locale: "zh",
   turnstile_enabled: false,
   turnstile_site_key: "",
   turnstile_secret_key_configured: false,
@@ -646,6 +653,40 @@ describe("admin SettingsView payment visible method controls", () => {
         rewrite_message_cache_control: true,
       }),
     );
+  });
+
+  it("submits notification email default locale setting", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      notification_email_default_locale: "zh",
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notification_email_default_locale: "zh",
+      }),
+    );
+  });
+
+  it("keeps notification email default locale available when email verification is disabled", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      email_verify_enabled: false,
+      notification_email_default_locale: "zh",
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("默认邮件语言");
   });
 
   it("submits Claude OAuth system prompt injection gateway settings", async () => {

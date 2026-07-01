@@ -6316,6 +6316,14 @@ export default {
         addEmail: 'Add Email',
         emailPlaceholder: 'macseek@upit.top',
       },
+      emailDefaultLocale: {
+        title: 'Default Email Language',
+        description: 'Choose the notification email language used when no recipient language has been remembered.',
+        label: 'Default Language',
+        zh: 'Chinese',
+        en: 'English',
+        hint: 'User or email language remembered from verification, password reset, payment, and similar flows takes priority.'
+      },
       smtp: {
         title: 'SMTP Settings',
         description: 'Configure email sending for verification codes',

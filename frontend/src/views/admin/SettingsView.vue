@@ -6724,6 +6724,40 @@
             </div>
           </div>
 
+          <div class="card">
+            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.emailDefaultLocale.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.emailDefaultLocale.description") }}
+              </p>
+            </div>
+            <div class="space-y-4 p-6">
+              <div>
+                <label
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{ t("admin.settings.emailDefaultLocale.label") }}
+                </label>
+                <select
+                  v-model="form.notification_email_default_locale"
+                  class="input max-w-xs"
+                >
+                  <option value="zh">
+                    {{ t("admin.settings.emailDefaultLocale.zh") }}
+                  </option>
+                  <option value="en">
+                    {{ t("admin.settings.emailDefaultLocale.en") }}
+                  </option>
+                </select>
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.emailDefaultLocale.hint") }}
+                </p>
+              </div>
+            </div>
+          </div>
+
           <!-- SMTP Settings - Only show when email verification is enabled -->
           <div v-if="form.email_verify_enabled" class="card">
             <div
@@ -8073,6 +8107,7 @@ const form = reactive<SettingsForm>({
   smtp_from_email: "",
   smtp_from_name: "",
   smtp_use_tls: true,
+  notification_email_default_locale: "zh",
   // Cloudflare Turnstile
   turnstile_enabled: false,
   turnstile_site_key: "",
@@ -9294,6 +9329,8 @@ async function saveSettings() {
       smtp_from_email: form.smtp_from_email,
       smtp_from_name: form.smtp_from_name,
       smtp_use_tls: form.smtp_use_tls,
+      notification_email_default_locale:
+        form.notification_email_default_locale || "zh",
       turnstile_enabled: form.turnstile_enabled,
       turnstile_site_key: form.turnstile_site_key,
       turnstile_secret_key: form.turnstile_secret_key || undefined,

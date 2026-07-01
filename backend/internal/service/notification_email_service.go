@@ -37,17 +37,18 @@ const (
 	NotificationEmailEventOpsAlert                    = "ops.alert"
 	NotificationEmailEventOpsScheduledReport          = "ops.scheduled_report"
 
-	notificationEmailTemplateKeyPrefix    = "notification_email_template:"
-	notificationEmailPreferenceKeyPrefix  = "notification_email_preference:"
-	notificationEmailDeliveryKeyPrefix    = "notification_email_delivery:"
-	notificationEmailLocaleUserKeyPrefix  = "notification_email_locale:user:"
-	notificationEmailLocaleEmailKeyPrefix = "notification_email_locale:email:"
-	notificationEmailUnsubscribeSecretKey = "notification_email_unsubscribe_secret"
-	notificationEmailDefaultLocale        = "en"
-	notificationEmailLocaleChinese        = "zh"
-	notificationEmailMaxSubjectLength     = 200
-	notificationEmailMaxHTMLLength        = 30000
-	notificationEmailUnsubscribeTTL       = 365 * 24 * time.Hour
+	notificationEmailTemplateKeyPrefix       = "notification_email_template:"
+	notificationEmailPreferenceKeyPrefix     = "notification_email_preference:"
+	notificationEmailDeliveryKeyPrefix       = "notification_email_delivery:"
+	notificationEmailLocaleUserKeyPrefix     = "notification_email_locale:user:"
+	notificationEmailLocaleEmailKeyPrefix    = "notification_email_locale:email:"
+	notificationEmailUnsubscribeSecretKey    = "notification_email_unsubscribe_secret"
+	notificationEmailDefaultLocale           = "en"
+	notificationEmailLocaleChinese           = "zh"
+	notificationEmailConfiguredDefaultLocale = notificationEmailLocaleChinese
+	notificationEmailMaxSubjectLength        = 200
+	notificationEmailMaxHTMLLength           = 30000
+	notificationEmailUnsubscribeTTL          = 365 * 24 * time.Hour
 )
 
 var (
@@ -424,7 +425,7 @@ func (s *NotificationEmailService) RememberRecipientLocale(ctx context.Context, 
 
 func (s *NotificationEmailService) ResolveRecipientLocale(ctx context.Context, userID int64, email string) string {
 	if s == nil || s.settingRepo == nil {
-		return notificationEmailDefaultLocale
+		return notificationEmailConfiguredDefaultLocale
 	}
 	if userID > 0 {
 		if locale, err := s.settingRepo.GetValue(ctx, notificationEmailLocaleUserKeyPrefix+strconv.FormatInt(userID, 10)); err == nil && strings.TrimSpace(locale) != "" {
@@ -436,7 +437,10 @@ func (s *NotificationEmailService) ResolveRecipientLocale(ctx context.Context, u
 			return normalizeNotificationLocale(locale)
 		}
 	}
-	return notificationEmailDefaultLocale
+	if locale, err := s.settingRepo.GetValue(ctx, SettingKeyNotificationEmailDefaultLocale); err == nil && strings.TrimSpace(locale) != "" {
+		return normalizeNotificationLocale(locale)
+	}
+	return notificationEmailConfiguredDefaultLocale
 }
 
 func (s *NotificationEmailService) IsUnsubscribed(ctx context.Context, email, event string) (bool, error) {
@@ -760,6 +764,13 @@ func normalizeNotificationLocale(raw string) string {
 		}
 	}
 	return notificationEmailDefaultLocale
+}
+
+func normalizeNotificationConfiguredDefaultLocale(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return notificationEmailConfiguredDefaultLocale
+	}
+	return normalizeNotificationLocale(raw)
 }
 
 func notificationEmailTemplateKey(event, locale string) string {

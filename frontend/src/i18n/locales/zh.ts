@@ -6472,6 +6472,14 @@ export default {
         addEmail: '添加邮箱',
         emailPlaceholder: 'macseek@upit.top',
       },
+      emailDefaultLocale: {
+        title: '默认邮件语言',
+        description: '当收件人没有语言记录时，系统通知邮件使用此语言。',
+        label: '默认语言',
+        zh: '中文',
+        en: '英文',
+        hint: '用户触发验证码、密码重置、支付等流程后，会优先使用该用户或邮箱已记住的语言。'
+      },
       smtp: {
         title: 'SMTP 设置',
         description: '配置用于发送验证码的邮件服务',

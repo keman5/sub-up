@@ -170,6 +170,7 @@ func TestAccountPoolHealthNotifyService_SendsOnceWhileAllAccountsUnavailable(t *
 	settings := newNotificationEmailMemorySettingRepo()
 	require.NoError(t, settings.SetMultiple(ctx, smtpServer.settings()))
 	require.NoError(t, settings.Set(ctx, SettingKeySiteName, "51token"))
+	require.NoError(t, settings.Set(ctx, SettingKeyNotificationEmailDefaultLocale, "en"))
 	require.NoError(t, settings.Set(ctx, SettingKeyAccountQuotaNotifyEnabled, "true"))
 	require.NoError(t, settings.Set(ctx, SettingKeyAccountQuotaNotifyEmails, MarshalNotifyEmails([]NotifyEmailEntry{
 		{Email: "ops@example.com", Verified: true},
@@ -194,6 +195,8 @@ func TestAccountPoolHealthNotifyService_SendsOnceWhileAllAccountsUnavailable(t *
 	require.EqualValues(t, 1, smtpServer.messageCount())
 	bodies := smtpServer.messageBodies()
 	require.Len(t, bodies, 1)
+	require.Contains(t, bodies[0], "All accounts unavailable")
+	require.Contains(t, bodies[0], "No upstream account is currently schedulable")
 	require.Contains(t, bodies[0], "openai-main")
 	require.Contains(t, bodies[0], "primary token")
 	require.Contains(t, bodies[0], "openai-backup")

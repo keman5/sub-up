@@ -288,6 +288,22 @@ func TestNotificationEmailLocaleMemoryNormalizesAcceptLanguage(t *testing.T) {
 	require.Equal(t, "zh", svc.ResolveRecipientLocale(ctx, 0, "user@example.com"))
 }
 
+func TestNotificationEmailLocaleFallsBackToConfiguredDefault(t *testing.T) {
+	ctx := context.Background()
+	repo := newNotificationEmailMemorySettingRepo()
+	require.NoError(t, repo.Set(ctx, SettingKeyNotificationEmailDefaultLocale, "zh"))
+	svc := NewNotificationEmailService(repo, nil)
+
+	require.Equal(t, "zh", svc.ResolveRecipientLocale(ctx, 0, "new-user@example.com"))
+}
+
+func TestNotificationEmailLocaleDefaultsToChineseWhenUnconfigured(t *testing.T) {
+	ctx := context.Background()
+	svc := NewNotificationEmailService(newNotificationEmailMemorySettingRepo(), nil)
+
+	require.Equal(t, "zh", svc.ResolveRecipientLocale(ctx, 0, "new-user@example.com"))
+}
+
 func TestNotificationEmailDeliveryKeyUsesShortStableHash(t *testing.T) {
 	key := notificationEmailDeliveryKey(
 		NotificationEmailEventSubscriptionExpiryReminder,

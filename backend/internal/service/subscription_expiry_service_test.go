@@ -203,6 +203,7 @@ func TestSubscriptionExpiryService_RunOnceSendsExpiredAdminNotification(t *testi
 		require.NoError(t, settings.Set(context.Background(), key, value))
 	}
 	require.NoError(t, settings.Set(context.Background(), SettingKeySiteName, "51token"))
+	require.NoError(t, settings.Set(context.Background(), SettingKeyNotificationEmailDefaultLocale, "en"))
 	require.NoError(t, settings.Set(context.Background(), SettingKeySubscriptionExpiredAdminNotifyEnabled, "true"))
 	require.NoError(t, settings.Set(context.Background(), SettingKeySubscriptionExpiredAdminNotifyEmails, MarshalNotifyEmails([]NotifyEmailEntry{
 		{Email: "macseek@upit.top", Verified: true},
@@ -249,6 +250,7 @@ func TestSubscriptionExpiryService_ExpiredAdminNotificationsAreBatched(t *testin
 		require.NoError(t, settings.Set(context.Background(), key, value))
 	}
 	require.NoError(t, settings.Set(context.Background(), SettingKeySiteName, "51token"))
+	require.NoError(t, settings.Set(context.Background(), SettingKeyNotificationEmailDefaultLocale, "en"))
 	require.NoError(t, settings.Set(context.Background(), SettingKeySubscriptionExpiredAdminNotifyEnabled, "true"))
 	require.NoError(t, settings.Set(context.Background(), SettingKeySubscriptionExpiredAdminNotifyEmails, MarshalNotifyEmails([]NotifyEmailEntry{
 		{Email: "macseek@upit.top", Verified: true},
@@ -295,6 +297,8 @@ func TestSubscriptionExpiryService_ExpiredAdminNotificationsAreBatched(t *testin
 	require.EqualValues(t, 1, smtpServer.messageCount())
 	bodies := smtpServer.messageBodies()
 	require.Len(t, bodies, 1)
+	require.Contains(t, bodies[0], "Subscriptions expired")
+	require.Contains(t, bodies[0], "subscription(s) expired")
 	require.Contains(t, bodies[0], "alpha@example.com")
 	require.Contains(t, bodies[0], "beta@example.com")
 	require.Contains(t, bodies[0], "alpha admin note")
