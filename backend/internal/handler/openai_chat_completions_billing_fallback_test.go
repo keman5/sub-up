@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -84,6 +85,9 @@ func (r *fallbackSubRepo) GetByID(_ context.Context, id int64) (*service.UserSub
 	}
 	return nil, service.ErrSubscriptionNotFound
 }
+func (r *fallbackSubRepo) GetByIDIncludeDeleted(ctx context.Context, id int64) (*service.UserSubscription, error) {
+	return r.GetByID(ctx, id)
+}
 func (r *fallbackSubRepo) GetByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
 	return r.GetActiveByUserIDAndGroupID(ctx, userID, groupID)
 }
@@ -111,6 +115,25 @@ func (r *fallbackSubRepo) List(context.Context, pagination.PaginationParams, *in
 }
 func (r *fallbackSubRepo) ExistsByUserIDAndGroupID(context.Context, int64, int64) (bool, error) {
 	return false, nil
+}
+func (r *fallbackSubRepo) ExistsActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (bool, error) {
+	_, err := r.GetActiveByUserIDAndGroupID(ctx, userID, groupID)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, service.ErrSubscriptionNotFound) {
+		return false, nil
+	}
+	return false, err
+}
+func (r *fallbackSubRepo) Restore(ctx context.Context, id int64, restoredStatus string) (*service.UserSubscription, error) {
+	sub, err := r.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	sub.Status = restoredStatus
+	r.subscriptions[r.key(sub.UserID, sub.GroupID)] = sub
+	return sub, nil
 }
 func (r *fallbackSubRepo) ExtendExpiry(context.Context, int64, time.Time) error      { return nil }
 func (r *fallbackSubRepo) UpdateStatus(context.Context, int64, string) error         { return nil }

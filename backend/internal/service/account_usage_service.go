@@ -981,7 +981,10 @@ func usageProgressAtLimit(progress *UsageProgress) bool {
 }
 
 func isOpenAICodexSparkSnapshotIncomplete(account *Account) bool {
-	if account == nil || !account.IsOpenAIOAuth() || !account.IsOpenAIResponsesWebSocketV2Enabled() {
+	if account == nil || !account.IsOpenAIOAuth() {
+		return false
+	}
+	if !account.IsShadow() && !account.IsOpenAIResponsesWebSocketV2Enabled() {
 		return false
 	}
 	if account.Extra == nil {

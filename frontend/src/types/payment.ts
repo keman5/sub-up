@@ -109,6 +109,10 @@ export interface SubscriptionPlan {
   group_name?: string
   rate_multiplier?: number
   display_rate_multiplier?: number
+  peak_rate_enabled?: boolean
+  peak_start?: string
+  peak_end?: string
+  peak_rate_multiplier?: number
   daily_limit_usd?: number | null
   weekly_limit_usd?: number | null
   monthly_limit_usd?: number | null

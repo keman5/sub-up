@@ -65,6 +65,10 @@ type PlanGroupInfo struct {
 	Name                  string   `json:"name"`
 	RateMultiplier        float64  `json:"rate_multiplier"`
 	DisplayRateMultiplier float64  `json:"display_rate_multiplier"`
+	PeakRateEnabled       bool     `json:"peak_rate_enabled"`
+	PeakStart             string   `json:"peak_start"`
+	PeakEnd               string   `json:"peak_end"`
+	PeakRateMultiplier    float64  `json:"peak_rate_multiplier"`
 	DailyLimitUSD         *float64 `json:"daily_limit_usd"`
 	WeeklyLimitUSD        *float64 `json:"weekly_limit_usd"`
 	MonthlyLimitUSD       *float64 `json:"monthly_limit_usd"`
@@ -106,6 +110,10 @@ func (s *PaymentConfigService) GetGroupInfoMap(ctx context.Context, plans []*dbe
 			Name:                  g.Name,
 			RateMultiplier:        g.RateMultiplier,
 			DisplayRateMultiplier: normalizedPlanDisplayRateMultiplier(g.DisplayRateMultiplier),
+			PeakRateEnabled:       g.PeakRateEnabled,
+			PeakStart:             g.PeakStart,
+			PeakEnd:               g.PeakEnd,
+			PeakRateMultiplier:    g.PeakRateMultiplier,
 			DailyLimitUSD:         g.DailyLimitUsd,
 			WeeklyLimitUSD:        g.WeeklyLimitUsd,
 			MonthlyLimitUSD:       g.MonthlyLimitUsd,

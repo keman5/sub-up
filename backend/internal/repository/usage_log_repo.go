@@ -2902,51 +2902,7 @@ func (r *usageLogRepository) GetUserUsageTrendByUserID(ctx context.Context, user
 
 // GetUserModelStats 获取指定用户的模型统计
 func (r *usageLogRepository) GetUserModelStats(ctx context.Context, userID int64, startTime, endTime time.Time) (results []ModelStat, err error) {
-	presentationFactor := usagePresentationFactorSQL("", true)
-	inputTokensExpr := usagePresentationTokenSQL("input_tokens", presentationFactor)
-	outputTokensExpr := usagePresentationOutputTokensSQL("", presentationFactor)
-	cacheCreationTokensExpr := usagePresentationTokenSQL("cache_creation_tokens", presentationFactor)
-	cacheReadTokensExpr := usagePresentationTokenSQL("cache_read_tokens", presentationFactor)
-	totalTokensExpr := usagePresentationTotalTokensSQL("", presentationFactor)
-	totalCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
-	actualCostExpr := usagePresentationCostSQL("actual_cost", presentationFactor)
-	accountCostExpr := usagePresentationCostSQL("COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)", presentationFactor)
-	query := `
-		SELECT
-			model,
-			COUNT(*) as requests,
-			COALESCE(SUM(` + inputTokensExpr + `), 0) as input_tokens,
-			COALESCE(SUM(` + outputTokensExpr + `), 0) as output_tokens,
-			COALESCE(SUM(` + cacheCreationTokensExpr + `), 0) as cache_creation_tokens,
-			COALESCE(SUM(` + cacheReadTokensExpr + `), 0) as cache_read_tokens,
-			COALESCE(SUM(` + totalTokensExpr + `), 0) as total_tokens,
-			COALESCE(SUM(` + totalCostExpr + `), 0) as cost,
-			COALESCE(SUM(` + actualCostExpr + `), 0) as actual_cost,
-			COALESCE(SUM(` + accountCostExpr + `), 0) as account_cost
-		FROM usage_logs
-		WHERE user_id = $1 AND created_at >= $2 AND created_at < $3
-		GROUP BY model
-		ORDER BY total_tokens DESC
-	`
-
-	rows, err := r.sql.QueryContext(ctx, query, userID, startTime, endTime)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		// 保持主错误优先；仅在无错误时回传 Close 失败。
-		// 同时清空返回值，避免误用不完整结果。
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = closeErr
-			results = nil
-		}
-	}()
-
-	results, err = scanModelStatsRows(rows)
-	if err != nil {
-		return nil, err
-	}
-	return results, nil
+	return r.getModelStatsWithFiltersBySource(ctx, startTime, endTime, userID, 0, 0, 0, "", nil, nil, nil, usagestats.ModelSourceRequested, "", true)
 }
 
 // UsageLogFilters represents filters for usage log queries

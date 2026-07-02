@@ -1499,7 +1499,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	if !billingOK {
 		return
 	}
-	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2
+	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
 	if requestPlatform == service.PlatformGrok {
 		requiredTransport = service.OpenAIUpstreamTransportHTTPSSE
 	}
