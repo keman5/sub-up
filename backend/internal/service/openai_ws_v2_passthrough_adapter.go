@@ -345,7 +345,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		turnState = strings.TrimSpace(c.GetHeader(openAIWSTurnStateHeader))
 		turnMetadata = strings.TrimSpace(c.GetHeader(openAIWSTurnMetadataHeader))
 	}
-	headers, _ := s.buildOpenAIWSHeaders(c, account, token, wsDecision, isCodexCLI, turnState, turnMetadata, promptCacheKey)
+	headers, _, buildHdrErr := s.buildOpenAIWSHeaders(ctx, c, account, token, wsDecision, isCodexCLI, turnState, turnMetadata, promptCacheKey)
+	if buildHdrErr != nil {
+		return fmt.Errorf("build ws headers: %w", buildHdrErr)
+	}
 	proxyURL := s.openAICodexWSProxyURL(account, wsURL)
 
 	dialer := s.getOpenAIWSPassthroughDialer()

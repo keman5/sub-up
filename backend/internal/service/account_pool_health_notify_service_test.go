@@ -59,6 +59,9 @@ func (r *accountPoolHealthRepoStub) ListWithFilters(context.Context, pagination.
 func (r *accountPoolHealthRepoStub) ListByGroup(context.Context, int64) ([]Account, error) {
 	return nil, nil
 }
+func (r *accountPoolHealthRepoStub) ListShadowsByParent(context.Context, int64) ([]*Account, error) {
+	return nil, nil
+}
 func (r *accountPoolHealthRepoStub) ListActive(context.Context) ([]Account, error) {
 	return nil, nil
 }

@@ -127,6 +127,8 @@ scripts
 !scripts/
 scripts/*
 !scripts/build-risk-control-keywords.mjs
+!backend/scripts/
+!backend/scripts/resolve-version.sh
 .code-review-state
 #openspec/
 code-reviews/
