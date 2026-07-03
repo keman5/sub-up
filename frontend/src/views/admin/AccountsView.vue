@@ -431,6 +431,7 @@ import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
+import { getActionMenuPosition } from '@/utils/floatingMenuPosition'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
@@ -1202,47 +1203,24 @@ const openMenu = (a: Account, e: MouseEvent) => {
   const target = e.currentTarget as HTMLElement
   if (target) {
     const rect = target.getBoundingClientRect()
-    const menuWidth = 200
-    const menuHeight = 240
-    const padding = 8
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
+    const position = getActionMenuPosition({
+      triggerRect: rect,
+      pointerX: e.clientX,
+      pointerY: e.clientY,
+      menuSize: { width: 208, height: 240 },
+      viewport: { width: window.innerWidth, height: window.innerHeight }
+    })
 
-    let left: number
-    let top: number
-
-    if (viewportWidth < 768) {
-      // 居中显示,水平位置
-      left = Math.max(padding, Math.min(
-        rect.left + rect.width / 2 - menuWidth / 2,
-        viewportWidth - menuWidth - padding
-      ))
-
-      // 优先显示在按钮下方
-      top = rect.bottom + 4
-
-      // 如果下方空间不够,显示在上方
-      if (top + menuHeight > viewportHeight - padding) {
-        top = rect.top - menuHeight - 4
-        // 如果上方也不够,就贴在视口顶部
-        if (top < padding) {
-          top = padding
-        }
-      }
-    } else {
-      left = Math.max(padding, Math.min(
-        e.clientX - menuWidth,
-        viewportWidth - menuWidth - padding
-      ))
-      top = e.clientY
-      if (top + menuHeight > viewportHeight - padding) {
-        top = viewportHeight - menuHeight - padding
-      }
-    }
-
-    menu.pos = { top, left }
+    menu.pos = { top: position.top, left: position.left }
   } else {
-    menu.pos = { top: e.clientY, left: e.clientX - 200 }
+    const position = getActionMenuPosition({
+      triggerRect: { top: e.clientY, right: e.clientX, bottom: e.clientY, left: e.clientX, width: 0 },
+      pointerX: e.clientX,
+      pointerY: e.clientY,
+      menuSize: { width: 208, height: 240 },
+      viewport: { width: window.innerWidth, height: window.innerHeight }
+    })
+    menu.pos = { top: position.top, left: position.left }
   }
 
   menu.show = true
