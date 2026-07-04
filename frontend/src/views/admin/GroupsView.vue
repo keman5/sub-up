@@ -865,6 +865,366 @@
           </div>
         </div>
 
+
+        <!-- 图片生成计费配置 -->
+        <div
+          v-if="
+            createForm.platform === 'antigravity' ||
+            createForm.platform === 'gemini' ||
+            createForm.platform === 'openai'
+          "
+          class="border-t pt-4"
+        >
+          <label
+            class="block mb-2 font-medium text-gray-700 dark:text-gray-300"
+          >
+            {{ t("admin.groups.imagePricing.title") }}
+          </label>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            {{ t("admin.groups.imagePricing.description") }}
+          </p>
+          <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                v-model="createForm.allow_image_generation"
+                type="checkbox"
+                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              {{ t("admin.groups.imagePricing.allowImageGeneration") }}
+            </label>
+            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                v-model="createForm.image_rate_independent"
+                type="checkbox"
+                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              {{ t("admin.groups.imagePricing.independentMultiplier") }}
+            </label>
+          </div>
+          <div
+            v-if="createForm.image_rate_independent"
+            class="mb-4"
+          >
+            <label class="input-label">{{
+              t("admin.groups.imagePricing.imageMultiplier")
+            }}</label>
+            <input
+              v-model.number="createForm.image_rate_multiplier"
+              type="number"
+              step="0.0001"
+              min="0"
+              class="input"
+              placeholder="1"
+            />
+          </div>
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="input-label">1K ($)</label>
+              <input
+                v-model.number="createForm.image_price_1k"
+                type="number"
+                step="0.001"
+                min="0"
+                class="input"
+                placeholder="0.134"
+              />
+            </div>
+            <div>
+              <label class="input-label">2K ($)</label>
+              <input
+                v-model.number="createForm.image_price_2k"
+                type="number"
+                step="0.001"
+                min="0"
+                class="input"
+                placeholder="0.201"
+              />
+            </div>
+            <div>
+              <label class="input-label">4K ($)</label>
+              <input
+                v-model.number="createForm.image_price_4k"
+                type="number"
+                step="0.001"
+                min="0"
+                class="input"
+                placeholder="0.268"
+              />
+            </div>
+          </div>
+          <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.imagePricing.modeHint") }}
+          </p>
+          <div class="mt-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+            <div class="mb-1 font-medium">
+              {{ t("admin.groups.imagePricing.finalPricePreview") }}
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+              <div
+                v-for="item in createImageFinalPricePreview"
+                :key="item.label"
+              >
+                {{ item.label }}: {{ item.value }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 高峰时段倍率配置（仅订阅类型分组） -->
+        <div v-if="createForm.subscription_type === 'subscription'" class="border-t pt-4">
+          <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                v-model="createForm.peak_rate_enabled"
+                type="checkbox"
+                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>{{ t("admin.groups.peakRate.enable") }}</span>
+            </label>
+          </div>
+          <div
+            v-if="createForm.peak_rate_enabled"
+            class="mb-4 grid grid-cols-3 gap-3"
+          >
+            <div>
+              <label class="input-label">{{ t("admin.groups.peakRate.peakStart") }}</label>
+              <input
+                v-model="createForm.peak_start"
+                type="time"
+                class="input"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.peakRate.peakEnd") }}</label>
+              <input
+                v-model="createForm.peak_end"
+                type="time"
+                class="input"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.peakRate.peakMultiplier") }}</label>
+              <input
+                v-model.number="createForm.peak_rate_multiplier"
+                type="number"
+                step="0.001"
+                min="0"
+                class="input"
+                placeholder="1"
+                :title="t('admin.groups.peakRate.multiplierHint')"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- 支持的模型系列（仅 antigravity 平台） -->
+        <div v-if="createForm.platform === 'antigravity'" class="border-t pt-4">
+          <div class="mb-1.5 flex items-center gap-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t("admin.groups.supportedScopes.title") }}
+            </label>
+            <!-- Help Tooltip -->
+            <div class="group relative inline-flex">
+              <Icon
+                name="questionCircle"
+                size="sm"
+                :stroke-width="2"
+                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+              />
+              <div
+                class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100"
+              >
+                <div
+                  class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800"
+                >
+                  <p class="text-xs leading-relaxed text-gray-300">
+                    {{ t("admin.groups.supportedScopes.tooltip") }}
+                  </p>
+                  <div
+                    class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                :checked="createForm.supported_model_scopes.includes('claude')"
+                @change="toggleCreateScope('claude')"
+                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+              />
+              <span class="text-sm text-gray-700 dark:text-gray-300">{{
+                t("admin.groups.supportedScopes.claude")
+              }}</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                :checked="
+                  createForm.supported_model_scopes.includes('gemini_text')
+                "
+                @change="toggleCreateScope('gemini_text')"
+                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+              />
+              <span class="text-sm text-gray-700 dark:text-gray-300">{{
+                t("admin.groups.supportedScopes.geminiText")
+              }}</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                :checked="
+                  createForm.supported_model_scopes.includes('gemini_image')
+                "
+                @change="toggleCreateScope('gemini_image')"
+                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+              />
+              <span class="text-sm text-gray-700 dark:text-gray-300">{{
+                t("admin.groups.supportedScopes.geminiImage")
+              }}</span>
+            </label>
+          </div>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.supportedScopes.hint") }}
+          </p>
+        </div>
+
+        <!-- MCP XML 协议注入（仅 antigravity 平台） -->
+        <div v-if="createForm.platform === 'antigravity'" class="border-t pt-4">
+          <div class="mb-1.5 flex items-center gap-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t("admin.groups.mcpXml.title") }}
+            </label>
+            <div class="group relative inline-flex">
+              <Icon
+                name="questionCircle"
+                size="sm"
+                :stroke-width="2"
+                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+              />
+              <div
+                class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100"
+              >
+                <div
+                  class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800"
+                >
+                  <p class="text-xs leading-relaxed text-gray-300">
+                    {{ t("admin.groups.mcpXml.tooltip") }}
+                  </p>
+                  <div
+                    class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              @click="createForm.mcp_xml_inject = !createForm.mcp_xml_inject"
+              :class="[
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                createForm.mcp_xml_inject
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  createForm.mcp_xml_inject ? 'translate-x-6' : 'translate-x-1',
+                ]"
+              />
+            </button>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{
+                createForm.mcp_xml_inject
+                  ? t("admin.groups.mcpXml.enabled")
+                  : t("admin.groups.mcpXml.disabled")
+              }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Claude Code 客户端限制（仅 anthropic 平台） -->
+        <div v-if="createForm.platform === 'anthropic'" class="border-t pt-4">
+          <div class="mb-1.5 flex items-center gap-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t("admin.groups.claudeCode.title") }}
+            </label>
+            <!-- Help Tooltip -->
+            <div class="group relative inline-flex">
+              <Icon
+                name="questionCircle"
+                size="sm"
+                :stroke-width="2"
+                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+              />
+              <div
+                class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100"
+              >
+                <div
+                  class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800"
+                >
+                  <p class="text-xs leading-relaxed text-gray-300">
+                    {{ t("admin.groups.claudeCode.tooltip") }}
+                  </p>
+                  <div
+                    class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              @click="
+                createForm.claude_code_only = !createForm.claude_code_only
+              "
+              :class="[
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                createForm.claude_code_only
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  createForm.claude_code_only
+                    ? 'translate-x-6'
+                    : 'translate-x-1',
+                ]"
+              />
+            </button>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{
+                createForm.claude_code_only
+                  ? t("admin.groups.claudeCode.enabled")
+                  : t("admin.groups.claudeCode.disabled")
+              }}
+            </span>
+          </div>
+          <!-- 降级分组选择（仅当启用 claude_code_only 时显示） -->
+          <div v-if="createForm.claude_code_only" class="mt-3">
+            <label class="input-label">{{
+              t("admin.groups.claudeCode.fallbackGroup")
+            }}</label>
+            <Select
+              v-model="createForm.fallback_group_id"
+              :options="fallbackGroupOptions"
+              :placeholder="t('admin.groups.claudeCode.noFallback')"
+            />
+            <p class="input-hint">
+              {{ t("admin.groups.claudeCode.fallbackHint") }}
+            </p>
+          </div>
+        </div>
+
+
         <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
         <div
           v-if="createForm.platform === 'openai'"
@@ -2291,6 +2651,362 @@
             </div>
           </div>
         </div>
+
+
+        <!-- 图片生成计费配置 -->
+        <div
+          v-if="
+            editForm.platform === 'antigravity' ||
+            editForm.platform === 'gemini' ||
+            editForm.platform === 'openai'
+          "
+          class="border-t pt-4"
+        >
+          <label
+            class="block mb-2 font-medium text-gray-700 dark:text-gray-300"
+          >
+            {{ t("admin.groups.imagePricing.title") }}
+          </label>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            {{ t("admin.groups.imagePricing.description") }}
+          </p>
+          <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                v-model="editForm.allow_image_generation"
+                type="checkbox"
+                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              {{ t("admin.groups.imagePricing.allowImageGeneration") }}
+            </label>
+            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                v-model="editForm.image_rate_independent"
+                type="checkbox"
+                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              {{ t("admin.groups.imagePricing.independentMultiplier") }}
+            </label>
+          </div>
+          <div
+            v-if="editForm.image_rate_independent"
+            class="mb-4"
+          >
+            <label class="input-label">{{
+              t("admin.groups.imagePricing.imageMultiplier")
+            }}</label>
+            <input
+              v-model.number="editForm.image_rate_multiplier"
+              type="number"
+              step="0.0001"
+              min="0"
+              class="input"
+              placeholder="1"
+            />
+          </div>
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="input-label">1K ($)</label>
+              <input
+                v-model.number="editForm.image_price_1k"
+                type="number"
+                step="0.001"
+                min="0"
+                class="input"
+                placeholder="0.134"
+              />
+            </div>
+            <div>
+              <label class="input-label">2K ($)</label>
+              <input
+                v-model.number="editForm.image_price_2k"
+                type="number"
+                step="0.001"
+                min="0"
+                class="input"
+                placeholder="0.201"
+              />
+            </div>
+            <div>
+              <label class="input-label">4K ($)</label>
+              <input
+                v-model.number="editForm.image_price_4k"
+                type="number"
+                step="0.001"
+                min="0"
+                class="input"
+                placeholder="0.268"
+              />
+            </div>
+          </div>
+          <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.imagePricing.modeHint") }}
+          </p>
+          <div class="mt-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+            <div class="mb-1 font-medium">
+              {{ t("admin.groups.imagePricing.finalPricePreview") }}
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+              <div
+                v-for="item in editImageFinalPricePreview"
+                :key="item.label"
+              >
+                {{ item.label }}: {{ item.value }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 高峰时段倍率配置（仅订阅类型分组） -->
+        <div v-if="editForm.subscription_type === 'subscription'" class="border-t pt-4">
+          <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input
+                v-model="editForm.peak_rate_enabled"
+                type="checkbox"
+                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>{{ t("admin.groups.peakRate.enable") }}</span>
+            </label>
+          </div>
+          <div
+            v-if="editForm.peak_rate_enabled"
+            class="mb-4 grid grid-cols-3 gap-3"
+          >
+            <div>
+              <label class="input-label">{{ t("admin.groups.peakRate.peakStart") }}</label>
+              <input
+                v-model="editForm.peak_start"
+                type="time"
+                class="input"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.peakRate.peakEnd") }}</label>
+              <input
+                v-model="editForm.peak_end"
+                type="time"
+                class="input"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.peakRate.peakMultiplier") }}</label>
+              <input
+                v-model.number="editForm.peak_rate_multiplier"
+                type="number"
+                step="0.001"
+                min="0"
+                class="input"
+                placeholder="1"
+                :title="t('admin.groups.peakRate.multiplierHint')"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- 支持的模型系列（仅 antigravity 平台） -->
+        <div v-if="editForm.platform === 'antigravity'" class="border-t pt-4">
+          <div class="mb-1.5 flex items-center gap-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t("admin.groups.supportedScopes.title") }}
+            </label>
+            <!-- Help Tooltip -->
+            <div class="group relative inline-flex">
+              <Icon
+                name="questionCircle"
+                size="sm"
+                :stroke-width="2"
+                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+              />
+              <div
+                class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100"
+              >
+                <div
+                  class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800"
+                >
+                  <p class="text-xs leading-relaxed text-gray-300">
+                    {{ t("admin.groups.supportedScopes.tooltip") }}
+                  </p>
+                  <div
+                    class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                :checked="editForm.supported_model_scopes.includes('claude')"
+                @change="toggleEditScope('claude')"
+                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+              />
+              <span class="text-sm text-gray-700 dark:text-gray-300">{{
+                t("admin.groups.supportedScopes.claude")
+              }}</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                :checked="
+                  editForm.supported_model_scopes.includes('gemini_text')
+                "
+                @change="toggleEditScope('gemini_text')"
+                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+              />
+              <span class="text-sm text-gray-700 dark:text-gray-300">{{
+                t("admin.groups.supportedScopes.geminiText")
+              }}</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                :checked="
+                  editForm.supported_model_scopes.includes('gemini_image')
+                "
+                @change="toggleEditScope('gemini_image')"
+                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+              />
+              <span class="text-sm text-gray-700 dark:text-gray-300">{{
+                t("admin.groups.supportedScopes.geminiImage")
+              }}</span>
+            </label>
+          </div>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.supportedScopes.hint") }}
+          </p>
+        </div>
+
+        <!-- MCP XML 协议注入（仅 antigravity 平台） -->
+        <div v-if="editForm.platform === 'antigravity'" class="border-t pt-4">
+          <div class="mb-1.5 flex items-center gap-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t("admin.groups.mcpXml.title") }}
+            </label>
+            <div class="group relative inline-flex">
+              <Icon
+                name="questionCircle"
+                size="sm"
+                :stroke-width="2"
+                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+              />
+              <div
+                class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100"
+              >
+                <div
+                  class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800"
+                >
+                  <p class="text-xs leading-relaxed text-gray-300">
+                    {{ t("admin.groups.mcpXml.tooltip") }}
+                  </p>
+                  <div
+                    class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              @click="editForm.mcp_xml_inject = !editForm.mcp_xml_inject"
+              :class="[
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                editForm.mcp_xml_inject
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  editForm.mcp_xml_inject ? 'translate-x-6' : 'translate-x-1',
+                ]"
+              />
+            </button>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{
+                editForm.mcp_xml_inject
+                  ? t("admin.groups.mcpXml.enabled")
+                  : t("admin.groups.mcpXml.disabled")
+              }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Claude Code 客户端限制（仅 anthropic 平台） -->
+        <div v-if="editForm.platform === 'anthropic'" class="border-t pt-4">
+          <div class="mb-1.5 flex items-center gap-1">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t("admin.groups.claudeCode.title") }}
+            </label>
+            <!-- Help Tooltip -->
+            <div class="group relative inline-flex">
+              <Icon
+                name="questionCircle"
+                size="sm"
+                :stroke-width="2"
+                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
+              />
+              <div
+                class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100"
+              >
+                <div
+                  class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800"
+                >
+                  <p class="text-xs leading-relaxed text-gray-300">
+                    {{ t("admin.groups.claudeCode.tooltip") }}
+                  </p>
+                  <div
+                    class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              @click="editForm.claude_code_only = !editForm.claude_code_only"
+              :class="[
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                editForm.claude_code_only
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  editForm.claude_code_only ? 'translate-x-6' : 'translate-x-1',
+                ]"
+              />
+            </button>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{
+                editForm.claude_code_only
+                  ? t("admin.groups.claudeCode.enabled")
+                  : t("admin.groups.claudeCode.disabled")
+              }}
+            </span>
+          </div>
+          <!-- 降级分组选择（仅当启用 claude_code_only 时显示） -->
+          <div v-if="editForm.claude_code_only" class="mt-3">
+            <label class="input-label">{{
+              t("admin.groups.claudeCode.fallbackGroup")
+            }}</label>
+            <Select
+              v-model="editForm.fallback_group_id"
+              :options="fallbackGroupOptionsForEdit"
+              :placeholder="t('admin.groups.claudeCode.noFallback')"
+            />
+            <p class="input-hint">
+              {{ t("admin.groups.claudeCode.fallbackHint") }}
+            </p>
+          </div>
+        </div>
+
 
         <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
         <div
@@ -4522,6 +5238,7 @@ const handleCreateGroup = async () => {
     requestData.daily_limit_usd = emptyToNull(requestData.daily_limit_usd);
     requestData.weekly_limit_usd = emptyToNull(requestData.weekly_limit_usd);
     requestData.monthly_limit_usd = emptyToNull(requestData.monthly_limit_usd);
+
     requestData.total_limit_usd = emptyToNull(requestData.total_limit_usd);
     requestData.image_rate_multiplier = normalizeRateMultiplier(
       requestData.image_rate_multiplier,
@@ -4529,12 +5246,14 @@ const handleCreateGroup = async () => {
     requestData.display_rate_multiplier = normalizeDisplayRateMultiplier(
       requestData.display_rate_multiplier,
     );
+
     requestData.peak_rate_enabled = createForm.peak_rate_enabled;
     requestData.peak_start = createForm.peak_start;
     requestData.peak_end = createForm.peak_end;
     requestData.peak_rate_multiplier = normalizeRateMultiplier(
       createForm.peak_rate_multiplier,
     );
+
     if (isSuperAdmin.value) {
       requestData.usage_multiplier = Number.isFinite(
         Number(requestData.usage_multiplier),
@@ -4546,6 +5265,7 @@ const handleCreateGroup = async () => {
       delete hiddenUsageFields.usage_multiplier_enabled;
       delete hiddenUsageFields.usage_multiplier;
     }
+
     await adminAPI.groups.create(requestData);
     appStore.showSuccess(t("admin.groups.groupCreated"));
     closeCreateModal();
@@ -4707,6 +5427,7 @@ const handleUpdateGroup = async () => {
     payload.daily_limit_usd = emptyToNull(payload.daily_limit_usd);
     payload.weekly_limit_usd = emptyToNull(payload.weekly_limit_usd);
     payload.monthly_limit_usd = emptyToNull(payload.monthly_limit_usd);
+
     payload.total_limit_usd = emptyToNull(payload.total_limit_usd);
     payload.image_rate_multiplier = normalizeRateMultiplier(
       payload.image_rate_multiplier,
@@ -4714,12 +5435,14 @@ const handleUpdateGroup = async () => {
     payload.display_rate_multiplier = normalizeDisplayRateMultiplier(
       payload.display_rate_multiplier,
     );
+
     payload.peak_rate_enabled = editForm.peak_rate_enabled;
     payload.peak_start = editForm.peak_start;
     payload.peak_end = editForm.peak_end;
     payload.peak_rate_multiplier = normalizeRateMultiplier(
       editForm.peak_rate_multiplier,
     );
+
     if (isSuperAdmin.value) {
       payload.usage_multiplier = Number.isFinite(Number(payload.usage_multiplier))
         ? Number(payload.usage_multiplier)
@@ -4729,6 +5452,7 @@ const handleUpdateGroup = async () => {
       delete hiddenUsageFields.usage_multiplier_enabled;
       delete hiddenUsageFields.usage_multiplier;
     }
+
     await adminAPI.groups.update(editingGroup.value.id, payload);
     appStore.showSuccess(t("admin.groups.groupUpdated"));
     closeEditModal();
@@ -4807,7 +5531,9 @@ watch(
       createForm.is_exclusive = true;
       createForm.fallback_group_id_on_invalid_request = null;
     } else {
+
       createForm.quota_fallback_group_id = null;
+
       createForm.peak_rate_enabled = false;
       createForm.peak_start = "";
       createForm.peak_end = "";
@@ -4815,6 +5541,7 @@ watch(
     }
   },
 );
+
 
 watch(
   () => createForm.model_policy_mode,
@@ -4839,6 +5566,7 @@ watch(
     }
   },
 );
+
 
 // 编辑表单：切回标准模式时清空高峰配置，避免残留随更新请求提交被后端拒绝
 watch(

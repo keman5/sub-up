@@ -450,7 +450,7 @@ func TestUsageLogRepositoryGetUserModelStatsUsesPresentationMultiplier(t *testin
 	endTime := startTime.Add(24 * time.Hour)
 
 	mock.ExpectQuery("SUM\\(FLOOR\\(input_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT").
-		WithArgs(int64(9), startTime, endTime).
+		WithArgs(startTime, endTime, int64(9)).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"model",
 			"requests",
@@ -1052,7 +1052,8 @@ func TestUsageLogRepositoryGetStatsWithFiltersRequestedModelSource(t *testing.T)
 			"total_actual_cost",
 			"total_account_cost",
 			"avg_duration_ms",
-		}).AddRow(int64(1), int64(2), int64(3), int64(4), int64(1), int64(3), 1.2, 1.0, 1.2, 20.0))
+			"avg_first_token_ms",
+		}).AddRow(int64(1), int64(2), int64(3), int64(4), int64(1), int64(3), 1.2, 1.0, 1.2, 20.0, 5.0))
 	mock.ExpectQuery("SELECT COALESCE\\(NULLIF\\(TRIM\\(inbound_endpoint\\), ''\\), 'unknown'\\) AS endpoint").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "gpt-5").
 		WillReturnRows(sqlmock.NewRows([]string{"endpoint", "requests", "total_tokens", "cost", "actual_cost"}))

@@ -731,6 +731,17 @@
       @cancel="showRestoreDialog = false"
     />
 
+    <!-- Reset Quota Confirmation Dialog -->
+    <ConfirmDialog
+      :show="showRestoreDialog"
+      :title="t('admin.subscriptions.restoreSubscription')"
+      :message="t('admin.subscriptions.restoreConfirm', { user: restoringSubscription?.user?.email })"
+      :confirm-text="t('admin.subscriptions.restore')"
+      :cancel-text="t('common.cancel')"
+      @confirm="confirmRestore"
+      @cancel="showRestoreDialog = false"
+    />
+
     <!-- Reset Quota Dialog -->
     <BaseDialog
       :show="showResetQuotaConfirm"
