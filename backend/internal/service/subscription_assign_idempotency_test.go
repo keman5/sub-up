@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"testing"
 	"time"
@@ -183,6 +184,15 @@ func (s *subscriptionUserSubRepoStub) GetByUserIDAndGroupID(_ context.Context, u
 	return &cp, nil
 }
 
+type subscriptionProgressUserSubRepoStub struct {
+	userSubRepoNoop
+	err error
+}
+
+func (s *subscriptionProgressUserSubRepoStub) GetByID(context.Context, int64) (*UserSubscription, error) {
+	return nil, s.err
+}
+
 func (s *subscriptionUserSubRepoStub) Create(_ context.Context, sub *UserSubscription) error {
 	if sub == nil {
 		return nil
@@ -226,7 +236,37 @@ func (s *subscriptionUserSubRepoStub) Update(_ context.Context, sub *UserSubscri
 	return nil
 }
 
-func TestAssignSubscriptionReuseWhenSemanticsMatch(t *testing.T) {
+func (s *subscriptionUserSubRepoStub) ExtendExpiry(_ context.Context, subscriptionID int64, newExpiresAt time.Time) error {
+	sub := s.byID[subscriptionID]
+	if sub == nil {
+		return ErrSubscriptionNotFound
+	}
+	sub.ExpiresAt = newExpiresAt
+	sub.UpdatedAt = time.Now()
+	return nil
+}
+
+func (s *subscriptionUserSubRepoStub) UpdateStatus(_ context.Context, subscriptionID int64, status string) error {
+	sub := s.byID[subscriptionID]
+	if sub == nil {
+		return ErrSubscriptionNotFound
+	}
+	sub.Status = status
+	sub.UpdatedAt = time.Now()
+	return nil
+}
+
+func (s *subscriptionUserSubRepoStub) UpdateNotes(_ context.Context, subscriptionID int64, notes string) error {
+	sub := s.byID[subscriptionID]
+	if sub == nil {
+		return ErrSubscriptionNotFound
+	}
+	sub.Notes = notes
+	sub.UpdatedAt = time.Now()
+	return nil
+}
+
+func TestAssignSubscriptionDuplicateRequiresConfirmationEvenWhenSemanticsMatch(t *testing.T) {
 	start := time.Date(2026, 2, 20, 10, 0, 0, 0, time.UTC)
 	groupRepo := &subscriptionGroupRepoStub{
 		group: &Group{ID: 1, SubscriptionType: SubscriptionTypeSubscription},
@@ -242,18 +282,18 @@ func TestAssignSubscriptionReuseWhenSemanticsMatch(t *testing.T) {
 	})
 
 	svc := NewSubscriptionService(groupRepo, subRepo, nil, nil, nil)
-	sub, err := svc.AssignSubscription(context.Background(), &AssignSubscriptionInput{
+	_, err := svc.AssignSubscription(context.Background(), &AssignSubscriptionInput{
 		UserID:       1001,
 		GroupID:      1,
 		ValidityDays: 30,
 		Notes:        "init",
 	})
-	require.NoError(t, err)
-	require.Equal(t, int64(10), sub.ID)
-	require.Equal(t, 0, subRepo.createCalls, "reuse should not create new subscription")
+	require.Error(t, err)
+	require.Equal(t, "SUBSCRIPTION_DUPLICATE_CONFIRMATION_REQUIRED", infraerrorsReason(err))
+	require.Equal(t, 0, subRepo.createCalls, "duplicate confirmation prompt should not create or mutate existing subscription")
 }
 
-func TestAssignSubscriptionConflictWhenSemanticsMismatch(t *testing.T) {
+func TestAssignSubscriptionDuplicateRequiresConfirmationWhenSemanticsMismatch(t *testing.T) {
 	start := time.Date(2026, 2, 20, 10, 0, 0, 0, time.UTC)
 	groupRepo := &subscriptionGroupRepoStub{
 		group: &Group{ID: 1, SubscriptionType: SubscriptionTypeSubscription},
@@ -276,8 +316,58 @@ func TestAssignSubscriptionConflictWhenSemanticsMismatch(t *testing.T) {
 		Notes:        "new-note",
 	})
 	require.Error(t, err)
-	require.Equal(t, "SUBSCRIPTION_ASSIGN_CONFLICT", infraerrorsReason(err))
-	require.Equal(t, 0, subRepo.createCalls, "conflict should not create or mutate existing subscription")
+	require.Equal(t, "SUBSCRIPTION_DUPLICATE_CONFIRMATION_REQUIRED", infraerrorsReason(err))
+	require.Equal(t, 0, subRepo.createCalls, "duplicate confirmation prompt should not create or mutate existing subscription")
+}
+
+func TestAssignSubscriptionConfirmedDuplicateReplacesExisting(t *testing.T) {
+	start := time.Now().UTC().AddDate(0, 0, -5)
+	existingExpiry := start.AddDate(0, 0, 30)
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{ID: 1, SubscriptionType: SubscriptionTypeSubscription},
+	}
+	subRepo := newSubscriptionUserSubRepoStub()
+	subRepo.seed(&UserSubscription{
+		ID:              12,
+		UserID:          2002,
+		GroupID:         1,
+		StartsAt:        start,
+		ExpiresAt:       existingExpiry,
+		Status:          SubscriptionStatusActive,
+		AssignedAt:      start,
+		DailyUsageUSD:   3.5,
+		WeeklyUsageUSD:  7.5,
+		MonthlyUsageUSD: 12.5,
+		TotalUsageUSD:   15.5,
+		Notes:           "old-note",
+	})
+
+	svc := NewSubscriptionService(groupRepo, subRepo, nil, nil, nil)
+	before := time.Now().UTC()
+	sub, err := svc.AssignSubscription(context.Background(), &AssignSubscriptionInput{
+		UserID:           2002,
+		GroupID:          1,
+		ValidityDays:     10,
+		AssignedBy:       99,
+		Notes:            "new-note",
+		ConfirmDuplicate: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(12), sub.ID)
+	require.False(t, sub.StartsAt.Before(before), "confirmed duplicate should start a replacement term now")
+	require.Equal(t, sub.StartsAt.AddDate(0, 0, 10), sub.ExpiresAt)
+	require.Equal(t, "new-note", sub.Notes)
+	require.NotNil(t, sub.AssignedBy)
+	require.Equal(t, int64(99), *sub.AssignedBy)
+	require.Equal(t, 0.0, sub.DailyUsageUSD)
+	require.Equal(t, 0.0, sub.WeeklyUsageUSD)
+	require.Equal(t, 0.0, sub.MonthlyUsageUSD)
+	require.Equal(t, 0.0, sub.TotalUsageUSD)
+	require.NotNil(t, sub.DailyWindowStart)
+	require.NotNil(t, sub.WeeklyWindowStart)
+	require.NotNil(t, sub.MonthlyWindowStart)
+	require.Equal(t, startOfDay(sub.StartsAt), *sub.DailyWindowStart)
+	require.Equal(t, 0, subRepo.createCalls, "confirmed duplicate should replace existing subscription")
 }
 
 func TestBulkAssignSubscriptionCreatedReusedAndConflict(t *testing.T) {
@@ -344,6 +434,23 @@ func TestAssignSubscriptionKeepsWorkingWhenIdempotencyStoreUnavailable(t *testin
 	require.NoError(t, err)
 	require.NotNil(t, sub)
 	require.Equal(t, 1, subRepo.createCalls, "semantic idempotent endpoint should not depend on idempotency store availability")
+}
+
+func TestGetSubscriptionProgressPreservesRepositoryErrors(t *testing.T) {
+	repoErr := errors.New("database unavailable")
+	svc := NewSubscriptionService(groupRepoNoop{}, &subscriptionProgressUserSubRepoStub{err: repoErr}, nil, nil, nil)
+
+	_, err := svc.GetSubscriptionProgress(context.Background(), 99)
+
+	require.ErrorIs(t, err, repoErr)
+}
+
+func TestGetSubscriptionProgressKeepsNotFoundAsSubscriptionNotFound(t *testing.T) {
+	svc := NewSubscriptionService(groupRepoNoop{}, &subscriptionProgressUserSubRepoStub{err: ErrSubscriptionNotFound}, nil, nil, nil)
+
+	_, err := svc.GetSubscriptionProgress(context.Background(), 99)
+
+	require.ErrorIs(t, err, ErrSubscriptionNotFound)
 }
 
 func TestNormalizeAssignValidityDays(t *testing.T) {

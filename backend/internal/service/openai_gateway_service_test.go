@@ -2205,6 +2205,25 @@ func TestOpenAIInvalidBaseURLWhenAllowlistDisabled(t *testing.T) {
 	}
 }
 
+func TestOpenAIBuildUpstreamRequestAllowsNilGinContext(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		},
+	}}
+	account := &Account{
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"base_url": "https://example.com/v1"},
+	}
+
+	require.NotPanics(t, func() {
+		req, err := svc.buildUpstreamRequest(context.Background(), nil, account, []byte(`{"model":"gpt-5"}`), "token", false, "", false)
+		require.NoError(t, err)
+		require.Equal(t, "https://example.com/v1/responses", req.URL.String())
+	})
+}
+
 func TestOpenAIValidateUpstreamBaseURLDisabledRequiresHTTPS(t *testing.T) {
 	cfg := &config.Config{
 		Security: config.SecurityConfig{

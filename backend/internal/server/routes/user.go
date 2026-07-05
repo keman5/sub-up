@@ -78,6 +78,13 @@ func RegisterUserRoutes(
 			channels.GET("/available", h.AvailableChannel.List)
 		}
 
+		// 故障排查助手
+		troubleshooting := authenticated.Group("/troubleshooting")
+		{
+			troubleshooting.POST("/analyze", h.Troubleshooting.Analyze)
+			troubleshooting.POST("/notify-admin", h.Troubleshooting.NotifyAdmin)
+		}
+
 		// 使用记录
 		usage := authenticated.Group("/usage")
 		{

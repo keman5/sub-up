@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
 import AppDialogHost from '@/components/common/AppDialogHost.vue'
+import TroubleshootingAssistant from '@/components/common/TroubleshootingAssistant.vue'
 import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
 import { resolveRouteDocumentTitle } from '@/router/title'
 import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
@@ -179,4 +180,5 @@ watch(
   <AppDialogHost />
   <AnnouncementPopup />
   <AdminComplianceDialog />
+  <TroubleshootingAssistant v-if="authStore.isAuthenticated" />
 </template>

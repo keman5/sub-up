@@ -4,6 +4,7 @@
  */
 
 import { apiClient } from '../client'
+import type { AxiosRequestConfig } from 'axios'
 import type {
   UserSubscription,
   SubscriptionProgress,
@@ -74,8 +75,15 @@ export async function getProgress(id: number): Promise<SubscriptionProgress> {
  * @param request - Assignment request
  * @returns Created subscription
  */
-export async function assign(request: AssignSubscriptionRequest): Promise<UserSubscription> {
-  const { data } = await apiClient.post<UserSubscription>('/admin/subscriptions/assign', request)
+export async function assign(
+  request: AssignSubscriptionRequest,
+  options?: Pick<AxiosRequestConfig, 'skipGlobalErrorToast'>
+): Promise<UserSubscription> {
+  const { data } = await apiClient.post<UserSubscription>(
+    '/admin/subscriptions/assign',
+    request,
+    options
+  )
   return data
 }
 

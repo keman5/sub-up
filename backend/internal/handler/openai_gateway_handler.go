@@ -2137,6 +2137,7 @@ func openAIForwardErrorAlreadyCommunicated(c *gin.Context, writerSizeBeforeForwa
 
 // errorResponse returns OpenAI API format error response
 func (h *OpenAIGatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
+	message = service.ClientErrorMessageForAcceptLanguage(c.GetHeader("Accept-Language"), message)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"type":    errType,

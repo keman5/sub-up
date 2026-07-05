@@ -2886,7 +2886,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 	if imageIntent && !imageGenerationAllowed {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
-		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"type": "permission_error", "message": ImageGenerationPermissionMessage()}})
+		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"type": "permission_error", "message": ImageGenerationPermissionMessageForAcceptLanguage(c.GetHeader("Accept-Language"))}})
 		return nil, errors.New("image generation disabled for group")
 	}
 
@@ -2935,7 +2935,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	imageIntent = imageIntent || IsImageGenerationIntent(openAIResponsesEndpoint, reqModel, nil) || isOpenAIImageGenerationModel(upstreamModel)
 	if imageIntent && !imageGenerationAllowed {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
-		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"type": "permission_error", "message": ImageGenerationPermissionMessage()}})
+		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"type": "permission_error", "message": ImageGenerationPermissionMessageForAcceptLanguage(c.GetHeader("Accept-Language"))}})
 		return nil, errors.New("image generation disabled for group")
 	}
 
@@ -2967,7 +2967,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 		if err := validateOpenAIResponsesImageModel(decoded, upstreamModel); err != nil {
 			setOpsUpstreamError(c, http.StatusBadRequest, err.Error(), "")
-			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": err.Error(), "param": "model"}})
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": ClientErrorMessageForAcceptLanguage(c.GetHeader("Accept-Language"), err.Error()), "param": "model"}})
 			return nil, err
 		}
 		if hasOpenAIImageGenerationTool(decoded) {
@@ -2990,7 +2990,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 		if err := validateCodexSparkInput(decoded, upstreamModel); err != nil {
 			setOpsUpstreamError(c, http.StatusBadRequest, err.Error(), "")
-			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": err.Error(), "param": "input"}})
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": ClientErrorMessageForAcceptLanguage(c.GetHeader("Accept-Language"), err.Error()), "param": "input"}})
 			return nil, err
 		}
 	}
@@ -3143,7 +3143,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 		if imageCfgErr != nil {
 			setOpsUpstreamError(c, http.StatusBadRequest, imageCfgErr.Error(), "")
-			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": imageCfgErr.Error(), "param": "size"}})
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": ClientErrorMessageForAcceptLanguage(c.GetHeader("Accept-Language"), imageCfgErr.Error()), "param": "size"}})
 			return nil, imageCfgErr
 		}
 		imageBillingModel = imageCfg.Model
@@ -3569,7 +3569,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			c.JSON(http.StatusForbidden, gin.H{
 				"error": gin.H{
 					"type":    "forbidden_error",
-					"message": rejectMsg,
+					"message": ClientErrorMessageForAcceptLanguage(c.GetHeader("Accept-Language"), rejectMsg),
 				},
 			})
 			return nil, fmt.Errorf("openai passthrough rejected before upstream: %s", rejectReason)
@@ -3620,7 +3620,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": gin.H{
 				"type":    "permission_error",
-				"message": ImageGenerationPermissionMessage(),
+				"message": ImageGenerationPermissionMessageForAcceptLanguage(c.GetHeader("Accept-Language")),
 			},
 		})
 		return nil, errors.New("image generation disabled for group")
@@ -3636,7 +3636,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": gin.H{
 					"type":    "invalid_request_error",
-					"message": imageCfgErr.Error(),
+					"message": ClientErrorMessageForAcceptLanguage(c.GetHeader("Accept-Language"), imageCfgErr.Error()),
 					"param":   "size",
 				},
 			})
@@ -4685,11 +4685,13 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	}
 
 	// Whitelist passthrough headers
-	for key, values := range c.Request.Header {
-		lowerKey := strings.ToLower(key)
-		if openaiAllowedHeaders[lowerKey] {
-			for _, v := range values {
-				req.Header.Add(key, v)
+	if c != nil && c.Request != nil {
+		for key, values := range c.Request.Header {
+			lowerKey := strings.ToLower(key)
+			if openaiAllowedHeaders[lowerKey] {
+				for _, v := range values {
+					req.Header.Add(key, v)
+				}
 			}
 		}
 	}

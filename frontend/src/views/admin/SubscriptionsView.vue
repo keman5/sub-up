@@ -897,9 +897,11 @@ import type { SimpleUser } from '@/api/admin/usage'
 import type { Column } from '@/components/common/types'
 import { formatDateOnly } from '@/utils/format'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useAppDialog } from '@/composables/useAppDialog'
 import { getSubscriptionUserLabel, getSubscriptionUserNotes } from './subscriptionUserDisplay'
 import { mergeSubscriptionProgressById } from './subscriptionProgressMerge'
 import { filterRecentRegisteredUsers } from './subscriptionRecentUsers'
+import { extractApiErrorMessage } from '@/utils/apiError'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -916,6 +918,8 @@ import { getRemainingDurationParts, isOneTimeDailyQuota, type RemainingDurationP
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const appDialog = useAppDialog()
+const DUPLICATE_SUBSCRIPTION_CONFIRMATION_REASON = 'SUBSCRIPTION_DUPLICATE_CONFIRMATION_REQUIRED'
 
 interface GroupOption {
   value: number
@@ -1505,11 +1509,7 @@ const handleAssignSubscription = async () => {
   submitting.value = true
   try {
     if (userIds.length === 1) {
-      await adminAPI.subscriptions.assign({
-        user_id: userIds[0],
-        group_id: assignForm.group_id,
-        validity_days: assignForm.validity_days
-      })
+      await assignSingleSubscriptionWithDuplicateConfirmation(userIds[0])
     } else {
       await adminAPI.subscriptions.bulkAssign({
         user_ids: userIds,
@@ -1525,12 +1525,64 @@ const handleAssignSubscription = async () => {
     closeAssignModal()
     loadSubscriptions()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToAssign'))
+    if (error instanceof DuplicateSubscriptionConfirmationCancelled) {
+      return
+    }
+    appStore.showError(extractApiErrorMessage(error, t('admin.subscriptions.failedToAssign')))
     console.error('Error assigning subscription:', error)
   } finally {
     submitting.value = false
   }
 }
+
+const assignSingleSubscriptionWithDuplicateConfirmation = async (userId: number) => {
+  try {
+    await assignSingleSubscription(userId, false)
+  } catch (error: any) {
+    if (!isDuplicateSubscriptionConfirmation(error)) {
+      throw error
+    }
+
+    const selectedUser = selectedAssignUsers.value.find((user) => user.id === userId)
+    const selectedGroup = groups.value.find((group) => group.id === assignForm.group_id)
+    const confirmed = await appDialog.confirm({
+      title: t('admin.subscriptions.duplicateConfirmTitle'),
+      message: t('admin.subscriptions.duplicateConfirmMessage', {
+        user: selectedUser?.email || `#${userId}`,
+        group: selectedGroup?.name || t('admin.subscriptions.selectGroup')
+      }),
+      confirmText: t('admin.subscriptions.duplicateConfirmAction'),
+      cancelText: t('common.cancel')
+    })
+
+    if (!confirmed) {
+      throw new DuplicateSubscriptionConfirmationCancelled()
+    }
+
+    await assignSingleSubscription(userId, true)
+  }
+}
+
+class DuplicateSubscriptionConfirmationCancelled extends Error {
+  constructor() {
+    super('duplicate subscription confirmation cancelled')
+  }
+}
+
+const assignSingleSubscription = (userId: number, confirmDuplicate: boolean) =>
+  adminAPI.subscriptions.assign(
+    {
+      user_id: userId,
+      group_id: assignForm.group_id!,
+      validity_days: assignForm.validity_days,
+      confirm_duplicate: confirmDuplicate
+    },
+    { skipGlobalErrorToast: true }
+  )
+
+const isDuplicateSubscriptionConfirmation = (error: any) =>
+  error?.reason === DUPLICATE_SUBSCRIPTION_CONFIRMATION_REASON ||
+  error?.response?.data?.reason === DUPLICATE_SUBSCRIPTION_CONFIRMATION_REASON
 
 const handleExtend = (subscription: UserSubscription) => {
   extendingSubscription.value = subscription

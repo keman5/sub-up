@@ -1739,6 +1739,7 @@ export interface AssignSubscriptionRequest {
   user_id: number
   group_id: number
   validity_days?: number
+  confirm_duplicate?: boolean
 }
 
 export interface BulkAssignSubscriptionRequest {
