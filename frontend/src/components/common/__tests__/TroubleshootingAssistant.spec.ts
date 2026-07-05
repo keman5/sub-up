@@ -114,6 +114,40 @@ describe('TroubleshootingAssistant', () => {
     wrapper.unmount()
   })
 
+  it('collapses the closed floating button from its top-right close control', async () => {
+    const wrapper = mount(TroubleshootingAssistant, { attachTo: document.body })
+
+    expect(wrapper.find('button[aria-label="打开故障排查助手"]').exists()).toBe(true)
+
+    await wrapper.get('button[aria-label="收起故障排查入口"]').trigger('click')
+
+    expect(wrapper.find('button[aria-label="打开故障排查助手"]').exists()).toBe(false)
+    expect(wrapper.find('button[aria-label="恢复故障排查助手"]').exists()).toBe(true)
+    expect(wrapper.find('.assistant-panel').exists()).toBe(false)
+
+    await wrapper.get('button[aria-label="恢复故障排查助手"]').trigger('click')
+
+    expect(wrapper.find('.assistant-panel').exists()).toBe(true)
+    expect(wrapper.find('button[aria-label="恢复故障排查助手"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('closes the open panel back to the regular floating button', async () => {
+    const wrapper = mount(TroubleshootingAssistant, { attachTo: document.body })
+
+    await wrapper.get('button[aria-label="打开故障排查助手"]').trigger('click')
+    expect(wrapper.find('.assistant-panel').exists()).toBe(true)
+
+    await wrapper.get('button[aria-label="关闭故障排查助手"]').trigger('click')
+
+    expect(wrapper.find('.assistant-panel').exists()).toBe(false)
+    expect(wrapper.find('button[aria-label="打开故障排查助手"]').exists()).toBe(true)
+    expect(wrapper.find('button[aria-label="恢复故障排查助手"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
   it('notifies admin for diagnoses that need admin handling', async () => {
     vi.mocked(troubleshootingAPI.analyze).mockResolvedValue({
       answer: '已确认账号池无可用账号，需要管理员处理。',

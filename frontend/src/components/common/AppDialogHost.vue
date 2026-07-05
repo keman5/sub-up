@@ -4,6 +4,7 @@
     :title="dialogTitle"
     width="narrow"
     :close-on-click-outside="false"
+    :z-index="100"
     @close="handleCancel"
   >
     <div v-if="dialog" class="space-y-4">

@@ -11,10 +11,10 @@ describe('homeApiBase', () => {
     expect(buildClaudeBaseUrl('https://api.upit.top')).toBe('https://api.upit.top/51Token')
   })
 
-  it('derives home snippet URLs from runtime origin', () => {
-    expect(buildHomeSnippetUrls(null, 'https://a2.upit.top')).toEqual({
-      apiBaseUrl: 'https://a2.upit.top/51Token/v1',
-      claudeBaseUrl: 'https://a2.upit.top/51Token'
+  it('uses configured API base before falling back to the frontend origin', () => {
+    expect(buildHomeSnippetUrls('https://a2t.upit.top/51Token/v1', 'https://test.upit.top')).toEqual({
+      apiBaseUrl: 'https://a2t.upit.top/51Token/v1',
+      claudeBaseUrl: 'https://a2t.upit.top/51Token'
     })
   })
 

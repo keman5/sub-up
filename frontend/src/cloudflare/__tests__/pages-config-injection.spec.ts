@@ -8,15 +8,15 @@ import {
 
 describe('Cloudflare Pages public settings injection', () => {
   it('derives the settings URL from the public frontend URL', () => {
-    expect(resolvePublicSettingsUrl({ publicUrl: 'https://a2.upit.top/login' })).toBe(
-      'https://a2.upit.top/api/v1/settings/public'
+    expect(resolvePublicSettingsUrl({ publicUrl: 'https://test.upit.top/login' })).toBe(
+      'https://test.upit.top/api/v1/settings/public'
     )
   })
 
   it('keeps an explicit settings URL for advanced deployments', () => {
     expect(
       resolvePublicSettingsUrl({
-        publicUrl: 'https://a2.upit.top',
+        publicUrl: 'https://test.upit.top',
         settingsUrl: 'https://example.com/custom/settings',
       })
     ).toBe('https://example.com/custom/settings')
@@ -28,13 +28,13 @@ describe('Cloudflare Pages public settings injection', () => {
       message: 'success',
       data: {
         site_name: '51Token A2',
-        api_base_url: 'https://ap2.upit.top',
+        api_base_url: 'https://a2t.upit.top',
       },
     })
 
     expect(settings).toEqual({
       site_name: '51Token A2',
-      api_base_url: 'https://ap2.upit.top',
+      api_base_url: 'https://a2t.upit.top',
     })
   })
 
@@ -42,13 +42,13 @@ describe('Cloudflare Pages public settings injection', () => {
     const html = '<!doctype html><html><head><title>Sub2API</title></head><body></body></html>'
     const rendered = injectPublicSettingsIntoHtml(html, {
       site_name: 'A2 <Inner>',
-      api_base_url: 'https://ap2.upit.top',
+      api_base_url: 'https://a2t.upit.top',
       dangerous: '</script><img src=x onerror=alert(1)>',
     })
 
     expect(rendered).toContain('<title>A2 &lt;Inner&gt; - AI API Gateway</title>')
     expect(rendered).toContain('window.__APP_CONFIG__=')
-    expect(rendered).toContain('"api_base_url":"https://ap2.upit.top"')
+    expect(rendered).toContain('"api_base_url":"https://a2t.upit.top"')
     expect(rendered).toContain('\\u003c/script\\u003e')
     expect(rendered).not.toContain('</script><img')
     expect(rendered.indexOf('window.__APP_CONFIG__')).toBeLessThan(rendered.indexOf('</head>'))

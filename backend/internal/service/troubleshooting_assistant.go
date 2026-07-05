@@ -444,6 +444,18 @@ func troubleshootingEvidenceFromRequestDetail(item *OpsRequestDetail, locale str
 	message := strings.TrimSpace(item.Message)
 	phase := strings.TrimSpace(item.Phase)
 
+	if evidence := explicitTroubleshootingEvidenceFromMessage(message, statusCode, locale); evidence != nil {
+		evidence.Request = &TroubleshootingEvidenceRequest{
+			RequestID:  strings.TrimSpace(item.RequestID),
+			StatusCode: statusCode,
+			Phase:      phase,
+			Model:      strings.TrimSpace(item.Model),
+			Message:    message,
+			CreatedAt:  item.CreatedAt,
+		}
+		return evidence
+	}
+
 	needsAdmin := statusCode >= 500 || statusCode == 429 || phase == "upstream" || phase == "network" || phase == "routing" || phase == "internal"
 	reason := formatTroubleshootingLogReason(statusCode, phase, message, locale)
 	userAction := "请稍后重试一次；如果仍失败，把 request id 发给管理员。"
@@ -520,6 +532,73 @@ func formatTroubleshootingLogReason(statusCode int, phase string, message string
 	return statusText
 }
 
+func explicitTroubleshootingEvidenceFromMessage(message string, statusCode int, locale string) *TroubleshootingEvidence {
+	locale = normalizeTroubleshootingLocale(locale)
+	lower := strings.ToLower(strings.TrimSpace(message))
+	if lower == "" {
+		return nil
+	}
+
+	switch {
+	case isTroubleshootingSubscriptionUnavailable(lower):
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      "The user has no usable subscription for this group. The subscription has expired or is not assigned.",
+				NeedsAdmin:  true,
+				UserAction:  "Contact an administrator to renew or assign the subscription, then retry.",
+				AdminAction: "Check the user's subscription for this API key group, including status, expiry time, and plan assignment.",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "订阅已过期或未开通，当前用户没有该分组的可用订阅。请联系管理员续期。",
+			NeedsAdmin:  true,
+			UserAction:  "请联系管理员续期或重新分配套餐后再重试。",
+			AdminAction: "检查该用户 API Key 所属分组的订阅状态、到期时间和套餐分配。",
+		}
+	case isTroubleshootingNoAvailableAccounts(lower):
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      "The system currently has no usable upstream account for this request.",
+				NeedsAdmin:  true,
+				UserAction:  "Contact an administrator and retry after the account pool is restored.",
+				AdminAction: "Check upstream account status, model support, quota windows, temporary scheduling blocks, and proxy connectivity.",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "系统当前没有可用账户，无法完成该请求。",
+			NeedsAdmin:  true,
+			UserAction:  "请联系管理员处理账号池后再重试。",
+			AdminAction: "检查上游账号状态、模型支持、额度窗口、临时不可调度原因和代理链路。",
+		}
+	}
+
+	return nil
+}
+
+func isTroubleshootingSubscriptionUnavailable(lower string) bool {
+	return strings.Contains(lower, "no active subscription found for this group") ||
+		strings.Contains(lower, "user does not have an active subscription for this group") ||
+		strings.Contains(lower, "subscription_not_found") ||
+		strings.Contains(lower, "subscription_required") ||
+		strings.Contains(lower, "subscription is invalid or expired") ||
+		strings.Contains(lower, "订阅已过期") ||
+		strings.Contains(lower, "没有可用订阅") ||
+		strings.Contains(lower, "无可用订阅")
+}
+
+func isTroubleshootingNoAvailableAccounts(lower string) bool {
+	return strings.Contains(lower, "no available accounts") ||
+		strings.Contains(lower, "account_select_failed") ||
+		strings.Contains(lower, "没有可用账号") ||
+		strings.Contains(lower, "没有可用账户") ||
+		strings.Contains(lower, "无可用账号") ||
+		strings.Contains(lower, "无可用账户")
+}
+
 var troubleshootingRequestIDPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\brequest[ _-]?id[:\s]+([a-z0-9._:-]{6,})`),
 	regexp.MustCompile(`(?i)\breq[ _-]?id[:\s]+([a-z0-9._:-]{6,})`),
@@ -591,6 +670,13 @@ func buildTroubleshootingLocalDiagnosis(report string, evidence *Troubleshooting
 		return localTroubleshootingDiagnosis{
 			Answer:     formatTroubleshootingEvidenceAnswer(evidence, locale),
 			NeedsAdmin: evidence.NeedsAdmin,
+			Confirmed:  true,
+		}
+	}
+	if explicitEvidence := explicitTroubleshootingEvidenceFromMessage(report, parseTroubleshootingStatusCode(report), locale); explicitEvidence != nil {
+		return localTroubleshootingDiagnosis{
+			Answer:     formatTroubleshootingEvidenceAnswer(explicitEvidence, locale),
+			NeedsAdmin: explicitEvidence.NeedsAdmin,
 			Confirmed:  true,
 		}
 	}

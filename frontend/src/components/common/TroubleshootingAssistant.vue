@@ -5,16 +5,39 @@
     data-testid="troubleshooting-assistant"
   >
     <button
-      v-if="!open"
+      v-if="collapsed"
       type="button"
-      class="assistant-fab"
-      aria-label="打开故障排查助手"
-      @mousedown="event => startDrag(event, { allowButton: true })"
-      @click="handleFabClick"
+      class="assistant-restore-handle"
+      aria-label="恢复故障排查助手"
+      @click="restoreFromEdge"
     >
-      <Icon name="chatBubble" size="md" />
-      <span>故障排查</span>
+      <Icon name="chevronLeft" size="xs" />
     </button>
+
+    <div
+      v-else-if="!open"
+      class="assistant-fab-shell"
+    >
+      <button
+        type="button"
+        class="assistant-fab"
+        aria-label="打开故障排查助手"
+        @mousedown="event => startDrag(event, { allowButton: true })"
+        @click="handleFabClick"
+      >
+        <Icon name="chatBubble" size="sm" />
+        <span>故障排查</span>
+      </button>
+      <button
+        type="button"
+        class="assistant-fab-close"
+        aria-label="收起故障排查入口"
+        @mousedown.stop
+        @click.stop="collapseToEdge"
+      >
+        <Icon name="x" size="xs" />
+      </button>
+    </div>
 
     <section
       v-else
@@ -26,7 +49,7 @@
           <Icon name="chatBubble" size="sm" />
           <span>故障排查助手</span>
         </div>
-        <button type="button" class="icon-button" aria-label="关闭故障排查助手" @click="open = false">
+        <button type="button" class="icon-button" aria-label="关闭故障排查助手" @click="closePanel">
           <Icon name="x" size="sm" />
         </button>
       </header>
@@ -111,6 +134,7 @@ interface AssistantMessage {
 }
 
 const open = ref(false)
+const collapsed = ref(false)
 const loading = ref(false)
 const draft = ref('')
 const messages = ref<AssistantMessage[]>([])
@@ -121,10 +145,11 @@ let messageID = 0
 let dragStart: { mouseX: number; mouseY: number; x: number; y: number } | null = null
 let draggedDuringGesture = false
 
-const containerStyle = computed(() => ({
-  right: `${position.value.x}px`,
-  bottom: `${position.value.y}px`,
-}))
+const containerStyle = computed(() => (
+  collapsed.value
+    ? { right: '0px', bottom: `${position.value.y}px` }
+    : { right: `${position.value.x}px`, bottom: `${position.value.y}px` }
+))
 
 const limitText = computed(() => {
   const limit = latestLimit.value
@@ -168,6 +193,22 @@ function handleFabClick() {
     draggedDuringGesture = false
     return
   }
+  collapsed.value = false
+  open.value = true
+}
+
+function collapseToEdge() {
+  open.value = false
+  collapsed.value = true
+}
+
+function closePanel() {
+  open.value = false
+  collapsed.value = false
+}
+
+function restoreFromEdge() {
+  collapsed.value = false
   open.value = true
 }
 
@@ -305,19 +346,64 @@ onBeforeUnmount(() => {
   z-index: 60;
 }
 
+.assistant-fab-shell {
+  position: relative;
+  display: inline-flex;
+}
+
 .assistant-fab {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 44px;
-  padding: 0 16px;
+  gap: 6px;
+  height: 38px;
+  padding: 0 12px;
   border: 1px solid rgba(17, 24, 39, 0.12);
   border-radius: 8px;
   background: #111827;
   color: #ffffff;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  box-shadow: 0 12px 28px rgba(17, 24, 39, 0.22);
+  box-shadow: 0 10px 24px rgba(17, 24, 39, 0.2);
+}
+
+.assistant-fab-close {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #4b5563;
+  box-shadow: 0 5px 14px rgba(17, 24, 39, 0.16);
+}
+
+.assistant-fab-close:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.assistant-restore-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 34px;
+  border: 1px solid rgba(17, 24, 39, 0.14);
+  border-right: 0;
+  border-radius: 6px 0 0 6px;
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 8px 18px rgba(17, 24, 39, 0.16);
+}
+
+.assistant-restore-handle:hover {
+  background: #eff6ff;
+  color: #1d4ed8;
 }
 
 .assistant-panel {
@@ -549,7 +635,31 @@ onBeforeUnmount(() => {
   border-color: rgba(96, 165, 250, 0.55);
   background: #2563eb;
   color: #ffffff;
-  box-shadow: 0 14px 30px rgba(37, 99, 235, 0.38);
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.34);
+}
+
+:global(.dark) .assistant-fab-close {
+  border-color: rgba(96, 165, 250, 0.48);
+  background: #111827;
+  color: #bfdbfe;
+  box-shadow: 0 7px 16px rgba(0, 0, 0, 0.34);
+}
+
+:global(.dark) .assistant-fab-close:hover {
+  background: #1f2937;
+  color: #ffffff;
+}
+
+:global(.dark) .assistant-restore-handle {
+  border-color: rgba(96, 165, 250, 0.62);
+  background: #1d4ed8;
+  color: #ffffff;
+  box-shadow: 0 9px 20px rgba(37, 99, 235, 0.32);
+}
+
+:global(.dark) .assistant-restore-handle:hover {
+  background: #2563eb;
+  color: #ffffff;
 }
 
 :global(.dark) .assistant-panel {

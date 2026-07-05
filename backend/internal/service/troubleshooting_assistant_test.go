@@ -174,6 +174,45 @@ func TestTroubleshootingAssistantUsesExactLogEvidenceWithoutAI(t *testing.T) {
 	require.NotContains(t, result.Answer, "1. 上游账号池")
 }
 
+func TestTroubleshootingAssistantDirectlyReportsExpiredSubscription(t *testing.T) {
+	ai := &troubleshootingAIStub{answer: "不应该调用 AI"}
+	svc := NewTroubleshootingAssistantService(ai, &troubleshootingLimiterStub{}, nil)
+
+	result, err := svc.Analyze(context.Background(), TroubleshootingAnalyzeInput{
+		UserID:  42,
+		Message: "POST /v1/responses failed: 403 No active subscription found for this group, request id: sub-expired-1",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "rules", result.Source)
+	require.True(t, result.NeedsAdmin)
+	require.False(t, result.AIAttempted)
+	require.Equal(t, 0, ai.calls)
+	require.Contains(t, result.Answer, "订阅已过期")
+	require.Contains(t, result.Answer, "请联系管理员续期")
+	require.NotContains(t, result.Answer, "权限、风控或策略")
+	require.NotContains(t, result.Answer, "可能")
+}
+
+func TestTroubleshootingEvidenceNoAvailableAccountsUsesClearConclusion(t *testing.T) {
+	status := 503
+	evidence := troubleshootingEvidenceFromRequestDetail(&OpsRequestDetail{
+		Kind:       OpsRequestKindError,
+		CreatedAt:  time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC),
+		RequestID:  "no-account-1",
+		StatusCode: &status,
+		Phase:      "routing",
+		Model:      "gpt-5.3-codex-spark",
+		Message:    "No available accounts: no available accounts supporting model: gpt-5.3-codex-spark",
+	}, troubleshootingLocaleChinese)
+
+	require.True(t, evidence.Confirmed)
+	require.True(t, evidence.NeedsAdmin)
+	require.Contains(t, evidence.Reason, "系统当前没有可用账户")
+	require.Contains(t, evidence.UserAction, "联系管理员")
+	require.NotContains(t, evidence.Reason, "可能")
+}
+
 func TestTroubleshootingAssistantReportsRecoveredWhenNoLogAndAccountsAvailable(t *testing.T) {
 	ai := &troubleshootingAIStub{}
 	evidence := &troubleshootingEvidenceStub{

@@ -498,7 +498,7 @@ docker exec cf-origin-ssl sh -lc "grep -o '<link rel=\\"[^\\"]*\\"[^>]*>' /srv/5
     scp_to_remote(host, sql_path, "/tmp/fork-maintenance/login-agreement.sql", apply=apply)
     db_cmd = """set -eu
 docker cp /tmp/fork-maintenance/login-agreement.sql sub2api-postgres:/tmp/login-agreement.sql
-for db in sub2api sub2api_ap1 sub2api_ap2; do
+for db in sub2api sub2api_ap1 sub2api_test; do
   docker exec sub2api-postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$1" -v ON_ERROR_STOP=1 -f /tmp/login-agreement.sql' sh "$db"
 done
 """

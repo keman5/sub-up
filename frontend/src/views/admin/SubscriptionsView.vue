@@ -892,7 +892,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
-import type { AdminUser, UserSubscription, Group, GroupPlatform, SubscriptionType } from '@/types'
+import type { AdminUser, AssignSubscriptionRequest, UserSubscription, Group, GroupPlatform, SubscriptionType } from '@/types'
 import type { SimpleUser } from '@/api/admin/usage'
 import type { Column } from '@/components/common/types'
 import { formatDateOnly } from '@/utils/format'
@@ -1506,15 +1506,20 @@ const handleAssignSubscription = async () => {
     return
   }
 
+  const assignment = {
+    group_id: assignForm.group_id,
+    validity_days: assignForm.validity_days
+  }
+
   submitting.value = true
   try {
     if (userIds.length === 1) {
-      await assignSingleSubscriptionWithDuplicateConfirmation(userIds[0])
+      await assignSingleSubscriptionWithDuplicateConfirmation(userIds[0], assignment)
     } else {
       await adminAPI.subscriptions.bulkAssign({
         user_ids: userIds,
-        group_id: assignForm.group_id,
-        validity_days: assignForm.validity_days
+        group_id: assignment.group_id,
+        validity_days: assignment.validity_days
       })
     }
     appStore.showSuccess(
@@ -1535,16 +1540,19 @@ const handleAssignSubscription = async () => {
   }
 }
 
-const assignSingleSubscriptionWithDuplicateConfirmation = async (userId: number) => {
+const assignSingleSubscriptionWithDuplicateConfirmation = async (
+  userId: number,
+  assignment: Pick<AssignSubscriptionRequest, 'group_id' | 'validity_days'>
+) => {
   try {
-    await assignSingleSubscription(userId, false)
+    await assignSingleSubscription(userId, assignment, false)
   } catch (error: any) {
     if (!isDuplicateSubscriptionConfirmation(error)) {
       throw error
     }
 
     const selectedUser = selectedAssignUsers.value.find((user) => user.id === userId)
-    const selectedGroup = groups.value.find((group) => group.id === assignForm.group_id)
+    const selectedGroup = groups.value.find((group) => group.id === assignment.group_id)
     const confirmed = await appDialog.confirm({
       title: t('admin.subscriptions.duplicateConfirmTitle'),
       message: t('admin.subscriptions.duplicateConfirmMessage', {
@@ -1559,7 +1567,7 @@ const assignSingleSubscriptionWithDuplicateConfirmation = async (userId: number)
       throw new DuplicateSubscriptionConfirmationCancelled()
     }
 
-    await assignSingleSubscription(userId, true)
+    await assignSingleSubscription(userId, assignment, true)
   }
 }
 
@@ -1569,12 +1577,16 @@ class DuplicateSubscriptionConfirmationCancelled extends Error {
   }
 }
 
-const assignSingleSubscription = (userId: number, confirmDuplicate: boolean) =>
+const assignSingleSubscription = (
+  userId: number,
+  assignment: Pick<AssignSubscriptionRequest, 'group_id' | 'validity_days'>,
+  confirmDuplicate: boolean
+) =>
   adminAPI.subscriptions.assign(
     {
       user_id: userId,
-      group_id: assignForm.group_id!,
-      validity_days: assignForm.validity_days,
+      group_id: assignment.group_id,
+      validity_days: assignment.validity_days,
       confirm_duplicate: confirmDuplicate
     },
     { skipGlobalErrorToast: true }

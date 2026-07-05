@@ -1,6 +1,6 @@
 # VPS 部署与更新排障记录
 
-本文记录将当前 `sub2api` 服务部署到 VPS 时遇到的问题、判断方法和可复用处理方案。当前线上以后端容器 `sub2api`、`sub2api-ap1`、`sub2api-ap2` 和 Cloudflare Pages 前台为准。
+本文记录将当前 `sub2api` 服务部署到 VPS 时遇到的问题、判断方法和可复用处理方案。当前线上以后端容器 `sub2api`、`sub2api-ap1`、`sub2api-test` 和 Cloudflare Pages 前台为准。
 
 > 注意：不要把 `SQL_DSN`、`SESSION_SECRET`、`CRYPTO_SECRET`、Redis 密码等环境变量写入文档、聊天记录或公开日志。排障时只确认变量是否存在，避免展开具体值。
 
@@ -55,7 +55,7 @@ docker inspect sub2api --format '{{.HostConfig.RestartPolicy.Name}}'
 
 - 主环境：`sub2api`
 - a1：`sub2api-ap1`
-- a2：`sub2api-ap2`
+- test：`sub2api-test`
 - 共享依赖：`sub2api-postgres`、`sub2api-redis`
 
 ***
@@ -76,7 +76,7 @@ docker inspect sub2api --format '{{.HostConfig.RestartPolicy.Name}}'
 6. `chmod +x` 后原子 `mv` 为 `/opt/sub2api-runtime-build/sub2api`。
 7. 基于上一版运行镜像只替换 `/app/sub2api`，再按 ap1、primary 顺序滚动。
 
-2026-06-14 起，`ai.upit.top`、`a1.upit.top`、`a2.upit.top` 三套前台静态资源都按 Cloudflare Pages 发布。以后如果只是后端/API 变更，VPS 发布不需要重新构建前台，使用 `--skip-frontend-build`。前台改动应走 Cloudflare Pages 发布流程：
+2026-06-14 起，`ai.upit.top`、`a1.upit.top`、`test.upit.top` 三套前台静态资源都按 Cloudflare Pages 发布。以后如果只是后端/API 变更，VPS 发布不需要重新构建前台，使用 `--skip-frontend-build`。前台改动应走 Cloudflare Pages 发布流程：
 
 ```bash
 pnpm --dir frontend exec vitest run \
@@ -84,10 +84,10 @@ pnpm --dir frontend exec vitest run \
   src/cloudflare/__tests__/pages-config-injection.spec.ts
 pnpm --dir frontend run build
 
-rm -rf /tmp/sub2api-pages-main /tmp/sub2api-pages-a1 /tmp/sub2api-pages-a2
+rm -rf /tmp/sub2api-pages-main /tmp/sub2api-pages-a1 /tmp/sub2api-pages-test
 cp -R backend/internal/web/dist /tmp/sub2api-pages-main
 cp -R backend/internal/web/dist /tmp/sub2api-pages-a1
-cp -R backend/internal/web/dist /tmp/sub2api-pages-a2
+cp -R backend/internal/web/dist /tmp/sub2api-pages-test
 
 node scripts/inject-pages-public-settings.mjs \
   --settings-url https://api.upit.top/api/v1/settings/public \
@@ -96,12 +96,12 @@ node scripts/inject-pages-public-settings.mjs \
   --settings-url https://ap1.upit.top/api/v1/settings/public \
   --html /tmp/sub2api-pages-a1/index.html
 node scripts/inject-pages-public-settings.mjs \
-  --settings-url https://ap2.upit.top/api/v1/settings/public \
-  --html /tmp/sub2api-pages-a2/index.html
+  --settings-url https://a2t.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-test/index.html
 
 pnpm dlx wrangler pages deploy /tmp/sub2api-pages-main --project-name sub2api-frontend-main --branch subapi
 pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a1 --project-name sub2api-frontend-a1 --branch subapi
-pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a2 --project-name sub2api-frontend-a2 --branch subapi
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-test --project-name sub2api-frontend-test --branch subapi
 ```
 
 注意：Pages 只托管静态 HTML，不会执行 VPS 内嵌前台的 Go 注入逻辑。部署前必须把对应环境的 `/api/v1/settings/public` 公开 `data` 字段写入 `backend/internal/web/dist/index.html` 的 `window.__APP_CONFIG__`，否则站点标题、logo、Turnstile 开关、模型 API base URL 等线上配置会退回构建默认值。不要把 `.env`、后台配置或密钥写入静态文件。
@@ -110,7 +110,7 @@ pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a2 --project-name sub2api-fron
 
 - 运行时 public settings 可以在发布前注入到各环境自己的 `index.html`。
 - 构建期配置如果会进入 Vite/JS/CSS bundle，必须按环境分别打包，不要用一套 bundle 覆盖多套服务。
-- 当前三套正式前台使用独立 Cloudflare Pages 静态产物，不依赖 Worker 动态 HTML 注入。项目名分别是 `sub2api-frontend-main`、`sub2api-frontend-a1`、`sub2api-frontend-a2`。
+- 当前三套正式前台使用独立 Cloudflare Pages 静态产物，不依赖 Worker 动态 HTML 注入。项目名分别是 `sub2api-frontend-main`、`sub2api-frontend-a1`、`sub2api-frontend-test`。
 - 只有在确认差异全是运行时公开配置时，才可以复用同一次 build 的 assets，复制产物目录后分别 inject；只要差异包含构建期变量，就必须重新 build。
 
 注意：当前 VPS 后端二进制仍使用 `go build -tags embed`，会把 `backend/internal/web/dist` 中已有的前端产物嵌入作为回滚和源站兜底。不要现在默认去掉 `-tags embed`；等三套前台 Pages 迁移稳定并确认不再需要 VPS 内嵌前台兜底后，再评估增加 no-embed 后端发布模式。
@@ -191,37 +191,37 @@ curl -fsS https://a1.upit.top/health
 
 若用户反馈高压账号仍未切到 `gpt-5.3-codex-spark`，先看容器环境变量，再查对应 OpenAI 账号 `extra` 中的 `codex_5h_used_percent`、`codex_7d_used_percent` 和最近 `usage_logs.model/upstream_model`。
 
-### 3.3 ap2 / a2 灰度环境单独重部署
+### 3.3 test / a2t 灰度环境单独重部署
 
-`ap2` 不是 `sub2api-ap1`。当前线上单独存在一套灰度环境：
+`test` 不是 `sub2api-ap1`。当前线上单独存在一套灰度环境：
 
-- compose 目录：`/opt/sub2api-ap2-deploy`
-- compose project：`sub2api-ap2-deploy`
-- 服务名 / 容器名：`sub2api-ap2`
+- compose 目录：`/opt/sub2api-test-deploy`
+- compose project：`sub2api-test-deploy`
+- 服务名 / 容器名：`sub2api-test`
 - 本地健康检查：`http://127.0.0.1:8083/health`
-- 镜像来源：`/opt/sub2api-ap2-deploy/.env` 中的 `IMAGE_TAG=...`
+- 镜像来源：`/opt/sub2api-test-deploy/.env` 中的 `IMAGE_TAG=...`
 
-因此，如果只是重新部署 `ap2/a2`，不要使用 `deploy/local-gzip-binary-deploy.sh --apply --deploy`，因为那个流程会更新 `sub2api-ap1` 和 `sub2api`。正确做法是：
+因此，如果只是重新部署 `test/a2t`，不要使用 `deploy/local-gzip-binary-deploy.sh --apply --deploy`，因为那个流程会更新 `sub2api-ap1` 和 `sub2api`。正确做法是：
 
 1. 先用脚本仅完成“本地构建 + gzip 上传 + 远端替换 `/opt/sub2api-runtime-build/sub2api` + 打新镜像”，不要滚动主环境：
 
 ```bash
 IMAGE_TAG="sub2api:subapi-<git-sha>-ap2-redeploy-$(date +%Y%m%d%H%M%S)" \
 HOST=51tokens \
-BASE_IMAGE="$(ssh 51tokens \"grep '^IMAGE_TAG=' /opt/sub2api-ap2-deploy/.env | cut -d= -f2-\")" \
+BASE_IMAGE="$(ssh 51tokens \"grep '^IMAGE_TAG=' /opt/sub2api-test-deploy/.env | cut -d= -f2-\")" \
 deploy/local-gzip-binary-deploy.sh --apply
 ```
 
-2. 然后仅修改 `ap2` 目录下的 `.env` 并重启 `sub2api-ap2`：
+2. 然后仅修改 `test` 目录下的 `.env` 并重启 `sub2api-test`：
 
 ```bash
 ssh 51tokens '
   set -eu
-  cd /opt/sub2api-ap2-deploy
+  cd /opt/sub2api-test-deploy
   TS=$(date +%Y%m%d%H%M%S)
   cp .env .env.bak.$TS.redeploy-ap2
   sed -i "s#^IMAGE_TAG=.*#IMAGE_TAG=sub2api:subapi-<git-sha>-ap2-redeploy-<timestamp>#\" .env
-  docker compose up -d sub2api-ap2
+  docker compose up -d sub2api-test
   curl -fsS http://127.0.0.1:8083/health
 '
 ```
@@ -230,8 +230,8 @@ ssh 51tokens '
 
 ```bash
 ssh 51tokens '
-  docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" sub2api-ap2
-  docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | grep sub2api-ap2
+  docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" sub2api-test
+  docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | grep sub2api-test
 '
 ```
 
@@ -239,10 +239,10 @@ ssh 51tokens '
 
 - 旧镜像：`sub2api:subapi-a5e4b0c6-ap2-oauth-adaptive-v2-202606021754`
 - 新镜像：`sub2api:subapi-9d75fb6b-ap2-redeploy-20260602232707`
-- `sub2api-ap2` 更新后状态为 `healthy`
+- `sub2api-test` 更新后状态为 `healthy`
 - `http://127.0.0.1:8083/health` 返回 `{"status":"ok"}`
 
-如果只想验证灰度 OAuth/Codex 自适应路由，不要动 `sub2api-ap1` 或 `sub2api`，保持 `ap2` 独立切换即可。
+如果只想验证灰度 OAuth/Codex 自适应路由，不要动 `sub2api-ap1` 或 `sub2api`，保持 `test` 独立切换即可。
 
 底层等价命令示例：
 
@@ -265,7 +265,7 @@ gzip -c /tmp/sub2api-build-output/sub2api | ssh 51tokens '
 
 ### 3.4 2026-06-11 线上共享数据层、Grafana 移除与 sysstat 监控
 
-当前 1 vCPU / 约 2 GiB 内存 VPS 不再为 `ap1`、`ap2` 各自运行独立 PostgreSQL 和 Redis。三套 sub2api 应用共享主 compose 的 PostgreSQL / Redis，以减少常驻容器数量、healthcheck 和后台连接池开销。
+当前 1 vCPU / 约 2 GiB 内存 VPS 不再为 `ap1`、`test` 各自运行独立 PostgreSQL 和 Redis。三套 sub2api 应用共享主 compose 的 PostgreSQL / Redis，以减少常驻容器数量、healthcheck 和后台连接池开销。
 
 当前线上拓扑：
 
@@ -273,28 +273,27 @@ gzip -c /tmp/sub2api-build-output/sub2api | ssh 51tokens '
 | --- | --- | --- | --- | --- | --- | --- |
 | primary | `/opt/sub2api-deploy` | `sub2api` | `127.0.0.1:8081` | `sub2api` | `0` | 持有共享 `sub2api-postgres` / `sub2api-redis` |
 | ap1 / a1 | `/opt/sub2api-ap1-deploy` | `sub2api-ap1` | `127.0.0.1:8082` | `sub2api_ap1` | `1` | compose 只保留应用容器，接入共享网络 |
-| ap2 / a2 | `/opt/sub2api-ap2-deploy` | `sub2api-ap2` | `127.0.0.1:8083` | `sub2api_ap2` | `2` | compose 保留 `headroom-a2`，接入共享网络 |
+| test / a2t | `/opt/sub2api-test-deploy` | `sub2api-test` | `127.0.0.1:8083` | `sub2api_test` | `2` | compose 只保留应用容器，接入共享网络 |
 
 共享基础设施：
 
 - `sub2api-postgres`：唯一 PostgreSQL 容器。
 - `sub2api-redis`：唯一 Redis 容器。
-- `sub2api-deploy_sub2api-network`：共享 Docker network；`ap1` / `ap2` compose 通过 `external: true` 接入。
-- `headroom-a2`：仅供 `ap2` 使用，保留在 `/opt/sub2api-ap2-deploy`，内部服务地址为 `http://headroom-a2:8787`。
-- `ap2` 的 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL=http://headroom-a2:8787/v1/responses` 只表示 sidecar URL 已配置；实际是否让 OpenAI OAuth Codex 请求经过 Headroom，由后台全局设置 `openai_headroom_enabled` / “Headroom 压缩代理” 开关决定，默认应为关闭。
+- `sub2api-deploy_sub2api-network`：共享 Docker network；`ap1` / `test` compose 通过 `external: true` 接入。
+- `test` 不启用 Headroom，不设置 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL`。
 
 已废弃并移除的容器：
 
 - `sub2api-ap1-postgres`
 - `sub2api-ap1-redis`
-- `sub2api-ap2-postgres`
-- `sub2api-ap2-redis`
+- `sub2api-test-postgres`
+- `sub2api-test-redis`
 - `grafana`
 - `pdc-agent-sub2api`
 
 > 注意：旧数据目录、卷和迁移备份不要立即删除。2026-06-11 迁移备份位于 `/root/sub2api-migration-backup-20260611-200522`，包含 compose / `.env` 备份和 PostgreSQL dump。
 
-`ap1` / `ap2` compose 关键要求：
+`ap1` / `test` compose 关键要求：
 
 ```yaml
 networks:
@@ -312,34 +311,34 @@ networks:
 - REDIS_DB=1
 ```
 
-`ap2` 应用环境变量必须指向共享数据层：
+`test` 应用环境变量必须指向共享数据层：
 
 ```yaml
 - DATABASE_HOST=sub2api-postgres
-- DATABASE_DBNAME=sub2api_ap2
+- DATABASE_DBNAME=sub2api_test
 - REDIS_HOST=sub2api-redis
 - REDIS_DB=2
 ```
 
-以后重部署 `ap1` / `ap2` 时，不要再把 `postgres` / `redis` 服务加回各自 compose；否则会重新引入三套数据库和缓存，1 核 VPS 很容易再次 CPU 100%。
+以后重部署 `ap1` / `test` 时，不要再把 `postgres` / `redis` 服务加回各自 compose；否则会重新引入三套数据库和缓存，1 核 VPS 很容易再次 CPU 100%。
 
 迁移或恢复时的基本顺序：
 
-1. 备份 `/opt/sub2api-deploy`、`/opt/sub2api-ap1-deploy`、`/opt/sub2api-ap2-deploy` 中的 `docker-compose.yml` 和 `.env`。
+1. 备份 `/opt/sub2api-deploy`、`/opt/sub2api-ap1-deploy`、`/opt/sub2api-test-deploy` 中的 `docker-compose.yml` 和 `.env`。
 2. 分别对旧库执行 `pg_dump -Fc`，不要在聊天记录或文档展开数据库密码。
-3. 短暂停止 `sub2api-ap1` 和 `sub2api-ap2` 应用容器，避免迁移期间继续写旧库。
-4. 在 `sub2api-postgres` 中创建或重建 `sub2api_ap1`、`sub2api_ap2`，再用 `pg_restore --no-owner` 导入。
-5. 将旧 `ap1` Redis DB0 迁到主 `sub2api-redis` DB1，将旧 `ap2` Redis DB0 迁到主 DB2；可用 `redis-cli MIGRATE ... COPY REPLACE` 保留源数据。
-6. 修改 `ap1` / `ap2` compose，接入 `sub2api-deploy_sub2api-network`，并更新 `DATABASE_*` / `REDIS_*` 环境变量。
-7. `docker compose up -d` 重建 `sub2api-ap1`、`headroom-a2`、`sub2api-ap2`。
-8. 健康检查通过后再移除旧 `ap1/ap2` PostgreSQL / Redis orphan 容器和 Grafana / PDC 容器。
+3. 短暂停止 `sub2api-ap1` 和 `sub2api-test` 应用容器，避免迁移期间继续写旧库。
+4. 在 `sub2api-postgres` 中创建或重建 `sub2api_ap1`、`sub2api_test`，再用 `pg_restore --no-owner` 导入。
+5. 将旧 `ap1` Redis DB0 迁到主 `sub2api-redis` DB1，将旧 test Redis DB0 迁到主 DB2；Redis 没有数据库名称，文档中统一称为“test 使用 Redis DB2”。
+6. 修改 `ap1` / `test` compose，接入 `sub2api-deploy_sub2api-network`，并更新 `DATABASE_*` / `REDIS_*` 环境变量。
+7. `docker compose up -d` 重建 `sub2api-ap1`、`sub2api-test`。
+8. 健康检查通过后再移除旧 `ap1/test` PostgreSQL / Redis orphan 容器和 Grafana / PDC 容器。
 
 验证命令：
 
 ```bash
 ssh 51tokens '
   docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
-  docker ps -a --format "{{.Names}}" | egrep "grafana|pdc-agent|sub2api-ap1-postgres|sub2api-ap1-redis|sub2api-ap2-postgres|sub2api-ap2-redis" || echo none
+  docker ps -a --format "{{.Names}}" | egrep "grafana|pdc-agent|sub2api-ap1-postgres|sub2api-ap1-redis|sub2api-test-postgres|sub2api-test-redis" || echo none
 
   for port in 8081 8082 8083; do
     echo -n "$port "
@@ -347,11 +346,9 @@ ssh 51tokens '
     echo
   done
 
-  docker exec headroom-a2 curl -fsS --max-time 5 http://127.0.0.1:8787/readyz
+  docker exec sub2api-test sh -lc "env | grep -E '\''^(DATABASE_DBNAME|REDIS_DB)='\'' | sort"
 
-  docker exec sub2api-postgres psql -U sub2api -d sub2api_ap2 -Atc "SELECT value FROM settings WHERE key = '\''openai_headroom_enabled'\'';"
-
-  for db in sub2api sub2api_ap1 sub2api_ap2; do
+  for db in sub2api sub2api_ap1 sub2api_test; do
     echo -n "$db "
     docker exec sub2api-postgres psql -U sub2api -d "$db" -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema = '\''public'\'';"
   done
@@ -366,10 +363,9 @@ ssh 51tokens '
 2026-06-11 实测结果：
 
 - `8081`、`8082`、`8083` 的 `/health` 均返回 `{"status":"ok"}`。
-- `headroom-a2` `/readyz` 返回 `ready=true`。
-- `sub2api_ap2.settings.openai_headroom_enabled` 默认应为 `false`；只有需要灰度 Headroom 转发时，才在后台全局设置页显式打开 “Headroom 压缩代理”。
-- `sub2api`、`sub2api-ap1`、`sub2api-ap2`、`headroom-a2`、`sub2api-postgres`、`sub2api-redis` 均为 `healthy`。
-- `sub2api_ap1`、`sub2api_ap2` 各恢复出 86 张 public 表。
+- `sub2api-test` 环境变量显示 `DATABASE_DBNAME=sub2api_test`、`REDIS_DB=2`。
+- `sub2api`、`sub2api-ap1`、`sub2api-test`、`sub2api-postgres`、`sub2api-redis` 均为 `healthy`。
+- `sub2api_ap1`、`sub2api_test` 各恢复出 86 张 public 表。
 - 稳定后 `sar -u 1 5` 平均 CPU idle 约 58%，比迁移前持续 idle 0% 明显下降。
 
 #### 3.4.1 2026-06-13 连接池按环境分档
@@ -382,26 +378,26 @@ ssh 51tokens '
 | --- | --- | ---: | ---: | ---: | ---: |
 | primary | 线上环境 | `12` | `2` | `128` | `2` |
 | ap1 / a1 | 线上环境 | `12` | `2` | `128` | `2` |
-| ap2 / a2 | 内测环境 | `4` | `1` | `32` | `1` |
+| test / a2t | 内测环境 | `4` | `1` | `32` | `1` |
 
 调整和回滚前必须先备份 `.env`：
 
 ```bash
 ssh 51tokens '
   stamp=$(date +%Y%m%d%H%M%S)
-  for d in /opt/sub2api-deploy /opt/sub2api-ap1-deploy /opt/sub2api-ap2-deploy; do
+  for d in /opt/sub2api-deploy /opt/sub2api-ap1-deploy /opt/sub2api-test-deploy; do
     cp "$d/.env" "$d/.env.bak-pool-tuning-$stamp"
   done
 '
 ```
 
-修改后按低风险顺序滚动重启：先内测 `ap2`，再 `ap1`，最后 `primary`。每个容器健康后再继续下一个：
+修改后按低风险顺序滚动重启：先内测 `test`，再 `ap1`，最后 `primary`。每个容器健康后再继续下一个：
 
 ```bash
 ssh 51tokens '
-  cd /opt/sub2api-ap2-deploy && docker compose up -d --no-deps sub2api-ap2
+  cd /opt/sub2api-test-deploy && docker compose up -d --no-deps sub2api-test
   curl -fsS http://127.0.0.1:8083/health
-  docker inspect -f "{{.State.Health.Status}}" sub2api-ap2
+  docker inspect -f "{{.State.Health.Status}}" sub2api-test
 
   cd /opt/sub2api-ap1-deploy && docker compose up -d --no-deps sub2api
   curl -fsS http://127.0.0.1:8082/health
@@ -417,7 +413,7 @@ ssh 51tokens '
 
 ```bash
 ssh 51tokens '
-  for c in sub2api sub2api-ap1 sub2api-ap2; do
+  for c in sub2api sub2api-ap1 sub2api-test; do
     echo "### $c"
     docker exec "$c" sh -c "env | grep -E \"^(DATABASE_MAX_OPEN_CONNS|DATABASE_MAX_IDLE_CONNS|REDIS_POOL_SIZE|REDIS_MIN_IDLE_CONNS)=\" | sort"
   done
@@ -425,7 +421,7 @@ ssh 51tokens '
   docker exec sub2api-postgres psql -U sub2api -d postgres -Atc "
     select datname,state,count(*)
     from pg_stat_activity
-    where datname in ('\''sub2api'\'','\''sub2api_ap1'\'','\''sub2api_ap2'\'')
+    where datname in ('\''sub2api'\'','\''sub2api_ap1'\'','\''sub2api_test'\'')
     group by datname,state
     order by datname,state;
   "
@@ -434,22 +430,22 @@ ssh 51tokens '
 
 2026-06-13 实测结果：
 
-- 运行环境变量已生效：primary / ap1 为 `12/2/128/2`，ap2 为 `4/1/32/1`。
-- PostgreSQL idle 连接从每套约 `10` 条降为：`sub2api=2`、`sub2api_ap1=2`、`sub2api_ap2=1`。
-- `8081`、`8082`、`8083` 的 `/health` 均返回 `{"status":"ok"}`，`sub2api`、`sub2api-ap1`、`sub2api-ap2` 均为 `healthy`。
-- 公网验证：`https://api.upit.top/health`、`https://ai.upit.top/health`、`https://a1.upit.top/health`、`https://ap2.upit.top/health`、`https://a2.upit.top/health` 均返回 ok。
+- 运行环境变量已生效：primary / ap1 为 `12/2/128/2`，test 为 `4/1/32/1`。
+- PostgreSQL idle 连接从每套约 `10` 条降为：`sub2api=2`、`sub2api_ap1=2`、`sub2api_test=1`。
+- `8081`、`8082`、`8083` 的 `/health` 均返回 `{"status":"ok"}`，`sub2api`、`sub2api-ap1`、`sub2api-test` 均为 `healthy`。
+- 公网验证：`https://api.upit.top/health`、`https://ai.upit.top/health`、`https://a1.upit.top/health`、`https://test.upit.top/health`、`https://a2t.upit.top/health` 均返回 ok。
 
 后续重部署或重建 compose 时，必须保留上述分档。除非升级 VPS 或明确评估并发压力，不要把三套环境恢复成 `DATABASE_MAX_OPEN_CONNS=50`、`DATABASE_MAX_IDLE_CONNS=10`、`REDIS_POOL_SIZE=512`、`REDIS_MIN_IDLE_CONNS=10`。
 
 #### 3.4.2 2026-06-14 Headroom 压缩 worker 限制
 
-迁移到新 VPS 后，主环境和 `ap1/a1` 保留 Headroom sidecar 能力，`ap2/a2` 不启用 Headroom。实际请求是否经过 Headroom 由后台全局设置 `openai_headroom_enabled` / “Headroom 压缩代理”决定；如果后台开关关闭，即使 compose 中保留 sidecar URL，也会直连官方 Codex endpoint。
+迁移到新 VPS 后，主环境和 `ap1/a1` 保留 Headroom sidecar 能力，`test/a2t` 不启用 Headroom。实际请求是否经过 Headroom 由后台全局设置 `openai_headroom_enabled` / “Headroom 压缩代理”决定；如果后台开关关闭，即使 compose 中保留 sidecar URL，也会直连官方 Codex endpoint。
 
 | 环境 | sub2api 容器 | Headroom 容器 | OpenAI OAuth Codex override |
 | --- | --- | --- | --- |
 | primary | `sub2api` | `headroom-main` | `http://headroom-main:8787/v1/responses` |
 | ap1 / a1 | `sub2api-ap1` | `headroom-a1` | `http://headroom-a1:8787/v1/responses` |
-| ap2 / a2 | `sub2api-ap2` | 无 | 不设置 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL` |
+| test / a2t | `sub2api-test` | 无 | 不设置 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL` |
 
 注意不要把 `HEADROOM_WORKERS` 和压缩 worker 混淆：
 
@@ -522,7 +518,7 @@ ssh 51tokens '
 '
 ```
 
-修改后先验证 compose，再只重建两个 Headroom 容器，不要重启 `sub2api`、`sub2api-ap1`、`sub2api-ap2`：
+修改后先验证 compose，再只重建两个 Headroom 容器，不要重启 `sub2api`、`sub2api-ap1`、`sub2api-test`：
 
 ```bash
 ssh 51tokens '
@@ -541,13 +537,13 @@ ssh 51tokens '
   docker exec headroom-main python -c '\''import json,urllib.request; h=json.load(urllib.request.urlopen("http://127.0.0.1:8787/health")); print(h["runtime"]["compression_executor"])'\''
   docker exec headroom-a1 python -c '\''import json,urllib.request; h=json.load(urllib.request.urlopen("http://127.0.0.1:8787/health")); print(h["runtime"]["compression_executor"])'\''
 
-  for c in sub2api sub2api-ap1 sub2api-ap2; do
+  for c in sub2api sub2api-ap1 sub2api-test; do
     echo "[$c]"
     docker inspect "$c" --format "{{range .Config.Env}}{{println .}}{{end}}" | grep "GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL" || true
   done
 
   docker ps --format "table {{.Names}}\t{{.Status}}" | egrep "headroom|sub2api|NAMES"
-  docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" headroom-main headroom-a1 sub2api sub2api-ap1 sub2api-ap2
+  docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" headroom-main headroom-a1 sub2api sub2api-ap1 sub2api-test
 '
 ```
 
@@ -558,7 +554,7 @@ ssh 51tokens '
 - `HEADROOM_WORKERS` 仍为 `1`。
 - `HEADROOM_LIMIT_CONCURRENCY=50`、`HEADROOM_MAX_CONNECTIONS=80`、`HEADROOM_MAX_KEEPALIVE=20`。
 - Docker inspect 中 `HostConfig.Memory=1258291200`、`HostConfig.MemorySwap=1468006400`，对应 compose 的 `mem_limit: 1200m`、`memswap_limit: 1400m`。
-- `sub2api` 指向 `headroom-main`，`sub2api-ap1` 指向 `headroom-a1`，`sub2api-ap2` 不应出现 Headroom override。
+- `sub2api` 指向 `headroom-main`，`sub2api-ap1` 指向 `headroom-a1`，`sub2api-test` 不应出现 Headroom override。
 - `headroom-main`、`headroom-a1`、三套 sub2api 容器都为 `healthy`。
 
 2026-06-14 实测：两个 Headroom 容器从默认 `max_workers=8/source=auto` 调整为 `max_workers=2/source=explicit`，`HEADROOM_WORKERS=1` 保持不变；短窗口 `docker stats` 中 `headroom-main` 和 `headroom-a1` 约为 `0.3% - 0.4%` CPU。后续如果升级 Headroom 镜像后 CLI 原生支持 `--compression-max-workers` 或正确读取 `HEADROOM_COMPRESSION_MAX_WORKERS`，可以移除 wrapper，但必须先用 `/health` 验证 `source=explicit`。
@@ -632,9 +628,9 @@ ssh 51tokens '
 | --- | --- | --- | --- |
 | `ai.upit.top` | `sub2api-frontend-main` | `https://api.upit.top` | `sub2api` |
 | `a1.upit.top` | `sub2api-frontend-a1` | `https://ap1.upit.top` | `sub2api-ap1` |
-| `a2.upit.top` | `sub2api-frontend-a2` | `https://ap2.upit.top` | `sub2api-ap2` |
+| `test.upit.top` | `sub2api-frontend-test` | `https://a2t.upit.top` | `sub2api-test` |
 
-VPS 继续保留 `api.upit.top`、`ap1.upit.top`、`ap2.upit.top` 作为 API 回源。`sub2api`、`sub2api-ap1`、`sub2api-ap2` 后端容器仍承载登录、后台、支付回调、Turnstile secret 校验、模型网关、`/api/*`、`/health` 和 `/51Token/*` 等服务，不能因为前台迁 Pages 而停止。
+VPS 继续保留 `api.upit.top`、`ap1.upit.top`、`a2t.upit.top` 作为 API 回源。`sub2api`、`sub2api-ap1`、`sub2api-test` 后端容器仍承载登录、后台、支付回调、Turnstile secret 校验、模型网关、`/api/*`、`/health` 和 `/51Token/*` 等服务，不能因为前台迁 Pages 而停止。
 
 当前边界：
 
@@ -642,16 +638,16 @@ VPS 继续保留 `api.upit.top`、`ap1.upit.top`、`ap2.upit.top` 作为 API 回
 | --- | --- | --- |
 | `ai.upit.top` | Cloudflare Pages 前台域名，提供 HTML / JS / CSS | VPS 上的旧 origin 入口应关闭 |
 | `a1.upit.top` | Cloudflare Pages 前台域名，提供 HTML / JS / CSS | VPS 上的旧 origin 入口应关闭 |
-| `a2.upit.top` | Cloudflare Pages 前台域名，提供 HTML / JS / CSS | VPS 上的旧 origin 入口已关闭 |
+| `test.upit.top` | Cloudflare Pages 前台域名，提供 HTML / JS / CSS | VPS 上的旧 origin 入口应关闭 |
 | `api.upit.top` | Pages Worker API 回源域名 | 不可关闭 |
 | `ap1.upit.top` | Pages Worker API 回源域名 | 不可关闭 |
-| `ap2.upit.top` | Pages Worker API 回源域名 | 不可关闭 |
+| `a2t.upit.top` | Pages Worker API 回源域名 | 不可关闭 |
 | `sub2api` | primary 后端/API 容器，监听 `127.0.0.1:8081` | 不可关闭 |
 | `sub2api-ap1` | a1 后端/API 容器，监听 `127.0.0.1:8082` | 不可关闭 |
-| `sub2api-ap2` | a2 后端/API 容器，监听 `127.0.0.1:8083` | 不可关闭 |
+| `sub2api-test` | test 后端/API 容器，监听 `127.0.0.1:8083` | 不可关闭 |
 | `cf-origin-ssl` | VPS origin TLS / Caddy 入口 | 不可关闭 |
 
-本次关闭的不是后端容器，而是 `/opt/cf-origin-ssl/Caddyfile` 里 `ai.upit.top`、`a1.upit.top`、`a2.upit.top` 的旧前台 origin server label。Caddy 应只保留 API 回源域名。
+本次关闭的不是后端容器，而是 `/opt/cf-origin-ssl/Caddyfile` 里 `ai.upit.top`、`a1.upit.top`、`test.upit.top` 的旧前台 origin server label。Caddy 应只保留 API 回源域名及内部测试别名。
 
 变更前：
 
@@ -664,7 +660,7 @@ ap1.upit.top:443, a1.upit.top:443 {
     ...
 }
 
-ap2.upit.top:443, a2.upit.top:443 {
+a2t.upit.top:443, test.upit.top:443 {
     ...
 }
 ```
@@ -672,15 +668,15 @@ ap2.upit.top:443, a2.upit.top:443 {
 变更后：
 
 ```caddyfile
-api.upit.top:443 {
+api.upit.top:443, api.51tokens.upit.top:443 {
     ...
 }
 
-ap1.upit.top:443 {
+ap1.upit.top:443, ap1.51tokens.upit.top:443 {
     ...
 }
 
-ap2.upit.top:443 {
+a2t.upit.top:443, test.51tokens.upit.top:443 {
     ...
 }
 ```
@@ -696,29 +692,29 @@ ap2.upit.top:443 {
 ```bash
 curl -sSIL --max-time 15 https://ai.upit.top/login | sed -n '1,30p'
 curl -sSIL --max-time 15 https://a1.upit.top/login | sed -n '1,30p'
-curl -sSIL --max-time 15 https://a2.upit.top/login | sed -n '1,30p'
+curl -sSIL --max-time 15 https://test.upit.top/login | sed -n '1,30p'
 curl -fsS --max-time 15 https://api.upit.top/health
 curl -fsS --max-time 15 https://ap1.upit.top/health
-curl -fsS --max-time 15 https://ap2.upit.top/health
+curl -fsS --max-time 15 https://a2t.upit.top/health
 curl -fsS --max-time 15 https://ai.upit.top/health
 curl -fsS --max-time 15 https://a1.upit.top/health
-curl -fsS --max-time 15 https://a2.upit.top/health
+curl -fsS --max-time 15 https://test.upit.top/health
 
 ssh 51tokens '
   docker inspect -f "{{.State.Health.Status}}" sub2api
   docker inspect -f "{{.State.Health.Status}}" sub2api-ap1
-  docker inspect -f "{{.State.Health.Status}}" sub2api-ap2
-  grep -n "ai.upit.top\|a1.upit.top\|a2.upit.top\|api.upit.top\|ap1.upit.top\|ap2.upit.top" /opt/cf-origin-ssl/Caddyfile
+  docker inspect -f "{{.State.Health.Status}}" sub2api-test
+  grep -n "ai.upit.top\|a1.upit.top\|a2t.upit.top\|api.upit.top\|ap1.upit.top\|test.upit.top" /opt/cf-origin-ssl/Caddyfile
 '
 ```
 
 2026-06-13 实测结果：
 
-- `a2.upit.top/login` 继续由 Cloudflare Pages 返回，并加载 `assets/index-D26Z13h8.js`。
-- `a2.upit.top/health`、`ap2.upit.top/health` 均返回 `{"status":"ok"}`。
-- `a2.upit.top/api/v1/settings/public` 返回 `code=0`。
-- `sub2api-ap2` 为 `healthy`。
-- `/opt/cf-origin-ssl/Caddyfile` 中只保留 `ap2.upit.top:443`，不再包含 `a2.upit.top:443`。
+- `test.upit.top/login` 继续由 Cloudflare Pages 返回，并加载 `assets/index-D26Z13h8.js`。
+- `test.upit.top/health`、`a2t.upit.top/health` 均返回 `{"status":"ok"}`。
+- `test.upit.top/api/v1/settings/public` 返回 `code=0`。
+- `sub2api-test` 为 `healthy`。
+- `/opt/cf-origin-ssl/Caddyfile` 中只保留 `a2t.upit.top:443`，不再包含 `test.upit.top:443`。
 
 回滚时，只把确实需要从 Pages 回退到 VPS 的前台域名加回 Caddy；不要移除 API 回源域名。a2 的历史回滚示例：
 
@@ -730,7 +726,7 @@ ssh 51tokens '
 '
 ```
 
-注意：Cloudflare Pages 迁移只适合前台静态资源。不要把 `api.upit.top`、`ap1.upit.top`、`ap2.upit.top` 等 API 回源域名切到 Pages；不要停止 `sub2api`、`sub2api-ap1`、`sub2api-ap2` 来“关闭前台”，这些容器仍提供 API 和网关能力。
+注意：Cloudflare Pages 迁移只适合前台静态资源。不要把 `api.upit.top`、`ap1.upit.top`、`a2t.upit.top` 等 API 回源域名切到 Pages；不要停止 `sub2api`、`sub2api-ap1`、`sub2api-test` 来“关闭前台”，这些容器仍提供 API 和网关能力。
 
 ### Pages Worker 公开接口短缓存
 
@@ -738,7 +734,7 @@ ssh 51tokens '
 
 | 路径 | 方法 | TTL | 回源 |
 | --- | --- | ---: | --- |
-| `/api/v1/settings/public` | `GET` | `60s` | `ai.upit.top` 回 `https://api.upit.top`，`a1.upit.top` 回 `https://ap1.upit.top`，`a2.upit.top` 回 `https://ap2.upit.top` |
+| `/api/v1/settings/public` | `GET` | `60s` | `ai.upit.top` 回 `https://api.upit.top`，`a1.upit.top` 回 `https://ap1.upit.top`，`test.upit.top` 回 `https://a2t.upit.top` |
 | `/api/status` | `GET` | `60s` | 同上 |
 | `/api/home_page_content` | `GET` | `60s` | 同上 |
 
@@ -763,10 +759,10 @@ pnpm --dir frontend exec vitest run \
   src/cloudflare/__tests__/pages-config-injection.spec.ts
 pnpm --dir frontend run build
 
-rm -rf /tmp/sub2api-pages-main /tmp/sub2api-pages-a1 /tmp/sub2api-pages-a2
+rm -rf /tmp/sub2api-pages-main /tmp/sub2api-pages-a1 /tmp/sub2api-pages-test
 cp -R backend/internal/web/dist /tmp/sub2api-pages-main
 cp -R backend/internal/web/dist /tmp/sub2api-pages-a1
-cp -R backend/internal/web/dist /tmp/sub2api-pages-a2
+cp -R backend/internal/web/dist /tmp/sub2api-pages-test
 
 node scripts/inject-pages-public-settings.mjs \
   --settings-url https://api.upit.top/api/v1/settings/public \
@@ -775,12 +771,12 @@ node scripts/inject-pages-public-settings.mjs \
   --settings-url https://ap1.upit.top/api/v1/settings/public \
   --html /tmp/sub2api-pages-a1/index.html
 node scripts/inject-pages-public-settings.mjs \
-  --settings-url https://ap2.upit.top/api/v1/settings/public \
-  --html /tmp/sub2api-pages-a2/index.html
+  --settings-url https://a2t.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-test/index.html
 
 pnpm dlx wrangler pages deploy /tmp/sub2api-pages-main --project-name sub2api-frontend-main --branch subapi
 pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a1 --project-name sub2api-frontend-a1 --branch subapi
-pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a2 --project-name sub2api-frontend-a2 --branch subapi
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-test --project-name sub2api-frontend-test --branch subapi
 
 curl -fsSL --max-time 15 https://ai.upit.top/login \
   | rg "window\\.__APP_CONFIG__|https://api.upit.top/51Token/v1|<title>"
@@ -796,12 +792,12 @@ curl -sSi --max-time 15 https://a1.upit.top/api/v1/settings/public \
 curl -fsS --max-time 15 https://a1.upit.top/health
 curl -fsS --max-time 15 https://ap1.upit.top/health
 
-curl -fsSL --max-time 15 https://a2.upit.top/login \
-  | rg "window\\.__APP_CONFIG__|https://ap2.upit.top/51Token/v1|<title>"
-curl -sSi --max-time 15 https://a2.upit.top/api/v1/settings/public \
+curl -fsSL --max-time 15 https://test.upit.top/login \
+  | rg "window\\.__APP_CONFIG__|https://a2t.upit.top/51Token/v1|<title>"
+curl -sSi --max-time 15 https://test.upit.top/api/v1/settings/public \
   | grep -Ei 'HTTP/|x-sub2api-edge-cache|cache-control|cf-cache-status'
-curl -fsS --max-time 15 https://a2.upit.top/health
-curl -fsS --max-time 15 https://ap2.upit.top/health
+curl -fsS --max-time 15 https://test.upit.top/health
+curl -fsS --max-time 15 https://a2t.upit.top/health
 ```
 
 ***
@@ -1106,13 +1102,13 @@ docker run --rm --network container:sub2api curlimages/curl:8.16.0 \
 
 2026-06-13 已执行：
 
-- Cloudflare Pages 承载 `a2.upit.top` 前台静态资源。
-- Pages Worker 将 `/api/*`、`/health`、`/51Token/*` 等回源到 `https://ap2.upit.top`。
+- Cloudflare Pages 承载 `test.upit.top` 前台静态资源。
+- Pages Worker 将 `/api/*`、`/health`、`/51Token/*` 等回源到 `https://a2t.upit.top`。
 - VPS Caddy 备份：`/opt/cf-origin-ssl/Caddyfile.bak-disable-a2-origin-20260613081656`。
-- Caddy server label 从 `ap2.upit.top:443, a2.upit.top:443` 改为 `ap2.upit.top:443`，只关闭旧前台 origin，不关闭 `ap2.upit.top` 和 `sub2api-ap2`。
-- 验证：`a2.upit.top/login` 加载 Cloudflare Pages 资产；`a2.upit.top/health`、`ap2.upit.top/health` 均返回 ok；`sub2api-ap2` 为 `healthy`。
+- Caddy server label 从 `a2t.upit.top:443, test.upit.top:443` 改为 `a2t.upit.top:443`，只关闭旧前台 origin，不关闭 `a2t.upit.top` 和 `sub2api-test`。
+- 验证：`test.upit.top/login` 加载 Cloudflare Pages 资产；`test.upit.top/health`、`a2t.upit.top/health` 均返回 ok；`sub2api-test` 为 `healthy`。
 
-后续不要把 `a2.upit.top` 加回 VPS origin，除非明确回滚 Pages。
+后续不要把 `test.upit.top` 加回 VPS origin，除非明确回滚 Pages。
 
 ### 2. Pages public settings 注入和公开只读接口短缓存
 
@@ -1133,9 +1129,9 @@ docker run --rm --network container:sub2api curlimages/curl:8.16.0 \
 | --- | ---: | ---: | ---: | ---: |
 | primary | `12` | `2` | `128` | `2` |
 | ap1 / a1 | `12` | `2` | `128` | `2` |
-| ap2 / a2 | `4` | `1` | `32` | `1` |
+| test / a2t | `4` | `1` | `32` | `1` |
 
-实测 PostgreSQL idle 连接降为：`sub2api=2`、`sub2api_ap1=2`、`sub2api_ap2=1`。后续重建 compose 或迁移时不要恢复默认大连接池。
+实测 PostgreSQL idle 连接降为：`sub2api=2`、`sub2api_ap1=2`、`sub2api_test=1`。后续重建 compose 或迁移时不要恢复默认大连接池。
 
 ## 十二、2026-06-14 线上相关改动记录
 
@@ -1147,12 +1143,12 @@ docker run --rm --network container:sub2api curlimages/curl:8.16.0 \
 | --- | --- | --- | --- |
 | `ai.upit.top` | `sub2api-frontend-main` | `https://api.upit.top` | `sub2api` |
 | `a1.upit.top` | `sub2api-frontend-a1` | `https://ap1.upit.top` | `sub2api-ap1` |
-| `a2.upit.top` | `sub2api-frontend-a2` | `https://ap2.upit.top` | `sub2api-ap2` |
+| `test.upit.top` | `sub2api-frontend-test` | `https://a2t.upit.top` | `sub2api-test` |
 
 边界：
 
-- `ai/a1/a2` 只承载前台 HTML / JS / CSS。
-- `api/ap1/ap2` 继续承载登录、后台、支付、Turnstile secret 校验、模型网关、`/api/*`、`/health`、`/51Token/*`。
+- `ai/a1/test` 只承载前台 HTML / JS / CSS。
+- `api/ap1/a2t` 继续承载登录、后台、支付、Turnstile secret 校验、模型网关、`/api/*`、`/health`、`/51Token/*`。
 - 前台改动走 Pages 发布；后端/API 常规发布默认 `--skip-frontend-build`。
 - VPS 内嵌前台继续作为回滚兜底，但常规发布不再为 VPS 重新打前台产物。
 
@@ -1164,10 +1160,10 @@ pnpm --dir frontend exec vitest run \
   src/cloudflare/__tests__/pages-config-injection.spec.ts
 pnpm --dir frontend run build
 
-rm -rf /tmp/sub2api-pages-main /tmp/sub2api-pages-a1 /tmp/sub2api-pages-a2
+rm -rf /tmp/sub2api-pages-main /tmp/sub2api-pages-a1 /tmp/sub2api-pages-test
 cp -R backend/internal/web/dist /tmp/sub2api-pages-main
 cp -R backend/internal/web/dist /tmp/sub2api-pages-a1
-cp -R backend/internal/web/dist /tmp/sub2api-pages-a2
+cp -R backend/internal/web/dist /tmp/sub2api-pages-test
 
 node scripts/inject-pages-public-settings.mjs \
   --settings-url https://api.upit.top/api/v1/settings/public \
@@ -1176,12 +1172,12 @@ node scripts/inject-pages-public-settings.mjs \
   --settings-url https://ap1.upit.top/api/v1/settings/public \
   --html /tmp/sub2api-pages-a1/index.html
 node scripts/inject-pages-public-settings.mjs \
-  --settings-url https://ap2.upit.top/api/v1/settings/public \
-  --html /tmp/sub2api-pages-a2/index.html
+  --settings-url https://a2t.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-test/index.html
 
 pnpm dlx wrangler pages deploy /tmp/sub2api-pages-main --project-name sub2api-frontend-main --branch subapi
 pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a1 --project-name sub2api-frontend-a1 --branch subapi
-pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a2 --project-name sub2api-frontend-a2 --branch subapi
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-test --project-name sub2api-frontend-test --branch subapi
 ```
 
 ### 2. 新 VPS 迁移和共享数据层状态
@@ -1192,7 +1188,7 @@ pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a2 --project-name sub2api-fron
 | --- | --- | --- | --- | --- | --- |
 | primary | `/opt/sub2api-deploy` | `sub2api` | `127.0.0.1:8081` | `sub2api` | `0` |
 | a1 / ap1 | `/opt/sub2api-ap1-deploy` | `sub2api-ap1` | `127.0.0.1:8082` | `sub2api_ap1` | `1` |
-| a2 / ap2 | `/opt/sub2api-ap2-deploy` | `sub2api-ap2` | `127.0.0.1:8083` | `sub2api_ap2` | `2` |
+| test / a2t | `/opt/sub2api-test-deploy` | `sub2api-test` | `127.0.0.1:8083` | `sub2api_test` | `2` |
 
 共享基础设施：
 
@@ -1201,7 +1197,7 @@ pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a2 --project-name sub2api-fron
 - Caddy：`cf-origin-ssl`
 - Docker network：`sub2api-deploy_sub2api-network`
 
-当前没有三套独立 Redis/PostgreSQL。三套环境已经共用一组数据库和缓存容器，以不同 PostgreSQL database 和 Redis DB 隔离。不要再把 `sub2api-ap1-postgres`、`sub2api-ap1-redis`、`sub2api-ap2-postgres`、`sub2api-ap2-redis` 加回 compose。
+当前没有三套独立 Redis/PostgreSQL。三套环境已经共用一组数据库和缓存容器，以不同 PostgreSQL database 和 Redis DB 隔离。不要再把 `sub2api-ap1-postgres`、`sub2api-ap1-redis`、`sub2api-test-postgres`、`sub2api-test-redis` 加回 compose。
 
 ### 3. 旧 VPS 备份记录
 
@@ -1228,7 +1224,7 @@ old-vps-final-20260614-210956.tar.zst.sha256
 | --- | --- | --- |
 | primary | `headroom-main` | `http://headroom-main:8787/v1/responses`，后台 Headroom 开关关闭时不会实际转发 |
 | a1 / ap1 | `headroom-a1` | `http://headroom-a1:8787/v1/responses` |
-| a2 / ap2 | 无 | 无 |
+| test / a2t | 无 | 无 |
 
 `HEADROOM_WORKERS=1` 保持不变，它只代表 Uvicorn worker 进程数。真正限制压缩并发的是 `/health` 里的 `runtime.compression_executor.max_workers`。
 
@@ -1422,8 +1418,8 @@ docker exec sub2api-ap1 sh -lc "wget -qO- http://headroom-a1:8787/readyz || curl
 部署注意：
 
 - 必须部署包含 `backend/migrations/159_add_usage_presentation_multiplier.sql` 的后端镜像，让目标环境先完成迁移。
-- 只部署 a2 时，后端只切 `/opt/sub2api-ap2-deploy` 的 `sub2api-ap2`；不要运行会同时滚动 primary/ap1 的 `deploy/local-gzip-binary-deploy.sh --deploy`。
-- 如果前台有分组管理页面改动，需要发布 `sub2api-frontend-a2` Pages，并注入 `https://ap2.upit.top/api/v1/settings/public`。
+- 只部署 test 时，后端只切 `/opt/sub2api-test-deploy` 的 `sub2api-test`；不要运行会同时滚动 primary/ap1 的 `deploy/local-gzip-binary-deploy.sh --deploy`。
+- 如果前台有分组管理页面改动，需要发布 `sub2api-frontend-test` Pages，并注入 `https://a2t.upit.top/api/v1/settings/public`。
 - 发布后用 `super_admin` 和普通 `admin` 各查一次 `/api/v1/admin/usage/stats`、`/api/v1/admin/dashboard/stats` 与分组编辑页：普通 admin 应看到展示后的 token/cost/RPM/TPM，分组页不显示展示倍率配置；`super_admin` 应看到 raw token/cost/RPM/TPM 和真实倍率配置；用户侧 group DTO 的 `usage_multiplier` 始终是 `1`。
 - 用大于等于 1000 token 的非流式和流式请求各验证一次客户端响应 usage；低于 1000 token 的请求应保持 `presentation_multiplier=1`。
 
@@ -1454,8 +1450,8 @@ git diff --check
 发布后验证：
 
 ```bash
-curl -fsS https://ap2.upit.top/health
-curl -fsS https://a2.upit.top/api/v1/settings/public
+curl -fsS https://test.upit.top/health
+curl -fsS https://a2t.upit.top/api/v1/settings/public
 # 登录后台后检查 /api/v1/admin/settings 返回 subscription_expired_admin_notify_enabled 与 subscription_expired_admin_notify_emails
 ```
 
@@ -1548,7 +1544,7 @@ ssh 51tokens 'docker logs sub2api-ap1 --since 2m 2>&1 | grep -E "migration .*che
 ssh 51tokens '
   docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
   docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" \
-    sub2api sub2api-ap1 sub2api-ap2 sub2api-postgres sub2api-redis headroom-main headroom-a1 cf-origin-ssl
+    sub2api sub2api-ap1 sub2api-test sub2api-postgres sub2api-redis headroom-main headroom-a1 cf-origin-ssl
   free -h
 '
 ```
@@ -1570,10 +1566,10 @@ Pages / API 健康：
 ```bash
 curl -fsS https://api.upit.top/health
 curl -fsS https://ap1.upit.top/health
-curl -fsS https://ap2.upit.top/health
+curl -fsS https://test.upit.top/health
 curl -fsS https://ai.upit.top/health
 curl -fsS https://a1.upit.top/health
-curl -fsS https://a2.upit.top/health
+curl -fsS https://a2t.upit.top/health
 ```
 
 ## 十三、2026-06-15 宿主机运维监控与 a1/a2 灰度部署
@@ -1585,7 +1581,7 @@ curl -fsS https://a2.upit.top/health
 - VPS 宿主机运行 `sub2api-host-health.timer`，每 15 秒执行一次轻量 collector。
 - collector 读取 `/proc/loadavg`、`/proc/meminfo`、短采样 `/proc/stat`，并用 `docker stats --no-stream`、`ps` 生成 top 容器和 top 进程。
 - collector 原子写入 `/run/sub2api-ops/host-health.json`。
-- `sub2api-ap1` 和 `sub2api-ap2` 只读挂载 `/run/sub2api-ops:/run/sub2api-ops:ro`，后端接口只读 JSON，不在请求路径执行系统命令。
+- `sub2api-ap1` 和 `sub2api-test` 只读挂载 `/run/sub2api-ops:/run/sub2api-ops:ro`，后端接口只读 JSON，不在请求路径执行系统命令。
 - 前台运维页调用 `/api/v1/admin/ops/host-health` 展示宿主机 CPU、load、可用内存、swap、top containers、top processes 和诊断文本。
 
 相关仓库文件：
@@ -1624,12 +1620,12 @@ services:
       OPS_HOST_HEALTH_VISIBLE: "true"
 ```
 
-`ap2` 服务名是 `sub2api-ap2` 时，也同样只加到对应应用服务下。验证：
+`ap2` 服务名是 `sub2api-test` 时，也同样只加到对应应用服务下。验证：
 
 ```bash
 ssh 51tokens '
   docker exec sub2api-ap1 test -r /run/sub2api-ops/host-health.json
-  docker exec sub2api-ap2 test -r /run/sub2api-ops/host-health.json
+  docker exec sub2api-test test -r /run/sub2api-ops/host-health.json
 '
 ```
 
@@ -1687,35 +1683,35 @@ perl -0pe 's/^\s+|\s+$//g' backend/migrations/145_add_ops_system_disk_gpu_metric
 
 本次宿主机监控先只部署到 a1/a2：
 
-- 后端镜像可以本地构建并上传到新 VPS，但重启时只切换 `/opt/sub2api-ap1-deploy` 和 `/opt/sub2api-ap2-deploy`。
+- 后端镜像可以本地构建并上传到新 VPS，但重启时只切换 `/opt/sub2api-ap1-deploy` 和 `/opt/sub2api-test-deploy`。
 - 不要运行会滚动 primary 的 `deploy/local-gzip-binary-deploy.sh --deploy`。
-- 前台改动只发布 `sub2api-frontend-a1` 和 `sub2api-frontend-a2` Pages 项目，不发布 `sub2api-frontend-main`。
+- 前台改动只发布 `sub2api-frontend-a1` 和 `sub2api-frontend-test` Pages 项目，不发布 `sub2api-frontend-main`。
 - 主环境不挂载 `/run/sub2api-ops`，不暴露宿主机监控卡片数据；后续需要主环境时再单独评估。
 
 只部署 a1/a2 Pages：
 
 ```bash
 VITE_OPS_HOST_HEALTH_VISIBLE=true pnpm --dir frontend run build
-rm -rf /tmp/sub2api-pages-a1 /tmp/sub2api-pages-a2
+rm -rf /tmp/sub2api-pages-a1 /tmp/sub2api-pages-test
 cp -R backend/internal/web/dist /tmp/sub2api-pages-a1
-cp -R backend/internal/web/dist /tmp/sub2api-pages-a2
+cp -R backend/internal/web/dist /tmp/sub2api-pages-test
 node scripts/inject-pages-public-settings.mjs \
   --settings-url https://ap1.upit.top/api/v1/settings/public \
   --html /tmp/sub2api-pages-a1/index.html
 node scripts/inject-pages-public-settings.mjs \
-  --settings-url https://ap2.upit.top/api/v1/settings/public \
-  --html /tmp/sub2api-pages-a2/index.html
+  --settings-url https://a2t.upit.top/api/v1/settings/public \
+  --html /tmp/sub2api-pages-test/index.html
 pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a1 --project-name sub2api-frontend-a1 --branch subapi
-pnpm dlx wrangler pages deploy /tmp/sub2api-pages-a2 --project-name sub2api-frontend-a2 --branch subapi
+pnpm dlx wrangler pages deploy /tmp/sub2api-pages-test --project-name sub2api-frontend-test --branch subapi
 ```
 
 2026-06-15 已按该边界发布：
 
 - 后端新镜像：`sub2api:subapi-7a7baea8-a1a2-host-health-env-20260615090353`。
-- 已切换容器：`sub2api-ap1`、`sub2api-ap2`；两者均配置 `SUB2API_HOST_HEALTH_PATH=/run/sub2api-ops/host-health.json` 和 `OPS_HOST_HEALTH_VISIBLE=true`。
+- 已切换容器：`sub2api-ap1`、`sub2api-test`；两者均配置 `SUB2API_HOST_HEALTH_PATH=/run/sub2api-ops/host-health.json` 和 `OPS_HOST_HEALTH_VISIBLE=true`。
 - 未切换主环境：`sub2api` 仍保持原镜像，主环境 public settings 返回 `ops_host_health_visible=false` 或不注入该字段。
-- 已发布 Pages：`sub2api-frontend-a1`、`sub2api-frontend-a2`；未发布 `sub2api-frontend-main`。
-- 已验证：`https://a1.upit.top/login` 注入 `api_base_url=https://ap1.upit.top/51Token/v1`、`ops_host_health_visible=true`；`https://a2.upit.top/login` 注入 `api_base_url=https://ap2.upit.top/51Token/v1`、`ops_host_health_visible=true`；`https://ai.upit.top/login` 未注入宿主机 CPU 面板显示字段。
+- 已发布 Pages：`sub2api-frontend-a1`、`sub2api-frontend-test`；未发布 `sub2api-frontend-main`。
+- 已验证：`https://a1.upit.top/login` 注入 `api_base_url=https://ap1.upit.top/51Token/v1`、`ops_host_health_visible=true`；`https://test.upit.top/login` 注入 `api_base_url=https://a2t.upit.top/51Token/v1`、`ops_host_health_visible=true`；`https://ai.upit.top/login` 未注入宿主机 CPU 面板显示字段。
 
 2026-06-15 后续调整：CPU 面板是否显示改为只看前台构建变量 `VITE_OPS_HOST_HEALTH_VISIBLE=true`，不再让前台通过 public settings 字段决定显示；a1/a2 Pages 发布时带该变量构建，主环境 Pages 构建不带该变量即可隐藏。
 

@@ -78,17 +78,17 @@ describe('Cloudflare Pages worker', () => {
     fetchMock.mockRestore()
   })
 
-  it('proxies a2 frontend and model API requests to the ap2 origin', async () => {
+  it('proxies test frontend and model API requests to the a2t origin', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
 
-    await worker.fetch(new Request('https://a2.upit.top/api/v1/settings/public'), createEnv())
-    await worker.fetch(new Request('https://a2.upit.top/51Token/v1/chat/completions'), createEnv())
+    await worker.fetch(new Request('https://test.upit.top/api/v1/settings/public'), createEnv())
+    await worker.fetch(new Request('https://test.upit.top/51Token/v1/chat/completions'), createEnv())
 
     expect((fetchMock.mock.calls[0][0] as Request).url).toBe(
-      'https://ap2.upit.top/api/v1/settings/public'
+      'https://a2t.upit.top/api/v1/settings/public'
     )
     expect((fetchMock.mock.calls[1][0] as Request).url).toBe(
-      'https://ap2.upit.top/51Token/v1/chat/completions'
+      'https://a2t.upit.top/51Token/v1/chat/completions'
     )
 
     fetchMock.mockRestore()
@@ -110,17 +110,17 @@ describe('Cloudflare Pages worker', () => {
     fetchMock.mockRestore()
   })
 
-  it('keeps the a2 custom domain on ap2 even when SUB2API_ORIGIN is set globally', async () => {
+  it('keeps the test frontend domain on a2t even when SUB2API_ORIGIN is set globally', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('ok'))
     const env = {
       ...createEnv(),
       SUB2API_ORIGIN: 'https://api.upit.top',
     }
 
-    await worker.fetch(new Request('https://a2.upit.top/api/v1/settings/public'), env)
+    await worker.fetch(new Request('https://test.upit.top/api/v1/settings/public'), env)
 
     expect((fetchMock.mock.calls[0][0] as Request).url).toBe(
-      'https://ap2.upit.top/api/v1/settings/public'
+      'https://a2t.upit.top/api/v1/settings/public'
     )
 
     fetchMock.mockRestore()
@@ -140,7 +140,7 @@ describe('Cloudflare Pages worker', () => {
     })
 
     const response = await worker.fetch(
-      new Request('https://a2.upit.top/api/v1/settings/public', {
+      new Request('https://test.upit.top/api/v1/settings/public', {
         headers: {
           Authorization: 'Bearer user-token',
           Cookie: 'auth_token=user-token',
@@ -151,7 +151,7 @@ describe('Cloudflare Pages worker', () => {
 
     expect(response.headers.get('X-Sub2API-Edge-Cache')).toBe('MISS')
     expect((fetchMock.mock.calls[0][0] as Request).url).toBe(
-      'https://ap2.upit.top/api/v1/settings/public'
+      'https://a2t.upit.top/api/v1/settings/public'
     )
     expect((fetchMock.mock.calls[0][0] as Request).headers.get('Authorization')).toBeNull()
     expect((fetchMock.mock.calls[0][0] as Request).headers.get('Cookie')).toBeNull()
@@ -173,7 +173,7 @@ describe('Cloudflare Pages worker', () => {
     })
 
     const response = await worker.fetch(
-      new Request('https://a2.upit.top/api/v1/settings/public'),
+      new Request('https://test.upit.top/api/v1/settings/public'),
       createEnv()
     )
 
@@ -195,10 +195,10 @@ describe('Cloudflare Pages worker', () => {
     })
 
     await worker.fetch(
-      new Request('https://a2.upit.top/api/v1/auth/login', { method: 'POST' }),
+      new Request('https://test.upit.top/api/v1/auth/login', { method: 'POST' }),
       createEnv()
     )
-    await worker.fetch(new Request('https://a2.upit.top/51Token/v1/models'), createEnv())
+    await worker.fetch(new Request('https://test.upit.top/51Token/v1/models'), createEnv())
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(cachePut).not.toHaveBeenCalled()
@@ -218,7 +218,7 @@ describe('Cloudflare Pages worker', () => {
     })
 
     const response = await worker.fetch(
-      new Request('https://a2.upit.top/api/v1/settings/public', { method: 'HEAD' }),
+      new Request('https://test.upit.top/api/v1/settings/public', { method: 'HEAD' }),
       createEnv()
     )
 
