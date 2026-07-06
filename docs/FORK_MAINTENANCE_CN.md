@@ -719,6 +719,27 @@ curl -k -sS -H 'Cache-Control: no-cache' 'https://ai.upit.top/?redeploy=20260601
 | --- | --- | --- |
 | 2026-06 | `docs/fork-maintenance/2026-06.md` | 2026-06-10 之后的本地补丁表格行、长篇专题记录、账号管理弹窗文案与 Compact 专属模型映射等明细。 |
 
+### 2026-07-06: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `frontend/src/views/admin/__tests__/SubscriptionsView.duplicateAssign.spec.ts`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：
