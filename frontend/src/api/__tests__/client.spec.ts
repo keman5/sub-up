@@ -5,6 +5,15 @@ import type { AxiosInstance } from 'axios'
 // 需要在导入 client 之前设置 mock
 vi.mock('@/i18n', () => ({
   getLocale: () => 'zh-CN',
+  i18n: {
+    global: {
+      t: (key: string) => ({
+        'errors.unknown': '未知错误',
+        'errors.sessionExpired': '登录状态已过期，请重新登录',
+        'errors.networkConnection': '网络连接异常，请检查网络后重试',
+      })[key] || key,
+    },
+  },
 }))
 
 describe('API Client', () => {
@@ -399,12 +408,12 @@ describe('API Client', () => {
       await expect(apiClient.get('/test')).rejects.toEqual(
         expect.objectContaining({
           status: 0,
-          message: 'Network error. Please check your connection.',
+          message: '网络连接异常，请检查网络后重试',
         })
       )
       expect(listener).toHaveBeenCalledTimes(1)
       expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
-        message: 'Network error. Please check your connection.',
+        message: '网络连接异常，请检查网络后重试',
       })
       window.removeEventListener('sub2api-api-error', listener)
     })

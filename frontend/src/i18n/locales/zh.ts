@@ -246,7 +246,9 @@ export default {
       completed: '安装完成！',
       redirecting: '正在跳转到登录页面...',
       restarting: '服务正在重启，请稍候...',
-      timeout: '服务重启时间超出预期，请手动刷新页面。'
+      timeout: '服务重启时间超出预期，请手动刷新页面。',
+      connectionFailed: '连接失败',
+      installationFailed: '安装失败'
     }
   },
 
@@ -316,6 +318,11 @@ export default {
     noOptionsFound: '无匹配选项',
     noGroupsAvailable: '无可用分组',
     unknownError: '发生未知错误',
+    httpRequestFailed: '请求失败，状态码 {status}',
+    noResponseBody: '响应体为空',
+    fileTooLarge: '文件过大 ({size} KB)，最大 {max} KB',
+    selectImageFile: '请选择图片文件',
+    fileReadFailed: '读取文件失败',
     saving: '保存中...',
     selectedCount: '（已选 {count} 个）',
     refresh: '刷新',
@@ -1466,8 +1473,11 @@ export default {
     forbidden: '禁止访问',
     serverError: '服务器错误',
     networkError: '网络错误',
+    networkConnection: '网络连接异常，请检查网络后重试',
     timeout: '请求超时',
-    tryAgain: '请重试'
+    tryAgain: '请重试',
+    unknown: '未知错误',
+    sessionExpired: '登录状态已过期，请重新登录'
   },
 
   // Dates
@@ -4108,6 +4118,10 @@ export default {
         pleaseEnterSessionKey: '请输入至少一个有效的 sessionKey',
         authFailed: '授权失败',
         cookieAuthFailed: 'Cookie 授权失败',
+        failedToGenerateAuthUrl: '生成授权链接失败',
+        failedToExchangeAuthCode: '授权码兑换失败',
+        missingAuthCodeOrSession: '缺少授权码或授权会话',
+        cookieAuthorizationFailed: 'Cookie 授权失败',
         keyAuthFailed: '密钥 {index}: {error}',
         successCreated: '成功创建 {count} 个账号',
         batchSuccess: '成功创建 {count} 个账号',
@@ -4133,6 +4147,8 @@ export default {
           failedToGenerateUrl: '生成 OpenAI 授权链接失败',
           failedToExchangeCode: 'OpenAI 授权码兑换失败',
           failedToValidateRT: '验证 Refresh Token 失败',
+          missingExchangeParams: '缺少授权码、会话 ID 或 state',
+          missingRefreshToken: '缺少 Refresh Token',
           errors: {
             OPENAI_OAUTH_PROXY_REQUIRED:
               '未设置代理，当前服务器无法直连 OpenAI，导致 OpenAI OAuth 请求失败。请先选择可访问 OpenAI 的代理后重试；如果授权码已失效，请重新生成授权链接。'
@@ -4511,6 +4527,11 @@ export default {
       createSuccess: '计划创建成功',
       updateSuccess: '计划更新成功',
       deleteSuccess: '计划删除成功',
+      loadPlansFailed: '加载定时测试计划失败',
+      createPlanFailed: '创建定时测试计划失败',
+      updatePlanFailed: '更新定时测试计划失败',
+      deletePlanFailed: '删除定时测试计划失败',
+      loadResultsFailed: '加载定时测试结果失败',
       results: '测试结果',
       noResults: '暂无测试结果',
       responseText: '响应',

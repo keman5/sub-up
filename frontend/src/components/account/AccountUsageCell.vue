@@ -660,6 +660,10 @@ const props = withDefaults(
   }
 )
 
+const emit = defineEmits<{
+  (e: 'runtime-state-updated'): void
+}>()
+
 const { t } = useI18n()
 const desktopViewportQuery = '(min-width: 768px)'
 
@@ -1512,10 +1516,12 @@ const attachVisibilityObserver = () => {
 const loadActiveUsage = async (options?: { refreshQuotaFromUpstream?: boolean }) => {
   const { refreshQuotaFromUpstream = false } = options ?? {}
   activeQueryLoading.value = true
+  let quotaRefreshed = false
   try {
     if (refreshQuotaFromUpstream && props.account.platform === 'openai' && props.account.type === 'oauth') {
       try {
         await queryOpenAIQuota(props.account.id)
+        quotaRefreshed = true
       } catch (e) {
         console.error('Failed to refresh OpenAI quota before active usage refresh:', e)
       }
@@ -1523,6 +1529,9 @@ const loadActiveUsage = async (options?: { refreshQuotaFromUpstream?: boolean })
     const result = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
     usageInfo.value = result
     _usageCache.set(props.account.id, { data: result, ts: Date.now() })
+    if (quotaRefreshed) {
+      emit('runtime-state-updated')
+    }
   } catch (e: any) {
     console.error('Failed to load active usage:', e)
   } finally {
@@ -1536,6 +1545,7 @@ const refreshActiveUsage = async () => {
 
 const handleOpenAIQuotaQueried = async () => {
   await loadActiveUsage()
+  emit('runtime-state-updated')
 }
 
 // ===== API Key quota progress bars =====

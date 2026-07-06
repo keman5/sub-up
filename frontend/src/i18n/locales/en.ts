@@ -246,7 +246,9 @@ export default {
       completed: 'Installation completed!',
       redirecting: 'Redirecting to login page...',
       restarting: 'Service is restarting, please wait...',
-      timeout: 'Service restart is taking longer than expected. Please refresh the page manually.'
+      timeout: 'Service restart is taking longer than expected. Please refresh the page manually.',
+      connectionFailed: 'Connection failed',
+      installationFailed: 'Installation failed'
     }
   },
 
@@ -316,6 +318,11 @@ export default {
     noOptionsFound: 'No options found',
     noGroupsAvailable: 'No groups available',
     unknownError: 'Unknown error occurred',
+    httpRequestFailed: 'Request failed with status {status}',
+    noResponseBody: 'Response body is empty',
+    fileTooLarge: 'File too large ({size} KB), max {max} KB',
+    selectImageFile: 'Please select an image file',
+    fileReadFailed: 'Failed to read file',
     saving: 'Saving...',
     selectedCount: '({count} selected)',
     refresh: 'Refresh',
@@ -1462,8 +1469,11 @@ export default {
     forbidden: 'Forbidden',
     serverError: 'Server error',
     networkError: 'Network error',
+    networkConnection: 'Network error. Please check your connection.',
     timeout: 'Request timeout',
-    tryAgain: 'Please try again'
+    tryAgain: 'Please try again',
+    unknown: 'Unknown error',
+    sessionExpired: 'Session expired. Please log in again.'
   },
 
   // Dates
@@ -3942,6 +3952,10 @@ export default {
         pleaseEnterSessionKey: 'Please enter at least one valid sessionKey',
         authFailed: 'Authorization failed',
         cookieAuthFailed: 'Cookie authorization failed',
+        failedToGenerateAuthUrl: 'Failed to generate auth URL',
+        failedToExchangeAuthCode: 'Failed to exchange auth code',
+        missingAuthCodeOrSession: 'Missing auth code or authorization session',
+        cookieAuthorizationFailed: 'Cookie authorization failed',
         keyAuthFailed: 'Key {index}: {error}',
         successCreated: 'Successfully created {count} account(s)',
         batchSuccess: 'Successfully created {count} account(s)',
@@ -3969,6 +3983,8 @@ export default {
           failedToGenerateUrl: 'Failed to generate OpenAI auth URL',
           failedToExchangeCode: 'Failed to exchange OpenAI auth code',
           failedToValidateRT: 'Failed to validate refresh token',
+          missingExchangeParams: 'Missing auth code, session ID, or state',
+          missingRefreshToken: 'Missing refresh token',
           errors: {
             OPENAI_OAUTH_PROXY_REQUIRED:
               'No proxy is configured and this server could not reach OpenAI directly, so the OpenAI OAuth request failed. Select a proxy that can access OpenAI and retry; if the authorization code has expired, regenerate the authorization URL.'
@@ -4420,6 +4436,11 @@ export default {
       createSuccess: 'Plan created successfully',
       updateSuccess: 'Plan updated successfully',
       deleteSuccess: 'Plan deleted successfully',
+      loadPlansFailed: 'Failed to load scheduled test plans',
+      createPlanFailed: 'Failed to create scheduled test plan',
+      updatePlanFailed: 'Failed to update scheduled test plan',
+      deletePlanFailed: 'Failed to delete scheduled test plan',
+      loadResultsFailed: 'Failed to load scheduled test results',
       results: 'Test Results',
       noResults: 'No test results yet',
       responseText: 'Response',

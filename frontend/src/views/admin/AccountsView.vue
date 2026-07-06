@@ -290,6 +290,7 @@
               :today-stats="todayStatsByAccountId[String(row.id)] ?? null"
               :today-stats-loading="todayStatsLoading"
               :manual-refresh-token="usageManualRefreshToken"
+              @runtime-state-updated="handleAccountRuntimeStateUpdated"
             />
           </template>
           <template #cell-proxy="{ row }">
@@ -1049,6 +1050,11 @@ const refreshAccountsIncrementally = async () => {
   } finally {
     autoRefreshFetching.value = false
   }
+}
+
+const handleAccountRuntimeStateUpdated = async () => {
+  resetAutoRefreshCache()
+  await refreshAccountsIncrementally()
 }
 
 const handleManualRefresh = async () => {

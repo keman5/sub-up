@@ -11,6 +11,8 @@ vi.mock('vue-i18n', () => ({
     t: (key: string) => {
       const messages: Record<string, string> = {
         'admin.accounts.oauth.openai.failedToExchangeCode': 'OpenAI 授权码兑换失败',
+        'admin.accounts.oauth.openai.missingExchangeParams': '缺少授权码、会话 ID 或 state',
+        'admin.accounts.oauth.openai.missingRefreshToken': '缺少 refresh token',
         'admin.accounts.oauth.openai.errors.OPENAI_OAUTH_PROXY_REQUIRED':
           '未设置代理，当前服务器无法直连 OpenAI，导致 OpenAI OAuth 请求失败。请先选择可访问 OpenAI 的代理后重试；如果授权码已失效，请重新生成授权链接。'
       }
@@ -76,6 +78,15 @@ describe('useOpenAIOAuth.buildCredentials', () => {
 })
 
 describe('useOpenAIOAuth.exchangeAuthCode', () => {
+  it('uses localized validation message when auth code parameters are missing', async () => {
+    const oauth = useOpenAIOAuth()
+
+    const tokenInfo = await oauth.exchangeAuthCode('', 'session-id', 'state')
+
+    expect(tokenInfo).toBeNull()
+    expect(oauth.error.value).toBe('缺少授权码、会话 ID 或 state')
+  })
+
   it('shows a clear proxy hint when code exchange fails without a proxy', async () => {
     vi.mocked(adminAPI.accounts.exchangeCode).mockRejectedValueOnce({
       status: 502,
@@ -90,5 +101,16 @@ describe('useOpenAIOAuth.exchangeAuthCode', () => {
     expect(oauth.error.value).toBe(
       '未设置代理，当前服务器无法直连 OpenAI，导致 OpenAI OAuth 请求失败。请先选择可访问 OpenAI 的代理后重试；如果授权码已失效，请重新生成授权链接。'
     )
+  })
+})
+
+describe('useOpenAIOAuth.validateRefreshToken', () => {
+  it('uses localized validation message when refresh token is missing', async () => {
+    const oauth = useOpenAIOAuth()
+
+    const tokenInfo = await oauth.validateRefreshToken('')
+
+    expect(tokenInfo).toBeNull()
+    expect(oauth.error.value).toBe('缺少 refresh token')
   })
 })

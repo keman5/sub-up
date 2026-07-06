@@ -7,12 +7,18 @@ HOST="${HOST:-51tokens}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/sub2api-runtime-build}"
 PRIMARY_COMPOSE_DIR="${PRIMARY_COMPOSE_DIR:-/opt/sub2api-deploy}"
 AP1_COMPOSE_DIR="${AP1_COMPOSE_DIR:-${STANDBY_COMPOSE_DIR:-/opt/sub2api-ap1-deploy}}"
+TEST_COMPOSE_DIR="${TEST_COMPOSE_DIR:-/opt/sub2api-test-deploy}"
 SERVICE_NAME="${SERVICE_NAME:-sub2api}"
+TEST_SERVICE_NAME="${TEST_SERVICE_NAME:-sub2api-test}"
 PRIMARY_CONTAINER="${PRIMARY_CONTAINER:-sub2api}"
 AP1_CONTAINER="${AP1_CONTAINER:-${STANDBY_CONTAINER:-sub2api-ap1}}"
+TEST_CONTAINER="${TEST_CONTAINER:-sub2api-test}"
 PRIMARY_HEALTH_URL="${PRIMARY_HEALTH_URL:-http://127.0.0.1:8081/health}"
 AP1_HEALTH_URL="${AP1_HEALTH_URL:-${STANDBY_HEALTH_URL:-http://127.0.0.1:8082/health}}"
+TEST_HEALTH_URL="${TEST_HEALTH_URL:-http://127.0.0.1:8083/health}"
 PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-https://ai.upit.top/health}"
+AP1_PUBLIC_HEALTH_URL="${AP1_PUBLIC_HEALTH_URL:-https://a1.upit.top/health}"
+TEST_PUBLIC_HEALTH_URL="${TEST_PUBLIC_HEALTH_URL:-https://test.upit.top/health}"
 OUTPUT="${OUTPUT:-/tmp/sub2api-build-output/sub2api}"
 BASE_IMAGE="${BASE_IMAGE:-}"
 IMAGE_TAG="${IMAGE_TAG:-}"
@@ -32,11 +38,11 @@ Usage:
 
 Build a Linux amd64 embedded sub2api binary locally, gzip it, upload it to the VPS,
 atomically decompress it on the remote host, build a Docker image, and optionally
-roll it out to the ap1 and primary compose deployments.
+roll it out to the test, ap1, and primary compose deployments.
 
 Options:
   --apply                 Execute commands. Default is dry-run.
-  --deploy                After building the image, update compose files and restart ap1 then primary.
+  --deploy                After building the image, update compose/env files and restart test, ap1, then primary.
   --host HOST             SSH host alias. Default: 51tokens.
   --base-image IMAGE      Docker base image on the remote host. Default: current primary compose image.
   --image-tag TAG         New Docker image tag. Default: sub2api:subapi-<git-sha>-<suffix>-<timestamp>.
@@ -48,10 +54,11 @@ Options:
   -h, --help              Show this help.
 
 Environment overrides:
-  HOST, REMOTE_DIR, PRIMARY_COMPOSE_DIR, AP1_COMPOSE_DIR, SERVICE_NAME,
-  PRIMARY_CONTAINER, AP1_CONTAINER, PRIMARY_HEALTH_URL, AP1_HEALTH_URL,
-  PUBLIC_HEALTH_URL, BASE_IMAGE, IMAGE_TAG, VERSION, TAG_SUFFIX, OUTPUT,
-  UPLOAD_CHUNK_SIZE
+  HOST, REMOTE_DIR, PRIMARY_COMPOSE_DIR, AP1_COMPOSE_DIR, TEST_COMPOSE_DIR,
+  SERVICE_NAME, TEST_SERVICE_NAME, PRIMARY_CONTAINER, AP1_CONTAINER,
+  TEST_CONTAINER, PRIMARY_HEALTH_URL, AP1_HEALTH_URL, TEST_HEALTH_URL,
+  PUBLIC_HEALTH_URL, AP1_PUBLIC_HEALTH_URL, TEST_PUBLIC_HEALTH_URL,
+  BASE_IMAGE, IMAGE_TAG, VERSION, TAG_SUFFIX, OUTPUT, UPLOAD_CHUNK_SIZE
 
 Compatibility:
   STANDBY_COMPOSE_DIR, STANDBY_CONTAINER, and STANDBY_HEALTH_URL are still
@@ -282,7 +289,15 @@ for f in '$PRIMARY_COMPOSE_DIR/docker-compose.yml' '$AP1_COMPOSE_DIR/docker-comp
   cp \"\$f\" \"\$f.bak-gzip-\$TS\"
   sed -i -E '0,/image: sub2api:subapi-/s#image: sub2api:subapi-[^[:space:]]+#image: $IMAGE_TAG#' \"\$f\"
 done
-grep -R '^ *image:' '$PRIMARY_COMPOSE_DIR/docker-compose.yml' '$AP1_COMPOSE_DIR/docker-compose.yml'"
+cp '$TEST_COMPOSE_DIR/.env' '$TEST_COMPOSE_DIR/.env.bak-gzip-'\$TS
+cp '$TEST_COMPOSE_DIR/docker-compose.yml' '$TEST_COMPOSE_DIR/docker-compose.yml.bak-gzip-'\$TS
+if grep -q '^IMAGE_TAG=' '$TEST_COMPOSE_DIR/.env'; then
+  sed -i 's#^IMAGE_TAG=.*#IMAGE_TAG=$IMAGE_TAG#' '$TEST_COMPOSE_DIR/.env'
+else
+  printf '\\nIMAGE_TAG=%s\\n' '$IMAGE_TAG' >> '$TEST_COMPOSE_DIR/.env'
+fi
+grep -R '^ *image:' '$PRIMARY_COMPOSE_DIR/docker-compose.yml' '$AP1_COMPOSE_DIR/docker-compose.yml'
+grep '^IMAGE_TAG=' '$TEST_COMPOSE_DIR/.env'"
 }
 
 rollout() {
@@ -298,10 +313,16 @@ wait_healthy() {
   done
   return 1
 }
+cd '$TEST_COMPOSE_DIR'
+docker compose up -d '$TEST_SERVICE_NAME'
+wait_healthy '$TEST_CONTAINER'
+curl -fsS '$TEST_HEALTH_URL'
+curl -fsS '$TEST_PUBLIC_HEALTH_URL'
 cd '$AP1_COMPOSE_DIR'
 docker compose up -d '$SERVICE_NAME'
 wait_healthy '$AP1_CONTAINER'
 curl -fsS '$AP1_HEALTH_URL'
+curl -fsS '$AP1_PUBLIC_HEALTH_URL'
 cd '$PRIMARY_COMPOSE_DIR'
 docker compose up -d '$SERVICE_NAME'
 wait_healthy '$PRIMARY_CONTAINER'

@@ -74,7 +74,7 @@ docker inspect sub2api --format '{{.HostConfig.RestartPolicy.Name}}'
 4. 远端按文件名顺序拼接为临时 `.gz`，执行 `gzip -t` 校验。
 5. 远端解压到临时可执行文件。
 6. `chmod +x` 后原子 `mv` 为 `/opt/sub2api-runtime-build/sub2api`。
-7. 基于上一版运行镜像只替换 `/app/sub2api`，再按 ap1、primary 顺序滚动。
+7. 基于上一版运行镜像只替换 `/app/sub2api`，再按 test、ap1、primary 顺序滚动。
 
 2026-06-14 起，`ai.upit.top`、`a1.upit.top`、`test.upit.top` 三套前台静态资源都按 Cloudflare Pages 发布。以后如果只是后端/API 变更，VPS 发布不需要重新构建前台，使用 `--skip-frontend-build`。前台改动应走 Cloudflare Pages 发布流程：
 
@@ -129,7 +129,7 @@ deploy/local-gzip-binary-deploy.sh --skip-frontend-build --skip-backend-build
 # 后端/API 常规发布：跳过前台构建，gzip 上传、远端解压、打镜像，但不重启服务
 deploy/local-gzip-binary-deploy.sh --apply --skip-frontend-build
 
-# 后端/API 常规发布：跳过前台构建，并滚动部署 ap1 + primary
+# 后端/API 常规发布：跳过前台构建，并滚动部署 test + ap1 + primary
 deploy/local-gzip-binary-deploy.sh --apply --deploy --skip-frontend-build
 
 # 只有在需要刷新 VPS 内嵌前台兜底时，才省略 --skip-frontend-build
@@ -151,9 +151,10 @@ deploy/local-gzip-binary-deploy.sh --apply --deploy --skip-frontend-build
 - gzip 上传后远端先拼接并 `gzip -t` 校验，再解压。
 - 默认分块大小为 `UPLOAD_CHUNK_SIZE=1m`，可按链路情况覆盖。
 - 解压到 `sub2api.<timestamp>.tmp`，校验权限后再 `mv` 覆盖正式二进制。
-- compose 更新前会备份为 `docker-compose.yml.bak-gzip-<timestamp>`。
-- `--deploy` 会先更新 `sub2api-ap1`，确认 healthy 后再更新 `sub2api`。
-- 最后验证 ap1、primary 和公开 `/health`。
+- compose/env 更新前会备份为 `docker-compose.yml.bak-gzip-<timestamp>` / `.env.bak-gzip-<timestamp>`。
+- `--deploy` 默认更新三套线上后端环境：先更新 `sub2api-test`，确认 healthy 后更新 `sub2api-ap1`，最后更新 `sub2api`。
+- primary/ap1 通过 compose `image:` 切换镜像；test 通过 `/opt/sub2api-test-deploy/.env` 的 `IMAGE_TAG` 切换镜像。
+- 最后验证 test、ap1、primary 和公开 `/health`。
 
 ### 3.2 动态模型路由上线核对
 
@@ -201,7 +202,7 @@ curl -fsS https://a1.upit.top/health
 - 本地健康检查：`http://127.0.0.1:8083/health`
 - 镜像来源：`/opt/sub2api-test-deploy/.env` 中的 `IMAGE_TAG=...`
 
-因此，如果只是重新部署 `test/a2t`，不要使用 `deploy/local-gzip-binary-deploy.sh --apply --deploy`，因为那个流程会更新 `sub2api-ap1` 和 `sub2api`。正确做法是：
+2026-07-06 起，`deploy/local-gzip-binary-deploy.sh --apply --deploy` 默认会同时滚动 `test`、`ap1` 和 `primary` 三套线上后端环境。如果只是重新部署 `test/a2t`，不要使用默认 `--deploy`，因为它会连同 `sub2api-ap1` 和 `sub2api` 一起更新。正确做法是：
 
 1. 先用脚本仅完成“本地构建 + gzip 上传 + 远端替换 `/opt/sub2api-runtime-build/sub2api` + 打新镜像”，不要滚动主环境：
 

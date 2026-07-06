@@ -5,7 +5,7 @@
 
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 import type { ApiResponse } from '@/types'
-import { getLocale } from '@/i18n'
+import { getLocale, i18n } from '@/i18n'
 import { getAPIBaseURL } from './url'
 export { buildApiUrl, buildGatewayUrl } from './url'
 
@@ -83,6 +83,11 @@ function dispatchGlobalErrorToast(message: string, config?: InternalAxiosRequest
   }
 }
 
+function tApiClientError(key: string, fallback: string): string {
+  const translated = i18n.global.t(key)
+  return translated === key ? fallback : translated
+}
+
 // ==================== Request Interceptor ====================
 
 // Get user's timezone
@@ -138,7 +143,7 @@ apiClient.interceptors.response.use(
         const apiError: ApiClientError = {
           status: response.status,
           code: apiResponse.code,
-          message: apiResponse.message || 'Unknown error',
+          message: apiResponse.message || tApiClientError('errors.unknown', 'Unknown error'),
           reason: resp.reason,
           metadata: resp.metadata,
         }
@@ -309,7 +314,7 @@ apiClient.interceptors.response.use(
             return Promise.reject({
               status: 401,
               code: 'TOKEN_REFRESH_FAILED',
-              message: 'Session expired. Please log in again.'
+              message: tApiClientError('errors.sessionExpired', 'Session expired. Please log in again.')
             })
           }
         }
@@ -354,7 +359,7 @@ apiClient.interceptors.response.use(
     // Network error
     const networkError: ApiClientError = {
       status: 0,
-      message: 'Network error. Please check your connection.'
+      message: tApiClientError('errors.networkConnection', 'Network error. Please check your connection.')
     }
     dispatchGlobalErrorToast(networkError.message, originalRequest)
     return Promise.reject(networkError)

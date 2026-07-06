@@ -375,6 +375,7 @@ describe('AccountUsageCell', () => {
     expect(getUsage).toHaveBeenCalledTimes(2)
     expect(getUsage.mock.calls[1]).toEqual([2020, 'active', true])
     expect(wrapper.text()).toContain('7d|0')
+    expect(wrapper.emitted('runtime-state-updated')).toHaveLength(1)
   })
 
   it('OpenAI OAuth 主动查询会先执行 wham/usage 刷新主套餐数据', async () => {
@@ -473,6 +474,7 @@ describe('AccountUsageCell', () => {
     expect(getUsage.mock.calls[1]).toEqual([2021, 'active', true])
     expect(wrapper.text()).toContain('7d|21')
     expect(wrapper.text()).toContain('5h|11')
+    expect(wrapper.emitted('runtime-state-updated')).toHaveLength(1)
   })
 
   it('OpenAI OAuth raw codex 头没有 Spark 快照时间时不显示 Spark 展开区', async () => {

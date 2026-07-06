@@ -13,6 +13,7 @@
 - 三套正式前台都迁到 Cloudflare Pages：`ai.upit.top`、`a1.upit.top`、`test.upit.top`。
 - 线上 API 回源域名继续留在 VPS：`api.upit.top`、`ap1.upit.top`、`a2t.upit.top`。
 - 前台改动走 Pages 发布；后端/API 改动走 VPS 发布并默认加 `--skip-frontend-build`，避免重复为 VPS 构建前台。
+- 后端/API 常规发布使用 `deploy/local-gzip-binary-deploy.sh --apply --deploy --skip-frontend-build`，默认按 `test -> ap1 -> primary` 滚动三套线上后端环境；test 通过 `/opt/sub2api-test-deploy/.env` 的 `IMAGE_TAG` 切换镜像。
 - VPS 后端暂时继续使用 `go build -tags embed`，保留已有 `backend/internal/web/dist` 作为回滚兜底；三套前台正式流量迁到 Pages 后，后端/API 常规发布不再需要为 VPS 重新打前台产物。
 
 被代理回源的路径：

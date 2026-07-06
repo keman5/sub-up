@@ -4999,7 +4999,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
         successCount++
       } catch (error: any) {
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = error.response?.data?.detail || error.message || t('common.unknownError')
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
@@ -5348,7 +5348,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         successCount++
       } catch (error: any) {
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = error.response?.data?.detail || error.message || t('common.unknownError')
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
@@ -5446,7 +5446,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
         successCount++
       } catch (error: any) {
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = error.response?.data?.detail || error.message || t('common.unknownError')
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
