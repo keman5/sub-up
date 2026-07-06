@@ -133,6 +133,22 @@ describe('TroubleshootingAssistant', () => {
     wrapper.unmount()
   })
 
+  it('persists collapsed state in localStorage', async () => {
+    localStorage.setItem('sub2api.troubleshootingAssistant.collapsed', 'true')
+
+    const wrapper = mount(TroubleshootingAssistant, { attachTo: document.body })
+
+    expect(wrapper.find('button[aria-label="打开故障排查助手"]').exists()).toBe(false)
+    expect(wrapper.find('button[aria-label="恢复故障排查助手"]').exists()).toBe(true)
+
+    await wrapper.get('button[aria-label="恢复故障排查助手"]').trigger('click')
+
+    expect(localStorage.getItem('sub2api.troubleshootingAssistant.collapsed')).toBe('false')
+    expect(wrapper.find('.assistant-panel').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
   it('closes the open panel back to the regular floating button', async () => {
     const wrapper = mount(TroubleshootingAssistant, { attachTo: document.body })
 

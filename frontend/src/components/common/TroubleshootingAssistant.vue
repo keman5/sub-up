@@ -119,6 +119,7 @@ import Icon from '@/components/icons/Icon.vue'
 import { troubleshootingAPI, type TroubleshootingAnalysis } from '@/api/troubleshooting'
 
 const STORAGE_KEY = 'sub2api.troubleshootingAssistant.position'
+const COLLAPSED_STORAGE_KEY = 'sub2api.troubleshootingAssistant.collapsed'
 const DEFAULT_POSITION = { x: 24, y: 24 }
 
 interface AssistantMessage {
@@ -134,7 +135,7 @@ interface AssistantMessage {
 }
 
 const open = ref(false)
-const collapsed = ref(false)
+const collapsed = ref(loadCollapsed())
 const loading = ref(false)
 const draft = ref('')
 const messages = ref<AssistantMessage[]>([])
@@ -179,6 +180,22 @@ function savePosition() {
   }
 }
 
+function loadCollapsed() {
+  try {
+    return localStorage.getItem(COLLAPSED_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function saveCollapsed() {
+  try {
+    localStorage.setItem(COLLAPSED_STORAGE_KEY, collapsed.value ? 'true' : 'false')
+  } catch {
+    // ignore storage failures
+  }
+}
+
 function clampPosition(next: { x: number; y: number }) {
   const maxX = Math.max(12, window.innerWidth - 360)
   const maxY = Math.max(12, window.innerHeight - 220)
@@ -194,21 +211,25 @@ function handleFabClick() {
     return
   }
   collapsed.value = false
+  saveCollapsed()
   open.value = true
 }
 
 function collapseToEdge() {
   open.value = false
   collapsed.value = true
+  saveCollapsed()
 }
 
 function closePanel() {
   open.value = false
   collapsed.value = false
+  saveCollapsed()
 }
 
 function restoreFromEdge() {
   collapsed.value = false
+  saveCollapsed()
   open.value = true
 }
 

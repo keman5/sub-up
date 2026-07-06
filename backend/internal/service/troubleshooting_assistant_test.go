@@ -124,7 +124,7 @@ func TestTroubleshootingAssistantDoesNotAppendAdminNoticeWhenAIUnavailableAndNot
 
 	result, err := svc.Analyze(context.Background(), TroubleshootingAnalyzeInput{
 		UserID:  42,
-		Message: "POST /v1/responses 返回 401 Unauthorized invalid api key",
+		Message: "POST /v1/responses 返回 401 Unauthorized token revoked",
 	})
 
 	require.NoError(t, err)
@@ -213,6 +213,163 @@ func TestTroubleshootingEvidenceNoAvailableAccountsUsesClearConclusion(t *testin
 	require.NotContains(t, evidence.Reason, "可能")
 }
 
+func TestTroubleshootingEvidenceLocalBusinessLimitUsesClearConclusion(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		message    string
+		wantReason string
+		needsAdmin bool
+	}{
+		{
+			name:       "insufficient_balance",
+			statusCode: 403,
+			message:    "Insufficient account balance",
+			wantReason: "账户余额不足",
+			needsAdmin: true,
+		},
+		{
+			name:       "model_not_allowed",
+			statusCode: 403,
+			message:    "model gemini-2.5-pro not in whitelist",
+			wantReason: "当前分组不允许使用该模型",
+			needsAdmin: false,
+		},
+		{
+			name:       "route_not_allowed",
+			statusCode: 403,
+			message:    "This group does not allow /v1/messages dispatch",
+			wantReason: "当前分组不允许使用该接口或客户端类型",
+			needsAdmin: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			evidence := troubleshootingEvidenceFromRequestDetail(&OpsRequestDetail{
+				Kind:       OpsRequestKindError,
+				CreatedAt:  time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC),
+				RequestID:  "local-business-" + tt.name,
+				StatusCode: &tt.statusCode,
+				Phase:      "request",
+				Model:      "gpt-5.3-codex-spark",
+				Message:    tt.message,
+			}, troubleshootingLocaleChinese)
+
+			require.True(t, evidence.Confirmed)
+			require.Equal(t, tt.needsAdmin, evidence.NeedsAdmin)
+			require.Contains(t, evidence.Reason, tt.wantReason)
+			require.NotContains(t, evidence.Reason, "可能")
+		})
+	}
+}
+
+func TestTroubleshootingAssistantDirectlyReportsClearLocalBusinessErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		message     string
+		wantReason  string
+		wantAction  string
+		needsAdmin  bool
+		notContains string
+	}{
+		{
+			name:        "api_key_required",
+			message:     "401 API_KEY_REQUIRED API key is required in Authorization header",
+			wantReason:  "缺少 API Key",
+			wantAction:  "重新填写 API Key",
+			needsAdmin:  false,
+			notContains: "鉴权失败",
+		},
+		{
+			name:        "invalid_api_key",
+			message:     "401 INVALID_API_KEY Invalid API key",
+			wantReason:  "API Key 无效",
+			wantAction:  "重新复制 API Key",
+			needsAdmin:  false,
+			notContains: "鉴权失败",
+		},
+		{
+			name:        "api_key_disabled",
+			message:     "401 API_KEY_DISABLED API key is disabled",
+			wantReason:  "API Key 已被停用",
+			wantAction:  "联系管理员启用或更换 API Key",
+			needsAdmin:  true,
+			notContains: "鉴权失败",
+		},
+		{
+			name:        "api_key_expired",
+			message:     "403 API_KEY_EXPIRED API key 已过期",
+			wantReason:  "API Key 已过期",
+			wantAction:  "联系管理员续期或更换 API Key",
+			needsAdmin:  true,
+			notContains: "鉴权失败",
+		},
+		{
+			name:        "insufficient_balance",
+			message:     "403 INSUFFICIENT_BALANCE Insufficient account balance",
+			wantReason:  "账户余额不足",
+			wantAction:  "充值或联系管理员调整余额",
+			needsAdmin:  true,
+			notContains: "权限、风控或策略",
+		},
+		{
+			name:        "subscription_daily_limit",
+			message:     "429 DAILY_LIMIT_EXCEEDED daily usage limit exceeded",
+			wantReason:  "订阅套餐日限额已用完",
+			wantAction:  "等待限额窗口重置",
+			needsAdmin:  false,
+			notContains: "账号额度、套餐额度、RPM",
+		},
+		{
+			name:        "rpm_limit",
+			message:     "429 GROUP_RPM_EXCEEDED group requests-per-minute limit exceeded",
+			wantReason:  "请求频率超过限制",
+			wantAction:  "降低请求频率",
+			needsAdmin:  false,
+			notContains: "账号额度、套餐额度、RPM",
+		},
+		{
+			name:        "image_generation_disabled",
+			message:     "403 Image generation is not enabled for this group",
+			wantReason:  "当前分组未启用图片生成",
+			wantAction:  "切换到已启用图片生成的分组",
+			needsAdmin:  false,
+			notContains: "权限、风控或策略",
+		},
+		{
+			name:        "model_whitelist",
+			message:     "403 model claude-3-5-sonnet not in whitelist",
+			wantReason:  "当前分组不允许使用该模型",
+			wantAction:  "切换到模型列表中允许的模型",
+			needsAdmin:  false,
+			notContains: "请求参数或模型映射可能不匹配",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ai := &troubleshootingAIStub{answer: "不应该调用 AI"}
+			svc := NewTroubleshootingAssistantService(ai, &troubleshootingLimiterStub{}, nil)
+
+			result, err := svc.Analyze(context.Background(), TroubleshootingAnalyzeInput{
+				UserID:  42,
+				Message: "POST /v1/responses failed: " + tt.message + ", request id: clear-local-" + tt.name,
+			})
+
+			require.NoError(t, err)
+			require.Equal(t, "rules", result.Source)
+			require.Equal(t, tt.needsAdmin, result.NeedsAdmin)
+			require.False(t, result.AIAttempted)
+			require.Equal(t, 0, ai.calls)
+			require.Contains(t, result.Answer, tt.wantReason)
+			require.Contains(t, result.Answer, tt.wantAction)
+			require.NotContains(t, result.Answer, tt.notContains)
+			require.NotContains(t, result.Answer, "可能")
+		})
+	}
+}
+
 func TestTroubleshootingAssistantReportsRecoveredWhenNoLogAndAccountsAvailable(t *testing.T) {
 	ai := &troubleshootingAIStub{}
 	evidence := &troubleshootingEvidenceStub{
@@ -286,7 +443,7 @@ func TestTroubleshootingAssistantDoesNotMarkAIAnswerAdminWhenItSaysNotNeeded(t *
 
 	result, err := svc.Analyze(context.Background(), TroubleshootingAnalyzeInput{
 		UserID:  42,
-		Message: "POST /v1/responses 返回 401 Unauthorized invalid api key",
+		Message: "POST /v1/responses 返回 401 Unauthorized token revoked",
 	})
 
 	require.NoError(t, err)
@@ -329,7 +486,7 @@ func TestTroubleshootingAssistantLocalDiagnosisUsesEnglishLocale(t *testing.T) {
 
 	result, err := svc.Analyze(context.Background(), TroubleshootingAnalyzeInput{
 		UserID:  42,
-		Message: "POST /v1/responses returned 401 Unauthorized invalid api key",
+		Message: "POST /v1/responses returned 401 Unauthorized token revoked",
 		Locale:  "en-US",
 	})
 

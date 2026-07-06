@@ -540,6 +540,74 @@ func explicitTroubleshootingEvidenceFromMessage(message string, statusCode int, 
 	}
 
 	switch {
+	case isTroubleshootingAPIKeyRequired(lower):
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      "The request did not include an API Key.",
+				NeedsAdmin:  false,
+				UserAction:  "Fill in the API Key in the Authorization Bearer header, x-api-key header, or the client's API key field, then retry.",
+				AdminAction: "",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "缺少 API Key，系统没有收到可用于鉴权的密钥。",
+			NeedsAdmin:  false,
+			UserAction:  "请重新填写 API Key，并确认客户端使用 Authorization Bearer 或 x-api-key 传递后再重试。",
+			AdminAction: "",
+		}
+	case isTroubleshootingInvalidAPIKey(lower):
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      "The API Key is invalid.",
+				NeedsAdmin:  false,
+				UserAction:  "Copy the API Key again from the console and make sure there are no extra spaces or hidden characters.",
+				AdminAction: "",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "API Key 无效，当前密钥无法通过系统校验。",
+			NeedsAdmin:  false,
+			UserAction:  "请从控制台重新复制 API Key，确认没有多余空格或隐藏字符后再重试。",
+			AdminAction: "",
+		}
+	case isTroubleshootingAPIKeyDisabled(lower):
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      "The API Key has been disabled.",
+				NeedsAdmin:  true,
+				UserAction:  "Contact an administrator to enable this API Key or replace it with an active key.",
+				AdminAction: "Check the API Key status and issue or enable a valid key for the user.",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "API Key 已被停用，当前密钥不能继续请求。",
+			NeedsAdmin:  true,
+			UserAction:  "请联系管理员启用或更换 API Key 后再重试。",
+			AdminAction: "检查 API Key 状态，并为用户启用或发放可用密钥。",
+		}
+	case isTroubleshootingAPIKeyExpired(lower):
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      "The API Key has expired.",
+				NeedsAdmin:  true,
+				UserAction:  "Contact an administrator to renew the API Key or replace it with an active key.",
+				AdminAction: "Check the API Key expiry time and extend or issue a replacement key.",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "API Key 已过期，当前密钥已超过有效期。",
+			NeedsAdmin:  true,
+			UserAction:  "请联系管理员续期或更换 API Key 后再重试。",
+			AdminAction: "检查 API Key 到期时间，并续期或发放新密钥。",
+		}
 	case isTroubleshootingSubscriptionUnavailable(lower):
 		if locale == troubleshootingLocaleEnglish {
 			return &TroubleshootingEvidence{
@@ -556,6 +624,160 @@ func explicitTroubleshootingEvidenceFromMessage(message string, statusCode int, 
 			NeedsAdmin:  true,
 			UserAction:  "请联系管理员续期或重新分配套餐后再重试。",
 			AdminAction: "检查该用户 API Key 所属分组的订阅状态、到期时间和套餐分配。",
+		}
+	case isTroubleshootingInsufficientBalance(lower):
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      "The account balance is insufficient.",
+				NeedsAdmin:  true,
+				UserAction:  "Recharge the account or contact an administrator to adjust the balance, then retry.",
+				AdminAction: "Check the user's balance and recharge or adjust it if appropriate.",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "账户余额不足，当前余额无法继续发起请求。",
+			NeedsAdmin:  true,
+			UserAction:  "请充值或联系管理员调整余额后再重试。",
+			AdminAction: "检查用户余额，并按需充值或调整额度。",
+		}
+	case isTroubleshootingSubscriptionUsageLimit(lower):
+		limitName := troubleshootingSubscriptionLimitName(lower, locale)
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      limitName + " has been reached for this subscription.",
+				NeedsAdmin:  false,
+				UserAction:  "Wait for the limit window to reset, reduce usage, or switch to a subscription with enough remaining quota.",
+				AdminAction: "",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "订阅套餐" + limitName + "已用完。",
+			NeedsAdmin:  false,
+			UserAction:  "请等待限额窗口重置、降低用量，或切换到仍有额度的套餐后再重试。",
+			AdminAction: "",
+		}
+	case isTroubleshootingAPIKeyQuotaExhausted(lower):
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      "The API Key quota has been exhausted.",
+				NeedsAdmin:  true,
+				UserAction:  "Contact an administrator to increase or reset the API Key quota, or use another valid key.",
+				AdminAction: "Check the API Key quota and reset or raise it if appropriate.",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "API Key 额度已用完。",
+			NeedsAdmin:  true,
+			UserAction:  "请联系管理员增加或重置 API Key 额度，或更换其他可用密钥。",
+			AdminAction: "检查 API Key 额度，并按需重置或提高限额。",
+		}
+	case isTroubleshootingRPMLimit(lower):
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      "The request rate exceeded the configured requests-per-minute limit.",
+				NeedsAdmin:  false,
+				UserAction:  "Reduce the request frequency and retry after the rate-limit window resets.",
+				AdminAction: "",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "请求频率超过限制，已触发每分钟请求数限制。",
+			NeedsAdmin:  false,
+			UserAction:  "请降低请求频率，等待限流窗口恢复后再重试。",
+			AdminAction: "",
+		}
+	case isTroubleshootingConcurrencyLimit(lower):
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      "The concurrent request limit has been reached.",
+				NeedsAdmin:  false,
+				UserAction:  "Reduce concurrent requests and retry after current requests finish.",
+				AdminAction: "",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "并发请求数已达到限制。",
+			NeedsAdmin:  false,
+			UserAction:  "请降低并发，等待当前请求结束后再重试。",
+			AdminAction: "",
+		}
+	case isTroubleshootingImageGenerationDisabled(lower):
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      "Image generation is not enabled for this group.",
+				NeedsAdmin:  false,
+				UserAction:  "Switch to a group that has image generation enabled, or ask an administrator to enable it for this group.",
+				AdminAction: "",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "当前分组未启用图片生成。",
+			NeedsAdmin:  false,
+			UserAction:  "请切换到已启用图片生成的分组，或让管理员为当前分组开启图片生成。",
+			AdminAction: "",
+		}
+	case isTroubleshootingModelNotAllowed(lower):
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      "The current group does not allow this model.",
+				NeedsAdmin:  false,
+				UserAction:  "Switch to a model allowed by the console model list, or ask an administrator to update the model whitelist.",
+				AdminAction: "",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "当前分组不允许使用该模型。",
+			NeedsAdmin:  false,
+			UserAction:  "请切换到模型列表中允许的模型，或联系管理员调整模型白名单。",
+			AdminAction: "",
+		}
+	case isTroubleshootingRouteNotAllowed(lower):
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      "The current group does not allow this API route or client type.",
+				NeedsAdmin:  false,
+				UserAction:  "Use the route/client type allowed by this group, or switch to a matching group.",
+				AdminAction: "",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "当前分组不允许使用该接口或客户端类型。",
+			NeedsAdmin:  false,
+			UserAction:  "请改用该分组允许的接口/客户端，或切换到匹配的分组。",
+			AdminAction: "",
+		}
+	case isTroubleshootingPlatformUnsupported(lower):
+		if locale == troubleshootingLocaleEnglish {
+			return &TroubleshootingEvidence{
+				Confirmed:   true,
+				Reason:      "This platform or endpoint does not support the requested capability.",
+				NeedsAdmin:  false,
+				UserAction:  "Use a supported endpoint or switch to a platform/group that supports this capability.",
+				AdminAction: "",
+			}
+		}
+		return &TroubleshootingEvidence{
+			Confirmed:   true,
+			Reason:      "当前平台或接口不支持该能力。",
+			NeedsAdmin:  false,
+			UserAction:  "请使用支持该能力的接口，或切换到支持该能力的平台/分组。",
+			AdminAction: "",
 		}
 	case isTroubleshootingNoAvailableAccounts(lower):
 		if locale == troubleshootingLocaleEnglish {
@@ -588,6 +810,112 @@ func isTroubleshootingSubscriptionUnavailable(lower string) bool {
 		strings.Contains(lower, "订阅已过期") ||
 		strings.Contains(lower, "没有可用订阅") ||
 		strings.Contains(lower, "无可用订阅")
+}
+
+func isTroubleshootingAPIKeyRequired(lower string) bool {
+	return strings.Contains(lower, "api_key_required") ||
+		strings.Contains(lower, "api key is required")
+}
+
+func isTroubleshootingInvalidAPIKey(lower string) bool {
+	return strings.Contains(lower, "invalid_api_key") ||
+		strings.Contains(lower, "invalid api key")
+}
+
+func isTroubleshootingAPIKeyDisabled(lower string) bool {
+	return strings.Contains(lower, "api_key_disabled") ||
+		strings.Contains(lower, "api key is disabled")
+}
+
+func isTroubleshootingAPIKeyExpired(lower string) bool {
+	return strings.Contains(lower, "api_key_expired") ||
+		strings.Contains(lower, "api key 已过期") ||
+		strings.Contains(lower, "api key expired")
+}
+
+func isTroubleshootingInsufficientBalance(lower string) bool {
+	return strings.Contains(lower, "insufficient_balance") ||
+		strings.Contains(lower, "insufficient account balance") ||
+		strings.Contains(lower, "账户余额不足") ||
+		strings.Contains(lower, "余额不足")
+}
+
+func isTroubleshootingAPIKeyQuotaExhausted(lower string) bool {
+	return strings.Contains(lower, "api_key_quota_exhausted") ||
+		strings.Contains(lower, "api key 额度已用完") ||
+		strings.Contains(lower, "api key quota exhausted")
+}
+
+func isTroubleshootingSubscriptionUsageLimit(lower string) bool {
+	return strings.Contains(lower, "daily_limit_exceeded") ||
+		strings.Contains(lower, "weekly_limit_exceeded") ||
+		strings.Contains(lower, "monthly_limit_exceeded") ||
+		strings.Contains(lower, "total_limit_exceeded") ||
+		strings.Contains(lower, "daily usage limit exceeded") ||
+		strings.Contains(lower, "weekly usage limit exceeded") ||
+		strings.Contains(lower, "monthly usage limit exceeded") ||
+		strings.Contains(lower, "total usage limit exceeded")
+}
+
+func troubleshootingSubscriptionLimitName(lower string, locale string) string {
+	isEnglish := normalizeTroubleshootingLocale(locale) == troubleshootingLocaleEnglish
+	switch {
+	case strings.Contains(lower, "weekly"):
+		if isEnglish {
+			return "weekly limit"
+		}
+		return "周限额"
+	case strings.Contains(lower, "monthly"):
+		if isEnglish {
+			return "monthly limit"
+		}
+		return "月限额"
+	case strings.Contains(lower, "total"):
+		if isEnglish {
+			return "total limit"
+		}
+		return "总量上限"
+	default:
+		if isEnglish {
+			return "daily limit"
+		}
+		return "日限额"
+	}
+}
+
+func isTroubleshootingRPMLimit(lower string) bool {
+	return strings.Contains(lower, "requests-per-minute limit exceeded") ||
+		strings.Contains(lower, "group_rpm_exceeded") ||
+		strings.Contains(lower, "user_rpm_exceeded")
+}
+
+func isTroubleshootingConcurrencyLimit(lower string) bool {
+	return strings.Contains(lower, "concurrency limit exceeded") ||
+		strings.Contains(lower, "too many pending requests") ||
+		strings.Contains(lower, "image generation concurrency limit exceeded")
+}
+
+func isTroubleshootingImageGenerationDisabled(lower string) bool {
+	return strings.Contains(lower, "image generation is not enabled for this group") ||
+		strings.Contains(lower, "当前分组未启用图片生成")
+}
+
+func isTroubleshootingModelNotAllowed(lower string) bool {
+	return (strings.Contains(lower, "model ") && strings.Contains(lower, " not in whitelist")) ||
+		strings.Contains(lower, "model_not_allowed")
+}
+
+func isTroubleshootingRouteNotAllowed(lower string) bool {
+	return strings.Contains(lower, "this group is restricted to claude code clients") ||
+		strings.Contains(lower, "this group does not allow /v1/messages dispatch") ||
+		strings.Contains(lower, "this account only allows codex official clients") ||
+		strings.Contains(lower, "openai codex passthrough requires a non-empty instructions field")
+}
+
+func isTroubleshootingPlatformUnsupported(lower string) bool {
+	return strings.Contains(lower, "token counting is not supported for this platform") ||
+		strings.Contains(lower, "images api is not supported for this platform") ||
+		strings.Contains(lower, "openai wsv1 is temporarily unsupported")
 }
 
 func isTroubleshootingNoAvailableAccounts(lower string) bool {
