@@ -93,10 +93,9 @@
         />
       </div>
 
-      <!-- Row: Headroom Stats -->
+      <!-- Row: Host Health -->
       <div v-if="opsEnabled && !(loading && !hasLoadedOnce)" class="grid grid-cols-1 gap-6">
         <OpsHostHealthCard v-if="showHostHealthCard" :refresh-token="dashboardRefreshToken" />
-        <OpsHeadroomStatsCard :refresh-token="dashboardRefreshToken" />
       </div>
 
       <!-- Alert Events -->
@@ -172,7 +171,6 @@ import OpsSwitchRateTrendChart from './components/OpsSwitchRateTrendChart.vue'
 import OpsAlertEventsCard from './components/OpsAlertEventsCard.vue'
 import OpsOpenAITokenStatsCard from './components/OpsOpenAITokenStatsCard.vue'
 import OpsHostHealthCard from './components/OpsHostHealthCard.vue'
-import OpsHeadroomStatsCard from './components/OpsHeadroomStatsCard.vue'
 import OpsSystemLogTable from './components/OpsSystemLogTable.vue'
 import OpsRequestDetailsModal, { type OpsRequestDetailsPreset } from './components/OpsRequestDetailsModal.vue'
 import OpsSettingsDialog from './components/OpsSettingsDialog.vue'

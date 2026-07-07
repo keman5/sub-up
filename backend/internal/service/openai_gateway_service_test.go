@@ -2434,30 +2434,15 @@ func TestOpenAIBuildUpstreamRequestCompactForcesJSONAcceptForOAuth(t *testing.T)
 	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(req.Context()))
 }
 
-func TestOpenAIBuildOpenAIResponsesWSURLUsesOAuthCodexOverride(t *testing.T) {
+func TestOpenAIBuildOpenAIResponsesWSURLUsesDefaultOAuthCodexEndpoint(t *testing.T) {
 	account := &Account{Type: AccountTypeOAuth}
 
 	defaultURL, err := (&OpenAIGatewayService{}).buildOpenAIResponsesWSURL(account)
 	require.NoError(t, err)
 	require.Equal(t, "wss://chatgpt.com/backend-api/codex/responses", defaultURL)
-
-	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
-		OpenAIOAuthCodexResponsesURL: "http://headroom-a2:8787/v1/responses",
-	}}}
-	disabledURL, err := svc.buildOpenAIResponsesWSURL(account)
-	require.NoError(t, err)
-	require.Equal(t, "wss://chatgpt.com/backend-api/codex/responses", disabledURL)
-
-	svc.rateLimitService = newOpenAIAdvancedSchedulerRateLimitServiceWithSettings(map[string]string{
-		SettingKeyOpenAIHeadroomEnabled: "true",
-	})
-	t.Cleanup(resetOpenAIHeadroomSettingCacheForTest)
-	overrideURL, err := svc.buildOpenAIResponsesWSURL(account)
-	require.NoError(t, err)
-	require.Equal(t, "ws://headroom-a2:8787/v1/responses", overrideURL)
 }
 
-func TestOpenAIOAuthCodexWSProxyURLBypassesInternalHeadroomOverride(t *testing.T) {
+func TestOpenAIOAuthCodexWSProxyURLUsesAccountProxy(t *testing.T) {
 	proxyID := int64(1)
 	account := &Account{
 		Type:    AccountTypeOAuth,
@@ -2472,7 +2457,6 @@ func TestOpenAIOAuthCodexWSProxyURLBypassesInternalHeadroomOverride(t *testing.T
 	}
 	svc := &OpenAIGatewayService{}
 
-	require.Empty(t, svc.openAICodexWSProxyURL(account, "ws://headroom-a1:8787/v1/responses"))
 	require.Equal(t, "socks5h://172.17.0.1:40001", svc.openAICodexWSProxyURL(account, "wss://chatgpt.com/backend-api/codex/responses"))
 }
 

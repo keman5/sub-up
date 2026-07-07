@@ -255,45 +255,6 @@ func TestSettingHandler_UpdateSettings_PersistsPaymentVisibleMethodsAndAdvancedS
 	require.Equal(t, true, data["openai_advanced_scheduler_subscription_priority_enabled"])
 }
 
-func TestSettingHandler_UpdateSettings_RoundTripsOpenAIHeadroomEnabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	repo := &settingHandlerRepoStub{
-		values: map[string]string{
-			service.SettingKeyPromoCodeEnabled: "true",
-		},
-	}
-	svc := service.NewSettingService(repo, &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}})
-	handler := NewSettingHandler(svc, nil, nil, nil, nil, nil, nil)
-
-	rawBody, err := json.Marshal(map[string]any{
-		"promo_code_enabled":      true,
-		"openai_headroom_enabled": true,
-	})
-	require.NoError(t, err)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	handler.UpdateSettings(c)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "true", repo.values[service.SettingKeyOpenAIHeadroomEnabled])
-
-	getRec := httptest.NewRecorder()
-	getCtx, _ := gin.CreateTestContext(getRec)
-	getCtx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/settings", nil)
-	handler.GetSettings(getCtx)
-
-	require.Equal(t, http.StatusOK, getRec.Code)
-	var resp response.Response
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
-	data, ok := resp.Data.(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, true, data["openai_headroom_enabled"])
-}
-
 func TestSettingHandler_GetSettings_ReturnsPersistedOpsMonitoringEnabledWithoutOpsService(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &settingHandlerRepoStub{

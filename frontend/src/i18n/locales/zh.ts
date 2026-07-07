@@ -5272,30 +5272,6 @@ export default {
           requestsWithFirstToken: '首 Token 样本数'
         }
       },
-      headroomStats: {
-        title: 'Headroom 压缩统计',
-        lastFetched: '快照时间：{time}',
-        failedToLoad: '加载 Headroom 统计失败',
-        disabled: 'Headroom 统计未启用',
-        disabledHint: '当前后端未配置 HEADROOM_STATS_URL 或统计开关未开启。',
-        empty: '暂无 Headroom 统计数据',
-        savedTokens: '已节省 Token',
-        savingsPercent: 'Token 节省率',
-        compressedRequests: '压缩请求',
-        estimatedSavings: '预估节省',
-        tokenDetails: 'Token 明细',
-        inputTokens: '输入 Token',
-        outputTokens: '输出 Token',
-        beforeCompression: '压缩前总量',
-        averageCompression: '平均压缩率',
-        requestDetails: '请求明细',
-        totalRequests: '总请求',
-        apiRequests: 'API 请求',
-        failedRequests: '失败请求',
-        proxyCompressionSaved: '代理压缩节省',
-        topModels: '模型分布',
-        providers: 'Provider 分布'
-      },
       hostHealth: {
         title: '宿主机实时状态',
         lastCollected: '采集时间：{time}',
@@ -7087,10 +7063,6 @@ export default {
         quotaHeadroomWeight: '额度余量',
         previousResponseWeight: 'previous_response 粘性',
         sessionStickyWeight: 'session_hash 粘性'
-      },
-      openaiHeadroom: {
-        title: 'Headroom 压缩代理',
-        description: '默认关闭。开启后，已配置 Headroom sidecar 的 OpenAI OAuth Codex 请求会先经过 Headroom 压缩；关闭时直接访问上游 Codex。'
       },
       usageRecords: {
         title: '使用记录',

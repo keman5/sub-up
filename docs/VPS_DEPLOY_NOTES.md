@@ -281,7 +281,7 @@ gzip -c /tmp/sub2api-build-output/sub2api | ssh 51tokens '
 - `sub2api-postgres`：唯一 PostgreSQL 容器。
 - `sub2api-redis`：唯一 Redis 容器。
 - `sub2api-deploy_sub2api-network`：共享 Docker network；`ap1` / `test` compose 通过 `external: true` 接入。
-- `test` 不启用 Headroom，不设置 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL`。
+- primary / `ap1` / `test` 均不启用 Headroom，不设置 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL` / `HEADROOM_STATS_*`。
 
 已废弃并移除的容器：
 
@@ -293,6 +293,30 @@ gzip -c /tmp/sub2api-build-output/sub2api | ssh 51tokens '
 - `pdc-agent-sub2api`
 
 > 注意：旧数据目录、卷和迁移备份不要立即删除。2026-06-11 迁移备份位于 `/root/sub2api-migration-backup-20260611-200522`，包含 compose / `.env` 备份和 PostgreSQL dump。
+
+2026-07-07 线上补清 Headroom 残留：
+
+- `/opt/sub2api-deploy/docker-compose.yml` 移除 `headroom-main` 服务块，并移除 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_*` / `HEADROOM_STATS_*` 环境变量。
+- `/opt/sub2api-ap1-deploy/docker-compose.yml` 移除 `headroom-a1` 服务块，并移除 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_*` / `HEADROOM_STATS_*` 环境变量。
+- `/opt/sub2api-deploy/.env` 与 `/opt/sub2api-ap1-deploy/.env` 同步删除上述变量。
+- 重建 `sub2api`、`sub2api-ap1` 后删除旧 `headroom-main`、`headroom-a1` 容器；`sub2api-test` 不变。
+- 远端备份：`docker-compose.yml.bak-headroom-20260707101228`、`.env.bak-headroom-20260707101228`。
+
+当前验证口径：
+
+```bash
+ssh 51tokens '
+  docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | egrep "NAMES|headroom|sub2api" || true
+  for d in /opt/sub2api-deploy /opt/sub2api-ap1-deploy /opt/sub2api-test-deploy; do
+    grep -nE "HEADROOM|GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES" "$d/.env" "$d/docker-compose.yml" 2>/dev/null || true
+  done
+  for c in sub2api sub2api-ap1 sub2api-test; do
+    docker exec "$c" sh -lc "env | grep -E \"^(GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES|HEADROOM|OPENAI_HEADROOM)=\" || true"
+  done
+'
+```
+
+期望结果：没有 `headroom-*` 容器；active compose / `.env` / app 容器环境里均无 Headroom responses override 和 stats 配置。
 
 `ap1` / `test` compose 关键要求：
 
@@ -438,145 +462,39 @@ ssh 51tokens '
 
 后续重部署或重建 compose 时，必须保留上述分档。除非升级 VPS 或明确评估并发压力，不要把三套环境恢复成 `DATABASE_MAX_OPEN_CONNS=50`、`DATABASE_MAX_IDLE_CONNS=10`、`REDIS_POOL_SIZE=512`、`REDIS_MIN_IDLE_CONNS=10`。
 
-#### 3.4.2 2026-06-14 Headroom 压缩 worker 限制
+#### 3.4.2 2026-07-07 Headroom 彻底移除
 
-迁移到新 VPS 后，主环境和 `ap1/a1` 保留 Headroom sidecar 能力，`test/a2t` 不启用 Headroom。实际请求是否经过 Headroom 由后台全局设置 `openai_headroom_enabled` / “Headroom 压缩代理”决定；如果后台开关关闭，即使 compose 中保留 sidecar URL，也会直连官方 Codex endpoint。
+生产环境不再保留 Headroom sidecar、responses override、统计 API 或后台开关。后续部署、回滚旧 compose、同步官方代码时，只允许保留直连 ChatGPT Codex 的默认路径，不得恢复 Headroom 容器或相关 env。
 
-| 环境 | sub2api 容器 | Headroom 容器 | OpenAI OAuth Codex override |
-| --- | --- | --- | --- |
-| primary | `sub2api` | `headroom-main` | `http://headroom-main:8787/v1/responses` |
-| ap1 / a1 | `sub2api-ap1` | `headroom-a1` | `http://headroom-a1:8787/v1/responses` |
-| test / a2t | `sub2api-test` | 无 | 不设置 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL` |
-
-注意不要把 `HEADROOM_WORKERS` 和压缩 worker 混淆：
-
-- `HEADROOM_WORKERS` 是 Uvicorn worker 进程数。当前保持 `1`，不要为了限 CPU 把它改成 `2`。
-- Headroom 压缩实际使用 `compression_executor.max_workers`。当前镜像默认会按 CPU 自动算到 `8`，在 2 核 4G VPS 上遇到大请求压缩时容易产生瞬时 CPU 尖峰。
-- 当前镜像代码里已有 `ProxyConfig.compression_max_workers` 字段，但 `headroom proxy` CLI 没有暴露 `--compression-max-workers`，也没有把 `HEADROOM_COMPRESSION_MAX_WORKERS` 灌进运行配置。单纯在 compose 里加环境变量后，`/health` 仍会显示 `source=auto`、`max_workers=8`。
-
-线上采用一个很小的启动 wrapper，把环境变量显式传入 `ProxyConfig`，然后继续执行原来的 `headroom proxy` 参数解析。wrapper 放在新 VPS：
-
-```bash
-/opt/headroom_start_with_compression_workers.py
-```
-
-内容模板：
-
-```python
-#!/usr/bin/env python3
-import os
-import sys
-
-from headroom.proxy import server
-
-_original_proxy_config = server.ProxyConfig
-
-
-def _patched_proxy_config(*args, **kwargs):
-    raw = os.environ.get("HEADROOM_COMPRESSION_MAX_WORKERS", "2").strip()
-    try:
-        workers = int(raw)
-    except ValueError:
-        workers = 2
-    kwargs.setdefault("compression_max_workers", workers)
-    return _original_proxy_config(*args, **kwargs)
-
-
-server.ProxyConfig = _patched_proxy_config
-
-from headroom.cli.proxy import proxy
-
-if __name__ == "__main__":
-    proxy.main(args=sys.argv[1:], prog_name="headroom proxy", standalone_mode=True)
-```
-
-`/opt/sub2api-deploy/docker-compose.yml` 的 `headroom-main` 和 `/opt/sub2api-ap1-deploy/docker-compose.yml` 的 `headroom-a1` 都要保留以下配置：
-
-```yaml
-restart: unless-stopped
-mem_limit: 1200m
-memswap_limit: 1400m
-entrypoint:
-  - python
-  - /opt/headroom_start_with_compression_workers.py
-volumes:
-  - /opt/headroom_start_with_compression_workers.py:/opt/headroom_start_with_compression_workers.py:ro
-environment:
-  - HEADROOM_WORKERS=1
-  - HEADROOM_COMPRESSION_MAX_WORKERS=2
-  - HEADROOM_LIMIT_CONCURRENCY=50
-  - HEADROOM_MAX_CONNECTIONS=80
-  - HEADROOM_MAX_KEEPALIVE=20
-```
-
-调整前先备份 compose：
-
-```bash
-ssh 51tokens '
-  stamp=$(date +%Y%m%d%H%M%S)
-  cp /opt/sub2api-deploy/docker-compose.yml /opt/sub2api-deploy/docker-compose.yml.bak-headroom-limits-$stamp
-  cp /opt/sub2api-ap1-deploy/docker-compose.yml /opt/sub2api-ap1-deploy/docker-compose.yml.bak-headroom-limits-$stamp
-'
-```
-
-修改后先验证 compose，再只重建两个 Headroom 容器，不要重启 `sub2api`、`sub2api-ap1`、`sub2api-test`：
-
-```bash
-ssh 51tokens '
-  cd /opt/sub2api-deploy && docker compose config --quiet
-  cd /opt/sub2api-ap1-deploy && docker compose config --quiet
-
-  cd /opt/sub2api-deploy && docker compose up -d --force-recreate headroom-main
-  cd /opt/sub2api-ap1-deploy && docker compose up -d --force-recreate headroom-a1
-'
-```
-
-验证必须看 `/health` 的 `compression_executor`，不能只看容器 env：
-
-```bash
-ssh 51tokens '
-  docker exec headroom-main python -c '\''import json,urllib.request; h=json.load(urllib.request.urlopen("http://127.0.0.1:8787/health")); print(h["runtime"]["compression_executor"])'\''
-  docker exec headroom-a1 python -c '\''import json,urllib.request; h=json.load(urllib.request.urlopen("http://127.0.0.1:8787/health")); print(h["runtime"]["compression_executor"])'\''
-
-  for c in sub2api sub2api-ap1 sub2api-test; do
-    echo "[$c]"
-    docker inspect "$c" --format "{{range .Config.Env}}{{println .}}{{end}}" | grep "GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL" || true
-  done
-
-  docker ps --format "table {{.Names}}\t{{.Status}}" | egrep "headroom|sub2api|NAMES"
-  docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" headroom-main headroom-a1 sub2api sub2api-ap1 sub2api-test
-'
-```
-
-期望结果：
-
-- `headroom-main` 和 `headroom-a1` 的 `compression_executor.max_workers` 为 `2`。
-- `compression_executor.source` 为 `explicit`；如果还是 `auto`，说明 wrapper 或 entrypoint 没生效。
-- `HEADROOM_WORKERS` 仍为 `1`。
-- `HEADROOM_LIMIT_CONCURRENCY=50`、`HEADROOM_MAX_CONNECTIONS=80`、`HEADROOM_MAX_KEEPALIVE=20`。
-- Docker inspect 中 `HostConfig.Memory=1258291200`、`HostConfig.MemorySwap=1468006400`，对应 compose 的 `mem_limit: 1200m`、`memswap_limit: 1400m`。
-- `sub2api` 指向 `headroom-main`，`sub2api-ap1` 指向 `headroom-a1`，`sub2api-test` 不应出现 Headroom override。
-- `headroom-main`、`headroom-a1`、三套 sub2api 容器都为 `healthy`。
-
-2026-06-14 实测：两个 Headroom 容器从默认 `max_workers=8/source=auto` 调整为 `max_workers=2/source=explicit`，`HEADROOM_WORKERS=1` 保持不变；短窗口 `docker stats` 中 `headroom-main` 和 `headroom-a1` 约为 `0.3% - 0.4%` CPU。后续如果升级 Headroom 镜像后 CLI 原生支持 `--compression-max-workers` 或正确读取 `HEADROOM_COMPRESSION_MAX_WORKERS`，可以移除 wrapper，但必须先用 `/health` 验证 `source=explicit`。
-
-2026-06-14 23:48 追加内存与连接上限：`headroom-main` 和 `headroom-a1` 均设置 `mem_limit: 1200m`、`memswap_limit: 1400m`，并将 `HEADROOM_LIMIT_CONCURRENCY` 从 `200` 降为 `50`，`HEADROOM_MAX_CONNECTIONS` 从 `200` 降为 `80`，`HEADROOM_MAX_KEEPALIVE` 从 `50` 降为 `20`。远端备份文件为：
+必须保持不存在：
 
 ```text
-/opt/sub2api-deploy/docker-compose.yml.bak-headroom-limits-20260614234850
-/opt/sub2api-ap1-deploy/docker-compose.yml.bak-headroom-limits-20260614234850
+headroom-main
+headroom-a1
+GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL
+GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_BODY_BYTES
+GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_TTL_SECONDS
+HEADROOM_STATS_ENABLED
+HEADROOM_STATS_URL
+HEADROOM_STATS_TIMEOUT_SECONDS
+openai_headroom_enabled
 ```
 
-重建命令只针对两个 Headroom 容器：
+验证命令：
 
 ```bash
 ssh 51tokens '
-  cd /opt/sub2api-deploy && docker compose up -d --force-recreate --no-deps headroom-main
-  cd /opt/sub2api-ap1-deploy && docker compose up -d --force-recreate --no-deps headroom-a1
+  docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | egrep "NAMES|headroom|sub2api" || true
+  for d in /opt/sub2api-deploy /opt/sub2api-ap1-deploy /opt/sub2api-test-deploy; do
+    grep -nE "HEADROOM|GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES" "$d/.env" "$d/docker-compose.yml" 2>/dev/null || true
+  done
+  for c in sub2api sub2api-ap1 sub2api-test; do
+    docker exec "$c" sh -lc "env | grep -E \"^(GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES|HEADROOM|OPENAI_HEADROOM)=\" || true"
+  done
 '
 ```
 
-实测重建后两个 Headroom 均为 `healthy`，三套 sub2api 容器保持 `healthy`；`docker stats` 中 `headroom-main` 约 `164MiB / 1.172GiB`、`headroom-a1` 约 `130MiB / 1.172GiB`，整机 `free -h` 可用内存从约 `850MiB` 回升到约 `2.4GiB`，swap 已用从约 `536MiB` 降到约 `177MiB`。
+期望结果：没有 `headroom-*` 容器；active compose / `.env` / app 容器环境里均无 Headroom responses override 和 stats 配置。
 
 #### 3.4.3 snapd 移除与 sysstat 历史监控
 
@@ -1217,200 +1135,24 @@ old-vps-final-20260614-210956.tar.zst.sha256
 
 已在新 VPS 手工比对 sha256，压缩包大小约 `315M`。用户明确要求不需要下载到本地；本地临时 rsync 目录已移除。后续部署和排障统一使用 `51tokens`。
 
-### 4. Headroom 启用范围和压缩 worker 限制
+### 4. Headroom 已彻底移除
 
-2026-06-14 当前只保留两套 Headroom sidecar 能力：
+2026-07-07 起，生产和代码均不再保留 Headroom 能力：
 
 | 环境 | Headroom 容器 | sub2api override |
 | --- | --- | --- |
-| primary | `headroom-main` | `http://headroom-main:8787/v1/responses`，后台 Headroom 开关关闭时不会实际转发 |
-| a1 / ap1 | `headroom-a1` | `http://headroom-a1:8787/v1/responses` |
+| primary | 无 | 无 |
+| a1 / ap1 | 无 | 无 |
 | test / a2t | 无 | 无 |
 
-`HEADROOM_WORKERS=1` 保持不变，它只代表 Uvicorn worker 进程数。真正限制压缩并发的是 `/health` 里的 `runtime.compression_executor.max_workers`。
+已删除的能力包括：
 
-当前 Headroom 镜像虽然有 `ProxyConfig.compression_max_workers` 字段，但 `headroom proxy` CLI 没有把 `HEADROOM_COMPRESSION_MAX_WORKERS` 灌进运行配置。单纯设置 env 后 `/health` 仍显示 `max_workers=8/source=auto`。
+- 后端 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_*` 配置读取和 OpenAI OAuth Codex responses override。
+- 后端 `HEADROOM_STATS_*` 配置、`/admin/ops/headroom/stats` API、Headroom stats service。
+- 后台 `openai_headroom_enabled` 开关与前端 Headroom 统计卡片。
+- 线上 `headroom-main` / `headroom-a1` sidecar 服务及相关 compose/env。
 
-线上新增 wrapper：
-
-```text
-/opt/headroom_start_with_compression_workers.py
-```
-
-compose 挂载该 wrapper 并改 entrypoint，在执行原 `headroom proxy` 前把 `HEADROOM_COMPRESSION_MAX_WORKERS=2` 显式传入 `ProxyConfig`。验证期望：
-
-```text
-compression_executor.max_workers=2
-compression_executor.source=explicit
-HEADROOM_WORKERS=1
-```
-
-如果 `source=auto`，说明 wrapper 或 entrypoint 没生效。
-
-2026-06-15 10:28 追加 a1 保守档：`headroom-a1` 仍容易在压缩任务期间打满 CPU，且 `/health` 中 `run_seconds_max=983s`、`leaked_threads_total=17`，说明历史压缩任务存在超时后线程残留。a1 日志同时显示约 `150KB - 230KB` 请求仍进入 Headroom 后触发 `compression_refused`，所以将 a1 调整为更保守配置：
-
-```yaml
-GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_BODY_BYTES=131072
-HEADROOM_COMPRESSION_MAX_WORKERS=1
-```
-
-该调整只作用于 `/opt/sub2api-ap1-deploy`：
-
-- `sub2api-ap1`：大于 128KB 的 OpenAI OAuth Codex 请求直接绕过 `headroom-a1`。
-- `headroom-a1`：压缩 executor 单 worker，减少 2 核 VPS 上的瞬时 CPU 尖峰。
-- primary / a2 不随本次变更。
-
-远端备份：
-
-```text
-/opt/sub2api-ap1-deploy/docker-compose.yml.bak-headroom-a1-cpu-tune-20260615102809
-```
-
-验证结果：
-
-```text
-compression_executor.max_workers=1
-compression_executor.source=explicit
-GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_BODY_BYTES=131072
-HEADROOM_COMPRESSION_MAX_WORKERS=1
-```
-
-短窗口 `docker stats` 中，重建后 `headroom-a1` 从约 `1.05GiB / 1.172GiB`、`22` PIDs 降到约 `162MiB / 1.172GiB`、`4` PIDs，CPU 稳定在约 `0.3%`。公网 `https://a1.upit.top/health`、`https://ap1.upit.top/health` 均为 200，`https://ap1.upit.top/51Token/v1/models` 未带 key 返回 `401 API_KEY_REQUIRED`。
-
-2026-06-14 23:48 已追加 Docker 资源保护：
-
-```yaml
-mem_limit: 1200m
-memswap_limit: 1400m
-HEADROOM_LIMIT_CONCURRENCY=50
-HEADROOM_MAX_CONNECTIONS=80
-HEADROOM_MAX_KEEPALIVE=20
-```
-
-不要再把 `HEADROOM_LIMIT_CONCURRENCY` 和 `HEADROOM_MAX_CONNECTIONS` 恢复到 `200`。主环境后台开关已关闭时，`headroom-main` 容器可以保留为可回滚 sidecar，但必须保留上述内存上限，避免空闲或异常请求后常驻 RSS 无上限增长。
-
-### 5. Headroom CPU / 内存排查结论
-
-2026-06-14 排查结论：
-
-- PostgreSQL / Redis 已共用，且内存占用不高；继续合并数据库/Redis 对当前内存帮助很小。
-- 当前内存大头是 `headroom-main` 和 `headroom-a1` 两个 Python 进程，合计可能超过 `2GiB`。
-- Headroom `/health` 曾显示 `run_seconds_max` 明显超过 `compression_timeout_seconds=30s`，且 `leaked_threads_total` 增长，说明有压缩任务超时返回后底层线程仍继续跑。
-- 近 15 分钟日志里 primary 和 a1 都有多次 `compression_refused`，请求体常见在数百 KB，随后 sub2api 走直连绕过。
-
-因此当前资源压力主要来自大 Codex 请求进入 Headroom 压缩后产生的 CPU、RSS 和 swap 压力，不是 Redis/PostgreSQL。若要继续降低 VPS 压力，优先考虑：
-
-1. 降低进入 Headroom 的请求体阈值，让更大的请求在 sub2api 层直接绕过；a1 当前已降到 `131072` bytes。
-2. 只保留 primary 或 a1 其中一套 Headroom，另一套关闭后台 “Headroom 压缩代理”。
-3. 保留 Headroom Docker 内存上限；当前已加 `mem_limit: 1200m`、`memswap_limit: 1400m`。
-4. 升级 VPS 到更高内存规格。
-
-不要把 `HEADROOM_WORKERS` 从 `1` 改成 `2` 来解决压缩性能；那会增加 Uvicorn 进程数，不是压缩 executor 的限制。
-
-### 6. 2026-06-15 a1 Chat Completions Headroom 502 修复
-
-线上现象：`ap1.upit.top` 在 OpenAI Chat Completions 兼容入口请求 `GPT-5.5` 时返回 Cloudflare 502。外部健康检查仍正常：
-
-```bash
-curl -fsS https://a1.upit.top/health
-curl -fsS https://ap1.upit.top/health
-curl -sS -o /tmp/ap1_models.out -w '%{http_code}\n' https://ap1.upit.top/51Token/v1/models
-```
-
-`/51Token/v1/models` 未带 key 返回 `401 API_KEY_REQUIRED` 属于正常 reachability 信号，说明 Cloudflare / Caddy / backend API 路由是通的。
-
-实际根因在 `sub2api-ap1` 日志：
-
-```text
-path="/v1/chat/completions"
-model="GPT-5.5"
-account_id=47
-upstream request failed: Post "http://headroom-a1:8787/v1/responses": socks connect tcp 172.17.0.1:40001->headroom-a1:8787: unexpected EOF
-```
-
-该请求已经进入 `sub2api-ap1`，并由 Chat Completions 兼容入口转为 Responses 后发往 `headroom-a1`。修复前该路径仍直接使用账号 SOCKS 代理，导致 Docker 内网服务名 `headroom-a1` 被交给代理端解析而失败。
-
-代码修复：
-
-- 提交：`c745d7fd fix: bypass account proxy for headroom chat completions`。
-- `backend/internal/service/openai_gateway_chat_completions.go` 发送上游请求时复用 `openAICodexHTTPProxyURL(account, upstreamReq)`。
-- `backend/internal/service/openai_gateway_chat_completions_test.go` 增加 `TestForwardAsChatCompletions_OAuthHeadroomOverrideBypassesAccountProxy`。
-
-本地验证：
-
-```bash
-cd backend
-go test ./internal/service -run 'TestForwardAsChatCompletions_OAuthHeadroomOverrideBypassesAccountProxy|TestOpenAIGatewayService_OAuthCodexHeadroomOverrideBypassesAccountProxy' -count=1
-go test ./internal/service -run 'TestForwardAsChatCompletions_|TestOpenAIGatewayService_OAuthCodexHeadroom' -count=1
-```
-
-发布注意事项：
-
-- 不要用旧提交 `7a7baea8` 构建此修复镜像。该提交的 `145_add_ops_system_disk_gpu_metrics.sql` checksum 是 `a99a32db3ddc32899dbc42cccd9dadcbb7ce2dcac4925be5911564c6ec5682d1`，与 a1 数据库已记录的 `3c137690c2146d2b3c9332cf87ee63ac6615452cf42c26339fd4551869aad59b` 不一致，会启动失败。
-- 必须基于当前 `subapi` 的 `c745d7fd` 或更新提交构建；该分支的 145 migration checksum 与线上一致。
-- `deploy/local-gzip-binary-deploy.sh --deploy` 会同时滚 `ap1` 和 primary；本次只修 a1，因此只能用脚本构建镜像，再手工改 `/opt/sub2api-ap1-deploy/docker-compose.yml` 并只重启 `sub2api-ap1`。
-
-本次发布镜像：
-
-```text
-sub2api:subapi-c745d7fd-a1-headroom-chat-proxy-202606151012
-```
-
-切换前先用同一 a1 数据库做短预检，确认没有 migration checksum mismatch：
-
-```bash
-ssh 51tokens '
-cd /opt/sub2api-ap1-deploy
-set -a
-. ./.env
-set +a
-docker rm -f sub2api-ap1-preflight >/dev/null 2>&1 || true
-IMAGE="sub2api:subapi-c745d7fd-a1-headroom-chat-proxy-202606151012"
-NETWORK="sub2api-deploy_sub2api-network"
-docker run -d --rm --name sub2api-ap1-preflight --network "$NETWORK" \
-  --env-file ./.env \
-  -e AUTO_SETUP=true -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e RUN_MODE=standard \
-  -e DATABASE_HOST=sub2api-postgres -e DATABASE_PORT=5432 -e DATABASE_USER="${POSTGRES_USER:-sub2api}" -e DATABASE_PASSWORD="$POSTGRES_PASSWORD" -e DATABASE_DBNAME=sub2api_ap1 -e DATABASE_SSLMODE=disable \
-  -e REDIS_HOST=sub2api-redis -e REDIS_PORT=6379 -e REDIS_DB=1 \
-  -e SECURITY_URL_ALLOWLIST_ENABLED=false \
-  -e GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL=http://headroom-a1:8787/v1/responses \
-  -e GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_BODY_BYTES=1048576 \
-  -e GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_TTL_SECONDS=600 \
-  "$IMAGE"
-sleep 10
-docker ps -a --filter name=sub2api-ap1-preflight --format "{{.Names}} {{.Status}}"
-docker logs --tail 80 sub2api-ap1-preflight 2>&1
-IP=$(docker inspect -f "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}" sub2api-ap1-preflight)
-curl -fsS "http://$IP:8080/health"
-docker stop sub2api-ap1-preflight >/dev/null
-'
-```
-
-只滚动 a1：
-
-```bash
-ssh 51tokens '
-set -eu
-IMAGE="sub2api:subapi-c745d7fd-a1-headroom-chat-proxy-202606151012"
-COMPOSE_DIR=/opt/sub2api-ap1-deploy
-COMPOSE_FILE="$COMPOSE_DIR/docker-compose.yml"
-TS=$(date +%Y%m%d%H%M%S)
-cp "$COMPOSE_FILE" "$COMPOSE_FILE.bak-a1-headroom-chat-proxy-current-$TS"
-sed -i -E "0,/image: sub2api:subapi-/s#image: sub2api:subapi-[^[:space:]]+#image: $IMAGE#" "$COMPOSE_FILE"
-cd "$COMPOSE_DIR"
-docker compose config --quiet
-docker compose up -d sub2api
-for i in $(seq 1 40); do
-  s=$(docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" sub2api-ap1)
-  echo "sub2api-ap1=$s"
-  [ "$s" = healthy ] && break
-  sleep 2
-  [ "$i" = 40 ] && exit 1
-done
-curl -fsS http://127.0.0.1:8082/health
-docker exec sub2api-ap1 sh -lc "wget -qO- http://headroom-a1:8787/readyz || curl -fsS http://headroom-a1:8787/readyz"
-'
-```
+后续如果从旧备份恢复 compose 或同步旧 fork 代码，必须先搜索上面的变量、API 和容器名，确认没有被带回。
 
 ## 十四、2026-06-21 分组用量展示倍率部署说明
 
@@ -1484,59 +1226,6 @@ git diff --check
 
 后续同步官方或重构公告时，继续搜索 `announcement.publish`、`AnnouncementEmailPushMode`、`email_push_mode`、`email_push_user_ids`。必须保持邮件推送为显式一次性动作，不能变成用户打开公告或公告到达 `starts_at` 后自动补发。
 
-### 7. OpenAI OAuth Headroom 代理选择复查
-
-不要按客户端访问路径是否包含 `/v1/` 来决定是否绕过账号 proxy。线上同样是 `/v1/responses` 或 `/v1/chat/completions`，可能最终去外部 OpenAI / 第三方兼容上游，也可能被后端转换后去 `http://headroom-a1:8787/v1/responses`。只有最终 upstream URL 是本机、私网 IP、loopback 或 Docker 内网 service name，并且 scheme 为 `http` / `ws` 时，才允许不走账号 proxy。
-
-当前需要保持同一代理选择规则的 OpenAI OAuth Headroom 路径：
-
-- `/51Token/v1/responses` 普通 Forward / passthrough。
-- `/51Token/v1/chat/completions` 转 Responses。
-- `/51Token/v1/messages` Anthropic Messages bridge。
-- `/51Token/v1/images/generations` / `/51Token/v1/images/edits` 经 Responses 的图片路径。
-- OpenAI Responses WebSocket v2、WS connection pool，以及大帧 HTTP bridge。
-
-本地复查命令：
-
-```bash
-cd backend
-go test ./internal/service -run 'Test.*Headroom.*Proxy|Test.*Headroom.*Override|Test.*OAuthCodex.*Override|TestOpenAIWSHTTPBridge|TestOpenAIGatewayServiceForwardImages_OAuth|TestForwardAsAnthropic_OAuth|TestForwardAsChatCompletions_OAuth' -count=1
-git diff --check
-```
-
-发布后除 `/health` 外，至少验证当前实际使用的入口：
-
-```bash
-curl -fsS https://a1.upit.top/health
-curl -fsS https://ap1.upit.top/health
-# 带真实 token 验证 /51Token/v1/messages；如果本次改动涉及图片或 WS，再补对应入口的真实请求。
-ssh 51tokens 'docker logs sub2api-ap1 --since 5m 2>&1 | grep -E "socks connect tcp .*headroom-a1|migration .*checksum mismatch" || true'
-```
-
-如果日志再次出现 `socks connect tcp ... ->headroom-a1`，优先检查新入口是否绕过了 `openAICodexHTTPProxyURL()` / `openAICodexWSProxyURL()`，不要通过关闭账号 proxy 或按 `/v1/` 全局绕过来修。
-
-本次 compose 备份：
-
-```text
-/opt/sub2api-ap1-deploy/docker-compose.yml.bak-a1-headroom-chat-proxy-current-20260615101557
-```
-
-发布后验证：
-
-```bash
-curl -fsS https://a1.upit.top/health
-curl -fsS https://ap1.upit.top/health
-curl -sS -o /tmp/ap1_models.out -w '%{http_code}\n' https://ap1.upit.top/51Token/v1/models
-ssh 51tokens 'docker logs sub2api-ap1 --since 2m 2>&1 | grep -E "migration .*checksum mismatch|socks connect tcp .*headroom-a1|openai_chat_completions.forward_failed" || true'
-```
-
-期望：
-
-- `a1` / `ap1` `/health` 均为 200。
-- `/51Token/v1/models` 未带 key 返回 `401 API_KEY_REQUIRED`。
-- `sub2api-ap1` 使用 `sub2api:subapi-c745d7fd-a1-headroom-chat-proxy-202606151012` 且为 `healthy`。
-- 新日志里没有 `socks connect tcp ... ->headroom-a1`，也没有 migration checksum mismatch。
-
 ### 7. 2026-06-14 快速复查命令
 
 线上状态总览：
@@ -1545,7 +1234,7 @@ ssh 51tokens 'docker logs sub2api-ap1 --since 2m 2>&1 | grep -E "migration .*che
 ssh 51tokens '
   docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
   docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" \
-    sub2api sub2api-ap1 sub2api-test sub2api-postgres sub2api-redis headroom-main headroom-a1 cf-origin-ssl
+    sub2api sub2api-ap1 sub2api-test sub2api-postgres sub2api-redis cf-origin-ssl
   free -h
 '
 ```
@@ -1654,7 +1343,6 @@ VITE_OPS_HOST_HEALTH_VISIBLE=true
 
 - `ops_monitoring_enabled`：后台设置 GET 返回数据库持久化值；运行时接口仍由 `RequireMonitoringEnabled()` 控制。
 - `ops_realtime_monitoring_enabled`：后台设置保存到 DB；实时接口和 WebSocket 通过 `IsRealtimeMonitoringEnabled()` 单独读取。
-- `openai_headroom_enabled`：后台设置保存到 DB；OpenAI Codex Headroom 转发通过运行时缓存读取，保存后清理缓存。
 - `channel_monitor_enabled`、`available_channels_enabled`、`allow_user_view_error_requests`：public settings、HTML 注入和运行时读取均有对应链路。
 - `VITE_OPS_HOST_HEALTH_VISIBLE`：只读前台构建环境变量，不进入后台保存请求，避免被设置页误覆盖。
 
@@ -1716,57 +1404,6 @@ pnpm dlx wrangler pages deploy /tmp/sub2api-pages-test --project-name sub2api-fr
 
 2026-06-15 后续调整：CPU 面板是否显示改为只看前台构建变量 `VITE_OPS_HOST_HEALTH_VISIBLE=true`，不再让前台通过 public settings 字段决定显示；a1/a2 Pages 发布时带该变量构建，主环境 Pages 构建不带该变量即可隐藏。
 
-### 6. a1 Claude Messages 经 Headroom 时的代理选择
+### 6. Headroom 相关历史路径已删除
 
-2026-06-15 发现 a1 的 Claude Code 配置虽然正确指向 `ANTHROPIC_BASE_URL=https://ap1.upit.top/51Token`，但 `/51Token/v1/messages` 仍返回 `502`。`sub2api-ap1` 日志显示实际失败点为：
-
-```text
-upstream request failed: Post "http://headroom-a1:8787/v1/responses": socks connect tcp 172.17.0.1:40001->headroom-a1:8787: unexpected EOF
-```
-
-根因是 `/v1/messages` 兼容入口 `ForwardAsAnthropic()` 已经把请求转成 Responses 并指向 `headroom-a1`，但发送时仍直接使用账号 SOCKS proxy。Docker 内网 Headroom 第一跳必须不走账号 proxy；外部 ChatGPT / OpenAI 上游仍按账号 proxy 规则。
-
-代码修复：
-
-- `backend/internal/service/openai_gateway_messages.go`：改为 `s.openAICodexHTTPProxyURL(account, upstreamReq)` 选择代理。
-- `backend/internal/service/openai_compat_model_test.go`：新增 `TestForwardAsAnthropic_OAuthHeadroomOverrideBypassesAccountProxy`。
-
-本地验证：
-
-```bash
-cd backend
-go test ./internal/service -run 'TestForwardAsAnthropic_OAuthHeadroomOverrideBypassesAccountProxy|TestForwardAsChatCompletions_OAuthHeadroomOverrideBypassesAccountProxy|TestOpenAIBuildOpenAIResponsesWSURLUsesOAuthCodexOverride|TestForwardAsAnthropic_OAuth' -count=1
-git diff --check
-```
-
-发布边界：
-
-- 只滚动 `/opt/sub2api-ap1-deploy` 的 `sub2api-ap1`。
-- 不使用 `deploy/local-gzip-binary-deploy.sh --deploy`，避免同时切 primary。
-- 发布后必须用真实 token 验证 `https://ap1.upit.top/51Token/v1/messages`，再用 Claude CLI 一次性 prompt 验证。
-
-只切 a1 的命令模板：
-
-```bash
-ssh 51tokens '
-set -eu
-IMAGE="sub2api:subapi-<commit>-a1-headroom-messages-proxy-<timestamp>"
-COMPOSE_DIR=/opt/sub2api-ap1-deploy
-COMPOSE_FILE="$COMPOSE_DIR/docker-compose.yml"
-TS=$(date +%Y%m%d%H%M%S)
-cp "$COMPOSE_FILE" "$COMPOSE_FILE.bak-a1-headroom-messages-proxy-$TS"
-sed -i -E "0,/image: sub2api:subapi-/s#image: sub2api:subapi-[^[:space:]]+#image: $IMAGE#" "$COMPOSE_FILE"
-cd "$COMPOSE_DIR"
-docker compose config --quiet
-docker compose up -d sub2api
-for i in $(seq 1 40); do
-  s=$(docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" sub2api-ap1)
-  echo "sub2api-ap1=$s"
-  [ "$s" = healthy ] && break
-  sleep 2
-  [ "$i" = 40 ] && exit 1
-done
-curl -fsS http://127.0.0.1:8082/health
-docker exec sub2api-ap1 sh -lc "wget -qO- http://headroom-a1:8787/readyz || curl -fsS http://headroom-a1:8787/readyz"
-'
-```
+2026-07-07 起，a1 Claude Messages、Chat Completions、Images、WS bridge 等路径不再支持或依赖 Headroom sidecar override。相关历史修复仅作为 git 历史存在，不再在部署文档中保留可执行恢复步骤。

@@ -608,7 +608,6 @@ var localizedDirectErrorMessages = map[string]map[string]string{
 		"Failed to parse request body":                                       "请求体解析失败",
 		"Failed to read request body":                                        "读取请求体失败",
 		"Failed to sync upstream models from upstream":                       "从上游同步模型失败",
-		"Headroom stats disabled":                                            "Headroom 压缩统计未启用",
 		"Invalid API key ID":                                                 "API Key ID 无效",
 		"Invalid account ID":                                                 "账号 ID 无效",
 		"Invalid announcement ID":                                            "公告 ID 无效",

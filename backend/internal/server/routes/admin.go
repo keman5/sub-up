@@ -146,7 +146,6 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		ops.GET("/user-concurrency", h.Admin.Ops.GetUserConcurrencyStats)
 		ops.GET("/account-availability", h.Admin.Ops.GetAccountAvailability)
 		ops.GET("/realtime-traffic", h.Admin.Ops.GetRealtimeTrafficSummary)
-		ops.GET("/headroom/stats", h.Admin.Ops.GetHeadroomStats)
 		ops.GET("/host-health", h.Admin.Ops.GetHostHealth)
 
 		// Alerts (rules + events)

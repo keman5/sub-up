@@ -10,27 +10,29 @@ import (
 )
 
 type stubAdminService struct {
-	users                []service.User
-	apiKeys              []service.APIKey
-	groups               []service.Group
-	accounts             []service.Account
-	proxies              []service.Proxy
-	proxyCounts          []service.ProxyWithAccountCount
-	redeems              []service.RedeemCode
-	boundAuthIdentity    *service.AdminBindAuthIdentityInput
-	boundAuthIdentityFor int64
-	createdAccounts      []*service.CreateAccountInput
-	createdProxies       []*service.CreateProxyInput
-	updatedProxyIDs      []int64
-	updatedProxies       []*service.UpdateProxyInput
-	testedProxyIDs       []int64
-	getUserErr           error
-	createAccountErr     error
-	createSparkShadowErr error
-	updateAccountErr     error
-	bulkUpdateAccountErr error
-	checkMixedErr        error
-	lastMixedCheck       struct {
+	users                               []service.User
+	apiKeys                             []service.APIKey
+	groups                              []service.Group
+	accounts                            []service.Account
+	accountSchedulerScoreFilterAccounts []service.Account
+	openAISchedulerScorePoolAccounts    []service.Account
+	proxies                             []service.Proxy
+	proxyCounts                         []service.ProxyWithAccountCount
+	redeems                             []service.RedeemCode
+	boundAuthIdentity                   *service.AdminBindAuthIdentityInput
+	boundAuthIdentityFor                int64
+	createdAccounts                     []*service.CreateAccountInput
+	createdProxies                      []*service.CreateProxyInput
+	updatedProxyIDs                     []int64
+	updatedProxies                      []*service.UpdateProxyInput
+	testedProxyIDs                      []int64
+	getUserErr                          error
+	createAccountErr                    error
+	createSparkShadowErr                error
+	updateAccountErr                    error
+	bulkUpdateAccountErr                error
+	checkMixedErr                       error
+	lastMixedCheck                      struct {
 		accountID int64
 		platform  string
 		groupIDs  []int64
@@ -330,6 +332,20 @@ func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int,
 	s.lastListAccounts.sortOrder = sortOrder
 	s.lastListAccounts.calls++
 	return s.accounts, int64(len(s.accounts)), nil
+}
+
+func (s *stubAdminService) ListAccountsForSchedulerScoreFilter(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
+	if len(s.accountSchedulerScoreFilterAccounts) > 0 {
+		return s.accountSchedulerScoreFilterAccounts, nil
+	}
+	return s.accounts, nil
+}
+
+func (s *stubAdminService) ListOpenAISchedulableAccountsForSchedulerScore(ctx context.Context, groupID *int64) ([]service.Account, error) {
+	if len(s.openAISchedulerScorePoolAccounts) > 0 {
+		return s.openAISchedulerScorePoolAccounts, nil
+	}
+	return s.accounts, nil
 }
 
 func (s *stubAdminService) GetAccount(ctx context.Context, id int64) (*service.Account, error) {

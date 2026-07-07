@@ -19,9 +19,9 @@ func TestOpsHostHealthServiceReadsSnapshot(t *testing.T) {
 		"load_average":{"one":2.1,"five":1.8,"fifteen":1.4},
 		"cpu":{"usage_percent":96.5,"high":true},
 		"memory":{"available_mb":1720,"swap_used_mb":177},
-		"top_containers":[{"name":"headroom-a1","cpu_percent":163.5,"memory":"936MiB / 1.172GiB","pids":21}],
+		"top_containers":[{"name":"sub2api-worker","cpu_percent":163.5,"memory":"936MiB / 1.172GiB","pids":21}],
 		"top_processes":[{"pid":1234,"command":"python","cpu_percent":160.2,"rss_mb":936}],
-		"diagnosis":"CPU 压力主要来自 headroom-a1"
+		"diagnosis":"CPU 压力主要来自 sub2api-worker"
 	}`), 0o644))
 
 	svc := NewOpsHostHealthService(path)
@@ -35,10 +35,10 @@ func TestOpsHostHealthServiceReadsSnapshot(t *testing.T) {
 	require.True(t, snapshot.CPU.High)
 	require.Equal(t, int64(1720), snapshot.Memory.AvailableMB)
 	require.Len(t, snapshot.TopContainers, 1)
-	require.Equal(t, "headroom-a1", snapshot.TopContainers[0].Name)
+	require.Equal(t, "sub2api-worker", snapshot.TopContainers[0].Name)
 	require.Len(t, snapshot.TopProcesses, 1)
 	require.Equal(t, int64(1234), snapshot.TopProcesses[0].PID)
-	require.Equal(t, "CPU 压力主要来自 headroom-a1", snapshot.Diagnosis)
+	require.Equal(t, "CPU 压力主要来自 sub2api-worker", snapshot.Diagnosis)
 }
 
 func TestOpsHostHealthServiceMarksStaleSnapshot(t *testing.T) {

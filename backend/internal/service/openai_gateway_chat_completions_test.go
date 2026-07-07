@@ -137,60 +137,6 @@ func TestForwardAsChatCompletions_UnknownModelDoesNotUseDefaultMappedModel(t *te
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestForwardAsChatCompletions_OAuthHeadroomOverrideBypassesAccountProxy(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"hello"}],"stream":true}`)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusBadRequest,
-		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_chat_headroom_proxy"}},
-		Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"stop after capture"}}`)),
-	}}
-	svc := &OpenAIGatewayService{
-		cfg: &config.Config{Gateway: config.GatewayConfig{
-			OpenAIOAuthCodexResponsesURL: "http://headroom-a1:8787/v1/responses",
-		}},
-		httpUpstream: upstream,
-		rateLimitService: newOpenAIAdvancedSchedulerRateLimitServiceWithSettings(map[string]string{
-			SettingKeyOpenAIHeadroomEnabled: "true",
-		}),
-	}
-	t.Cleanup(resetOpenAIHeadroomSettingCacheForTest)
-	proxyID := int64(1)
-	account := &Account{
-		ID:          1,
-		Name:        "openai-oauth",
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeOAuth,
-		Concurrency: 1,
-		ProxyID:     &proxyID,
-		Proxy: &Proxy{
-			ID:       proxyID,
-			Protocol: "socks5h",
-			Host:     "172.17.0.1",
-			Port:     40001,
-			Status:   StatusActive,
-		},
-		Credentials: map[string]any{
-			"access_token":       "oauth-token",
-			"chatgpt_account_id": "chatgpt-acc",
-		},
-	}
-
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "gpt-5.5")
-	require.Error(t, err)
-	require.Nil(t, result)
-	require.NotNil(t, upstream.lastReq)
-	require.Equal(t, "http://headroom-a1:8787/v1/responses", upstream.lastReq.URL.String())
-	require.Empty(t, upstream.lastProxyURL)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
 func TestForwardAsChatCompletions_APIKeyPropagatesPromptCacheKeyInResponsesBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

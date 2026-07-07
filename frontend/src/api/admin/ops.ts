@@ -247,26 +247,6 @@ export interface OpsOpenAITokenStatsParams {
   top_n?: number
 }
 
-export interface OpsHeadroomStatsSnapshot {
-  mode: string
-  api_requests: number
-  requests_total: number
-  requests_failed: number
-  requests_compressed: number
-  input_tokens: number
-  output_tokens: number
-  tokens_saved: number
-  proxy_compression_saved: number
-  total_before_compression: number
-  savings_percent: number
-  average_compression_percent: number
-  total_saved_usd: number
-  cost_savings_percent: number
-  by_provider?: Record<string, number>
-  by_model?: Record<string, number>
-  fetched_at: string
-}
-
 export interface OpsHostHealthSnapshot {
   available: boolean
   status: string
@@ -513,11 +493,6 @@ export async function getRealtimeTrafficSummary(
   }
 
   const { data } = await apiClient.get<OpsRealtimeTrafficSummaryResponse>('/admin/ops/realtime-traffic', { params })
-  return data
-}
-
-export async function getHeadroomStats(): Promise<OpsHeadroomStatsSnapshot> {
-  const { data } = await apiClient.get<OpsHeadroomStatsSnapshot>('/admin/ops/headroom/stats')
   return data
 }
 
@@ -1399,7 +1374,6 @@ export const opsAPI = {
   getUserConcurrencyStats,
   getAccountAvailabilityStats,
   getRealtimeTrafficSummary,
-  getHeadroomStats,
   getHostHealth,
   subscribeQPS,
 

@@ -740,6 +740,32 @@ TODO: 填写验证命令
 
 - TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
 
+### 2026-07-07: 移除 Headroom 代理残留
+
+**业务目的：**
+
+- 线上已不再使用 Headroom，代码和部署侧都不应继续保留可被误开启的 Headroom sidecar、Responses override、后台开关或统计入口。
+- 本次补清 `gateway.openai_oauth_codex_responses_*` 默认配置，避免字段本体删除后仍留下不可见的 Viper 默认 key。
+
+**涉及文件：**
+
+- `backend/internal/config/config.go`
+
+**验证：**
+
+```bash
+rg -n "OpenAIOAuthCodexResponses|openAIOAuthCodexResponses|openai_oauth_codex_responses|HeadroomStats|headroom/stats|OpsHeadroomStatsCard|openai_headroom_enabled|SettingKeyOpenAIHeadroomEnabled|isOpenAIHeadroomEnabled|HEADROOM_STATS|HEADROOM_COMPRESSION|HEADROOM_WORKERS|compression_refused|headroom proxy" backend frontend deploy .github scripts -g '!docs/**'
+cd backend && go test ./internal/config ./internal/service
+cd backend && go test ./internal/handler/admin -run 'TestOpsHostHealth|TestSettingHandler_GetSettings_ReturnsPersistedOpsMonitoringEnabledWithoutOpsService|TestSettingHandler_UpdateSettings_DoesNotPersistPartialSystemSettingsWhenAuthSourceDefaultsFail' -count=1
+pnpm --dir frontend exec vitest run src/views/admin/ops/__tests__/OpsDashboard.hostHealth.spec.ts src/views/admin/ops/components/__tests__/OpsHostHealthCard.spec.ts src/views/admin/__tests__/SettingsView.spec.ts
+git diff --check
+```
+
+**同步官方后的复查：**
+
+- 继续搜索 `headroom-main`、`headroom-a1`、`GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES`、`HEADROOM_STATS`、`openai_headroom_enabled`、`OpsHeadroomStatsCard`、`HeadroomStatsService`。
+- 当前生产和代码均不得恢复 Headroom sidecar、Responses override、后台开关或 stats API；如果官方也移除了相关能力，本地补丁可以删除。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：

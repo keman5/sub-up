@@ -135,7 +135,6 @@ function dashboardStubs() {
         opsMocks.getHostHealth()
       },
     },
-    OpsHeadroomStatsCard: true,
     OpsAlertEventsCard: true,
     OpsSystemLogTable: true,
     OpsSettingsDialog: true,

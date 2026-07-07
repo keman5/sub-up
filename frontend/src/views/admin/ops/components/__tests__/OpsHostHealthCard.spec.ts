@@ -58,12 +58,12 @@ const sampleHealth = {
     swap_used_mb: 177,
   },
   top_containers: [
-    { name: 'headroom-a1', cpu_percent: 163.5, memory: '936MiB / 1.172GiB', pids: 21 },
+    { name: 'sub2api-worker', cpu_percent: 163.5, memory: '936MiB / 1.172GiB', pids: 21 },
   ],
   top_processes: [
     { pid: 12345, command: 'python', cpu_percent: 160.0, rss_mb: 936 },
   ],
-  diagnosis: 'CPU 压力主要来自 headroom-a1',
+  diagnosis: 'CPU 压力主要来自 sub2api-worker',
 }
 
 describe('OpsHostHealthCard', () => {
@@ -83,9 +83,9 @@ describe('OpsHostHealthCard', () => {
 
     expect(mockGetHostHealth).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('96.8%')
-    expect(wrapper.text()).toContain('headroom-a1')
+    expect(wrapper.text()).toContain('sub2api-worker')
     expect(wrapper.text()).toContain('python')
-    expect(wrapper.text()).toContain('CPU 压力主要来自 headroom-a1')
+    expect(wrapper.text()).toContain('CPU 压力主要来自 sub2api-worker')
   })
 
   it('reloads when the dashboard refresh token changes', async () => {

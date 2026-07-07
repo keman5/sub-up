@@ -236,7 +236,6 @@ func newOpenAIAdvancedSchedulerRateLimitService(enabled string) *RateLimitServic
 
 func newOpenAIAdvancedSchedulerRateLimitServiceWithSettings(values map[string]string) *RateLimitService {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
-	resetOpenAIHeadroomSettingCacheForTest()
 	repo := &openAIAdvancedSchedulerSettingRepoStub{
 		values: map[string]string{},
 	}

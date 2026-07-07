@@ -5118,30 +5118,6 @@ export default {
           requestsWithFirstToken: 'Requests With First Token'
         }
       },
-      headroomStats: {
-        title: 'Headroom Compression Stats',
-        lastFetched: 'Snapshot: {time}',
-        failedToLoad: 'Failed to load Headroom stats',
-        disabled: 'Headroom stats are not enabled',
-        disabledHint: 'The backend has no HEADROOM_STATS_URL configured or the stats switch is off.',
-        empty: 'No Headroom stats yet',
-        savedTokens: 'Saved Tokens',
-        savingsPercent: 'Token Savings',
-        compressedRequests: 'Compressed Requests',
-        estimatedSavings: 'Estimated Savings',
-        tokenDetails: 'Token Details',
-        inputTokens: 'Input Tokens',
-        outputTokens: 'Output Tokens',
-        beforeCompression: 'Before Compression',
-        averageCompression: 'Avg Compression',
-        requestDetails: 'Request Details',
-        totalRequests: 'Total Requests',
-        apiRequests: 'API Requests',
-        failedRequests: 'Failed Requests',
-        proxyCompressionSaved: 'Proxy Compression Saved',
-        topModels: 'Model Breakdown',
-        providers: 'Provider Breakdown'
-      },
       hostHealth: {
         title: 'Host Realtime Status',
         lastCollected: 'Collected: {time}',
@@ -6933,10 +6909,6 @@ export default {
         quotaHeadroomWeight: 'Quota headroom',
         previousResponseWeight: 'previous_response sticky',
         sessionStickyWeight: 'session_hash sticky'
-      },
-      openaiHeadroom: {
-        title: 'Headroom compression proxy',
-        description: 'Disabled by default. When enabled, OpenAI OAuth Codex requests use the configured Headroom sidecar for compression; when disabled, they go directly to upstream Codex.'
       },
       usageRecords: {
         title: 'Usage Records',
