@@ -1247,7 +1247,15 @@ export interface OpenAIFastPolicyRule {
   scope: "all" | "oauth" | "apikey" | "bedrock";
   error_message?: string;
   model_whitelist?: string[];
+  /**
+   * User IDs allowed to bypass this rule.
+   * Kept as account_allowlist in JSON for backend settings compatibility.
+   */
   account_allowlist?: number[];
+  /**
+   * OpenAI upstream account IDs allowed to bypass this rule.
+   */
+  openai_account_allowlist?: number[];
   fallback_action?: "pass" | "filter" | "block" | "force_priority";
   fallback_error_message?: string;
 }

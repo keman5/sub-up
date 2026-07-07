@@ -7702,14 +7702,14 @@ func (s *OpenAIGatewayService) evaluateOpenAIFastPolicy(ctx context.Context, acc
 		}
 		settings = fetched
 	}
-	return evaluateOpenAIFastPolicyWithSettings(settings, account, model, tier)
+	return evaluateOpenAIFastPolicyWithSettings(settings, account, openAIFastPolicyUserIDFromContext(ctx), model, tier)
 }
 
 // evaluateOpenAIFastPolicyWithSettings is the pure-function core extracted so
 // long-lived sessions (e.g. WS) can prefetch settings once and avoid hitting
 // the settingService on every frame. See WSSession entry and
 // openAIFastPolicySettingsFromContext for the caching glue.
-func evaluateOpenAIFastPolicyWithSettings(settings *OpenAIFastPolicySettings, account *Account, model, tier string) (action, errMsg string) {
+func evaluateOpenAIFastPolicyWithSettings(settings *OpenAIFastPolicySettings, account *Account, userID int64, model, tier string) (action, errMsg string) {
 	if settings == nil {
 		return BetaPolicyActionPass, ""
 	}
@@ -7723,7 +7723,7 @@ func evaluateOpenAIFastPolicyWithSettings(settings *OpenAIFastPolicySettings, ac
 		if ruleTier != "" && ruleTier != OpenAIFastTierAny && ruleTier != tier {
 			continue
 		}
-		if openAIFastPolicyAccountAllowlisted(rule.AccountAllowlist, account) {
+		if openAIFastPolicyAllowlisted(rule, account, userID) {
 			return BetaPolicyActionPass, ""
 		}
 		eff := BetaPolicyRule{
@@ -7738,6 +7738,33 @@ func evaluateOpenAIFastPolicyWithSettings(settings *OpenAIFastPolicySettings, ac
 	return BetaPolicyActionPass, ""
 }
 
+func openAIFastPolicyAllowlisted(rule OpenAIFastPolicyRule, account *Account, userID int64) bool {
+	hasUserAllowlist := len(rule.AccountAllowlist) > 0
+	hasAccountAllowlist := len(rule.OpenAIAccountAllowlist) > 0
+	if !hasUserAllowlist && !hasAccountAllowlist {
+		return false
+	}
+	if hasUserAllowlist && !openAIFastPolicyUserAllowlisted(rule.AccountAllowlist, userID) {
+		return false
+	}
+	if hasAccountAllowlist && !openAIFastPolicyAccountAllowlisted(rule.OpenAIAccountAllowlist, account) {
+		return false
+	}
+	return true
+}
+
+func openAIFastPolicyUserAllowlisted(userAllowlist []int64, userID int64) bool {
+	if userID <= 0 || len(userAllowlist) == 0 {
+		return false
+	}
+	for _, allowedID := range userAllowlist {
+		if allowedID == userID {
+			return true
+		}
+	}
+	return false
+}
+
 func openAIFastPolicyAccountAllowlisted(accountAllowlist []int64, account *Account) bool {
 	if account == nil || account.ID <= 0 || len(accountAllowlist) == 0 {
 		return false
@@ -7748,6 +7775,27 @@ func openAIFastPolicyAccountAllowlisted(accountAllowlist []int64, account *Accou
 		}
 	}
 	return false
+}
+
+type openAIFastPolicyUserIDCtxKeyType struct{}
+
+var openAIFastPolicyUserIDCtxKey = openAIFastPolicyUserIDCtxKeyType{}
+
+func WithOpenAIFastPolicyUserID(ctx context.Context, userID int64) context.Context {
+	if ctx == nil || userID <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, openAIFastPolicyUserIDCtxKey, userID)
+}
+
+func openAIFastPolicyUserIDFromContext(ctx context.Context) int64 {
+	if ctx == nil {
+		return 0
+	}
+	if v, ok := ctx.Value(openAIFastPolicyUserIDCtxKey).(int64); ok {
+		return v
+	}
+	return 0
 }
 
 // openAIFastPolicyCtxKey 是 context 中预取的 OpenAIFastPolicySettings 缓存

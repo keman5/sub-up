@@ -120,6 +120,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
 			return
 		}
+		c.Request = c.Request.WithContext(service.WithOpenAIFastPolicyUserID(c.Request.Context(), apiKey.User.ID))
 		if abortIfAPIKeyGroupUnavailable(c, apiKey) {
 			return
 		}

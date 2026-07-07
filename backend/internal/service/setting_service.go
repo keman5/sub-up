@@ -5162,8 +5162,46 @@ func (s *SettingService) GetOpenAIFastPolicySettings(ctx context.Context) (*Open
 			"key", SettingKeyOpenAIFastPolicySettings)
 		return DefaultOpenAIFastPolicySettings(), nil
 	}
+	migrateLegacyOpenAIFastPolicyAllowlists(value, &settings)
+	normalizeOpenAIFastPolicyAllowlists(&settings)
 
 	return &settings, nil
+}
+
+func migrateLegacyOpenAIFastPolicyAllowlists(rawValue string, settings *OpenAIFastPolicySettings) {
+	if settings == nil || len(settings.Rules) == 0 {
+		return
+	}
+	var raw struct {
+		Rules []map[string]json.RawMessage `json:"rules"`
+	}
+	if err := json.Unmarshal([]byte(rawValue), &raw); err != nil {
+		return
+	}
+	for i := range settings.Rules {
+		if i >= len(raw.Rules) || len(settings.Rules[i].AccountAllowlist) == 0 {
+			continue
+		}
+		if _, ok := raw.Rules[i]["openai_account_allowlist"]; ok {
+			continue
+		}
+		settings.Rules[i].OpenAIAccountAllowlist = append([]int64(nil), settings.Rules[i].AccountAllowlist...)
+		settings.Rules[i].AccountAllowlist = []int64{}
+	}
+}
+
+func normalizeOpenAIFastPolicyAllowlists(settings *OpenAIFastPolicySettings) {
+	if settings == nil {
+		return
+	}
+	for i := range settings.Rules {
+		if settings.Rules[i].AccountAllowlist == nil {
+			settings.Rules[i].AccountAllowlist = []int64{}
+		}
+		if settings.Rules[i].OpenAIAccountAllowlist == nil {
+			settings.Rules[i].OpenAIAccountAllowlist = []int64{}
+		}
+	}
 }
 
 // SetOpenAIFastPolicySettings 设置 OpenAI fast 策略配置
@@ -5205,15 +5243,21 @@ func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settin
 			}
 			settings.Rules[i].ModelWhitelist[j] = trimmed
 		}
-		for j, accountID := range rule.AccountAllowlist {
-			if accountID <= 0 {
+		for j, userID := range rule.AccountAllowlist {
+			if userID <= 0 {
 				return fmt.Errorf("rule[%d]: account_allowlist[%d] must be positive", i, j)
+			}
+		}
+		for j, accountID := range rule.OpenAIAccountAllowlist {
+			if accountID <= 0 {
+				return fmt.Errorf("rule[%d]: openai_account_allowlist[%d] must be positive", i, j)
 			}
 		}
 		if rule.FallbackAction != "" && !validActions[rule.FallbackAction] {
 			return fmt.Errorf("rule[%d]: invalid fallback_action %q", i, rule.FallbackAction)
 		}
 	}
+	normalizeOpenAIFastPolicyAllowlists(settings)
 
 	data, err := json.Marshal(settings)
 	if err != nil {

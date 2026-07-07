@@ -569,14 +569,15 @@ const (
 
 // OpenAIFastPolicyRule 单条 OpenAI fast/flex 策略规则
 type OpenAIFastPolicyRule struct {
-	ServiceTier          string   `json:"service_tier"`                     // "priority" | "flex" | "auto" | "default" | "scale" | "all"
-	Action               string   `json:"action"`                           // "pass" | "filter" | "block" | "force_priority"
-	Scope                string   `json:"scope"`                            // "all" | "oauth" | "apikey" | "bedrock"
-	ErrorMessage         string   `json:"error_message,omitempty"`          // 自定义错误消息 (action=block 时生效)
-	ModelWhitelist       []string `json:"model_whitelist,omitempty"`        // 模型匹配模式列表（为空=对所有模型生效）
-	AccountAllowlist     []int64  `json:"account_allowlist,omitempty"`      // 账号 ID 放行列表，命中后直接透传
-	FallbackAction       string   `json:"fallback_action,omitempty"`        // 未匹配白名单的模型的处理方式
-	FallbackErrorMessage string   `json:"fallback_error_message,omitempty"` // 未匹配白名单时的自定义错误消息 (fallback_action=block 时生效)
+	ServiceTier            string   `json:"service_tier"`                     // "priority" | "flex" | "auto" | "default" | "scale" | "all"
+	Action                 string   `json:"action"`                           // "pass" | "filter" | "block" | "force_priority"
+	Scope                  string   `json:"scope"`                            // "all" | "oauth" | "apikey" | "bedrock"
+	ErrorMessage           string   `json:"error_message,omitempty"`          // 自定义错误消息 (action=block 时生效)
+	ModelWhitelist         []string `json:"model_whitelist,omitempty"`        // 模型匹配模式列表（为空=对所有模型生效）
+	AccountAllowlist       []int64  `json:"account_allowlist"`                // 用户 ID 放行列表，命中后直接透传
+	OpenAIAccountAllowlist []int64  `json:"openai_account_allowlist"`         // OpenAI 上游账号 ID 放行列表，命中后直接透传
+	FallbackAction         string   `json:"fallback_action,omitempty"`        // 未匹配白名单的模型的处理方式
+	FallbackErrorMessage   string   `json:"fallback_error_message,omitempty"` // 未匹配白名单时的自定义错误消息 (fallback_action=block 时生效)
 }
 
 // OpenAIFastPolicySettings OpenAI fast 策略配置

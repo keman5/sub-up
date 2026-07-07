@@ -22,6 +22,8 @@ const {
   updateProvider,
   createProvider,
   deleteProvider,
+  listAccounts,
+  getAccountById,
   fetchPublicSettings,
   adminSettingsFetch,
   showError,
@@ -44,6 +46,8 @@ const {
   updateProvider: vi.fn(),
   createProvider: vi.fn(),
   deleteProvider: vi.fn(),
+  listAccounts: vi.fn(),
+  getAccountById: vi.fn(),
   fetchPublicSettings: vi.fn(),
   adminSettingsFetch: vi.fn(),
   showError: vi.fn(),
@@ -51,6 +55,10 @@ const {
 }));
 
 const localeRef = vi.hoisted(() => ({ value: "zh-CN" }));
+const routerMockState = vi.hoisted(() => ({
+  route: { query: {} as Record<string, string> },
+  replace: vi.fn(),
+}));
 
 vi.mock("@/api", () => ({
   adminAPI: {
@@ -78,6 +86,10 @@ vi.mock("@/api", () => ({
       updateProvider,
       createProvider,
       deleteProvider,
+    },
+    accounts: {
+      list: listAccounts,
+      getById: getAccountById,
     },
   },
 }));
@@ -190,7 +202,19 @@ vi.mock("vue-i18n", async () => {
   };
 });
 
+vi.mock("vue-router", () => ({
+  useRoute: () => routerMockState.route,
+  useRouter: () => ({
+    replace: routerMockState.replace,
+  }),
+}));
+
 const AppLayoutStub = { template: "<div><slot /></div>" };
+const RouterLinkStub = { template: "<a><slot /></a>" };
+Object.defineProperty(window, "scrollTo", {
+  value: vi.fn(),
+  writable: true,
+});
 const ToggleStub = defineComponent({
   props: {
     modelValue: {
@@ -433,13 +457,33 @@ const baseSettingsResponse = {
   },
 };
 
-function mountView() {
+function mountView(options: {
+  routeQuery?: Record<string, string>
+  routerReplace?: ReturnType<typeof vi.fn>
+} = {}) {
+  const routeQuery = options.routeQuery ?? {};
+  const routerReplace =
+    options.routerReplace ??
+    vi.fn(async ({ query }: { query: Record<string, string> }) => {
+      Object.keys(routeQuery).forEach((key) => {
+        delete routeQuery[key];
+      });
+      Object.assign(routeQuery, query);
+    });
+  routerMockState.route.query = routeQuery;
+  routerMockState.replace = routerReplace;
+
   return mount(SettingsView, {
     global: {
+      mocks: {
+        $route: { query: routeQuery },
+        $router: { replace: routerReplace },
+      },
       stubs: {
         AppLayout: AppLayoutStub,
         Select: SelectStub,
         Toggle: ToggleStub,
+        RouterLink: RouterLinkStub,
         Icon: true,
         ConfirmDialog: true,
         PaymentProviderList: true,
@@ -483,6 +527,86 @@ async function openUsersTab(wrapper: ReturnType<typeof mountView>) {
   await usersTabButton?.trigger("click");
   await flushPromises();
 }
+
+describe("admin SettingsView route tab sync", () => {
+  beforeEach(() => {
+    getSettings.mockReset();
+    updateSettings.mockReset();
+    getWebSearchEmulationConfig.mockReset();
+    updateWebSearchEmulationConfig.mockReset();
+    getAdminApiKey.mockReset();
+    getOverloadCooldownSettings.mockReset();
+    getRateLimit429CooldownSettings.mockReset();
+    updateRateLimit429CooldownSettings.mockReset();
+    getStreamTimeoutSettings.mockReset();
+    getRectifierSettings.mockReset();
+    getBetaPolicySettings.mockReset();
+    getGroups.mockReset();
+    listProxies.mockReset();
+    getProviders.mockReset();
+    updateProvider.mockReset();
+    createProvider.mockReset();
+    deleteProvider.mockReset();
+    listAccounts.mockReset();
+    getAccountById.mockReset();
+    fetchPublicSettings.mockReset();
+    adminSettingsFetch.mockReset();
+    showError.mockReset();
+    showSuccess.mockReset();
+    localeRef.value = "zh-CN";
+
+    getSettings.mockResolvedValue({ ...baseSettingsResponse });
+    updateSettings.mockResolvedValue({ ...baseSettingsResponse });
+    getWebSearchEmulationConfig.mockResolvedValue({ enabled: false, providers: [] });
+    updateWebSearchEmulationConfig.mockResolvedValue({ enabled: false, providers: [] });
+    getAdminApiKey.mockResolvedValue({ exists: false, masked_key: "" });
+    getOverloadCooldownSettings.mockResolvedValue({});
+    getRateLimit429CooldownSettings.mockResolvedValue({});
+    updateRateLimit429CooldownSettings.mockResolvedValue({});
+    getStreamTimeoutSettings.mockResolvedValue({});
+    getRectifierSettings.mockResolvedValue({});
+    getBetaPolicySettings.mockResolvedValue({});
+    getGroups.mockResolvedValue([]);
+    listProxies.mockResolvedValue({ items: [] });
+    getProviders.mockResolvedValue({ data: [] });
+    listAccounts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 });
+    getAccountById.mockRejectedValue(new Error("not found"));
+  });
+
+  it("restores the requested tab from the route query on refresh", async () => {
+    const wrapper = mountView({ routeQuery: { tab: "email" } });
+
+    await flushPromises();
+
+    const emailTabButton = wrapper
+      .findAll("button")
+      .find((node) => node.text().includes("admin.settings.tabs.email"));
+
+    expect(emailTabButton?.attributes("aria-selected")).toBe("true");
+  });
+
+  it("writes the selected tab to the route query and scrolls to the top", async () => {
+    const routerReplace = vi.fn();
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    const wrapper = mountView({
+      routeQuery: { tab: "general", keep: "1" },
+      routerReplace,
+    });
+
+    await flushPromises();
+    await openPaymentTab(wrapper);
+
+    expect(routerReplace).toHaveBeenCalledWith({
+      query: {
+        tab: "payment",
+        keep: "1",
+      },
+    });
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: "auto" });
+
+    scrollTo.mockRestore();
+  });
+});
 
 describe("admin SettingsView payment visible method controls", () => {
   beforeEach(() => {
@@ -784,6 +908,7 @@ describe("admin SettingsView payment visible method controls", () => {
           AppLayout: AppLayoutStub,
           Select: SelectStub,
           Toggle: ToggleStub,
+          RouterLink: RouterLinkStub,
           Icon: true,
           ConfirmDialog: true,
           PaymentProviderList: PaymentProviderListStub,
@@ -816,6 +941,166 @@ describe("admin SettingsView payment visible method controls", () => {
       "默认关闭。开启后仅影响本网关在 OpenAI 账号间的实验性调度选择逻辑",
     );
     expect(wrapper.text()).not.toContain("OpenAI 高级调度器");
+  });
+
+  it("preloads and renders OpenAI fast policy OpenAI account allowlist tags", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      openai_fast_policy_settings: {
+        rules: [
+          {
+            service_tier: "priority",
+            action: "filter",
+            scope: "all",
+            model_whitelist: [],
+            account_allowlist: [],
+            openai_account_allowlist: [88],
+            fallback_action: "pass",
+          },
+        ],
+      },
+    });
+    getAccountById.mockResolvedValue({
+      id: 88,
+      name: "A1 OpenAI",
+      notes: "relay pool",
+      platform: "openai",
+      type: "oauth",
+      proxy_id: null,
+      concurrency: 1,
+      priority: 0,
+      status: "active",
+      error_message: null,
+      last_used_at: null,
+      expires_at: null,
+      auto_pause_on_expired: false,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+      schedulable: true,
+      rate_limited_at: null,
+      rate_limit_reset_at: null,
+      overload_until: null,
+      temp_unschedulable_until: null,
+      temp_unschedulable_reason: null,
+      session_window_start: null,
+      session_window_end: null,
+      session_window_status: null,
+    });
+
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+    await flushPromises();
+
+    expect(getAccountById).toHaveBeenCalledWith(88);
+    expect(wrapper.text()).toContain("A1 OpenAI");
+    expect(wrapper.text()).toContain("openai · oauth");
+  });
+
+  it("keeps selected OpenAI fast policy OpenAI account tags after saving", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      openai_fast_policy_settings: {
+        rules: [
+          {
+            service_tier: "priority",
+            action: "filter",
+            scope: "all",
+            model_whitelist: [],
+            account_allowlist: [],
+            openai_account_allowlist: [],
+            fallback_action: "pass",
+          },
+        ],
+      },
+    });
+    const account = {
+      id: 88,
+      name: "A1 OpenAI",
+      notes: "relay pool",
+      platform: "openai",
+      type: "oauth",
+      proxy_id: null,
+      concurrency: 1,
+      priority: 0,
+      status: "active",
+      error_message: null,
+      last_used_at: null,
+      expires_at: null,
+      auto_pause_on_expired: false,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+      schedulable: true,
+      rate_limited_at: null,
+      rate_limit_reset_at: null,
+      overload_until: null,
+      temp_unschedulable_until: null,
+      temp_unschedulable_reason: null,
+      session_window_start: null,
+      session_window_end: null,
+      session_window_status: null,
+    };
+    listAccounts.mockResolvedValue({
+      items: [account],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    });
+    getAccountById.mockResolvedValue(account);
+    updateSettings.mockImplementation(async (payload) => ({
+      ...baseSettingsResponse,
+      ...payload,
+      openai_fast_policy_settings: {
+        rules: payload.openai_fast_policy_settings.rules.map(
+          ({
+            openai_account_allowlist: _openAIAccountAllowlist,
+            ...rule
+          }: Record<string, unknown>) => rule,
+        ),
+      },
+    }));
+
+    const wrapper = mountView();
+    await flushPromises();
+    await openSecurityTab(wrapper);
+
+    const openAIAccountSearch = wrapper
+      .findAll("input")
+      .find(
+        (node) =>
+          node.attributes("placeholder") ===
+          "admin.settings.openaiFastPolicy.openAIAccountSearchPlaceholder",
+      );
+    expect(openAIAccountSearch).toBeDefined();
+
+    await openAIAccountSearch!.trigger("focus");
+    await flushPromises();
+
+    const accountOption = wrapper
+      .findAll("button")
+      .find((node) => node.text().includes("A1 OpenAI"));
+    expect(accountOption).toBeDefined();
+    await accountOption!.trigger("click");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("A1 OpenAI");
+    expect(
+      wrapper.findAll('[title="admin.settings.openaiFastPolicy.removeOpenAIAccount"]'),
+    ).toHaveLength(1);
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalled();
+    const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, any>;
+    expect(
+      payload.openai_fast_policy_settings.rules[0].openai_account_allowlist,
+    ).toEqual([88]);
+    expect(wrapper.text()).toContain("A1 OpenAI");
+    expect(
+      wrapper.findAll('[title="admin.settings.openaiFastPolicy.removeOpenAIAccount"]'),
+    ).toHaveLength(1);
   });
 
   it("passes translated upload and remove labels to the payment help image uploader", async () => {
@@ -877,6 +1162,7 @@ describe("admin SettingsView payment visible method controls", () => {
           AppLayout: AppLayoutStub,
           Select: SelectStub,
           Toggle: ToggleStub,
+          RouterLink: RouterLinkStub,
           Icon: true,
           ConfirmDialog: true,
           PaymentProviderList: PaymentProviderListCapture,

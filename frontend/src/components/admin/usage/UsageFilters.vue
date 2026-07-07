@@ -168,12 +168,22 @@ const userSearchRef = ref<HTMLElement | null>(null)
 const apiKeySearchRef = ref<HTMLElement | null>(null)
 const accountSearchRef = ref<HTMLElement | null>(null)
 
-const userKeyword = ref('')
+const userKeyword = computed({
+  get: () => String(filters.value.user_search ?? ''),
+  set: (value: string) => {
+    filters.value.user_search = value
+  }
+})
 const userSuggestions = ref<SearchSuggestOption<SimpleUser>[]>([])
 const showUserDropdown = ref(false)
 let userSearchTimeout: ReturnType<typeof setTimeout> | null = null
 
-const apiKeyKeyword = ref('')
+const apiKeyKeyword = computed({
+  get: () => String(filters.value.api_key_search ?? ''),
+  set: (value: string) => {
+    filters.value.api_key_search = value
+  }
+})
 const apiKeySuggestions = ref<SearchSuggestOption<SimpleApiKey>[]>([])
 const showApiKeyDropdown = ref(false)
 let apiKeySearchTimeout: ReturnType<typeof setTimeout> | null = null
@@ -182,7 +192,12 @@ interface SimpleAccount {
   id: number
   name: string
 }
-const accountKeyword = ref('')
+const accountKeyword = computed({
+  get: () => String(filters.value.account_search ?? ''),
+  set: (value: string) => {
+    filters.value.account_search = value
+  }
+})
 const accountSuggestions = ref<SearchSuggestOption<SimpleAccount>[]>([])
 const showAccountDropdown = ref(false)
 let accountSearchTimeout: ReturnType<typeof setTimeout> | null = null
@@ -298,6 +313,11 @@ const debounceUserSearch = () => {
 const handleUserSearch = (value: string) => {
   userKeyword.value = value
   showUserDropdown.value = true
+  if (filters.value.user_id != null) {
+    filters.value.user_id = undefined
+    clearApiKey()
+    emitChange()
+  }
   debounceUserSearch()
 }
 
@@ -334,6 +354,10 @@ const debounceApiKeySearch = () => {
 const handleApiKeySearch = (value: string) => {
   apiKeyKeyword.value = value
   showApiKeyDropdown.value = true
+  if (filters.value.api_key_id != null) {
+    filters.value.api_key_id = undefined
+    emitChange()
+  }
   debounceApiKeySearch()
 }
 
@@ -418,6 +442,10 @@ const debounceAccountSearch = () => {
 const handleAccountSearch = (value: string) => {
   accountKeyword.value = value
   showAccountDropdown.value = true
+  if (filters.value.account_id != null) {
+    filters.value.account_id = undefined
+    emitChange()
+  }
   debounceAccountSearch()
 }
 
@@ -494,7 +522,6 @@ watch(
   () => filters.value.user_id,
   (userId) => {
     if (!userId) {
-      userKeyword.value = ''
       syncSuggestionItems(userSuggestions, [], () => ({ primaryText: '' }))
     }
   }
@@ -504,7 +531,6 @@ watch(
   () => filters.value.api_key_id,
   (apiKeyId) => {
     if (!apiKeyId) {
-      apiKeyKeyword.value = ''
       syncSuggestionItems(apiKeySuggestions, [], () => ({ primaryText: '' }))
     }
   }
@@ -514,7 +540,6 @@ watch(
   () => filters.value.account_id,
   (accountId) => {
     if (!accountId) {
-      accountKeyword.value = ''
       syncSuggestionItems(accountSuggestions, [], () => ({ primaryText: '' }))
     }
   }

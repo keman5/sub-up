@@ -1120,18 +1120,60 @@ const subscriptionRouteQuerySync = useRouteQuerySync({
   fields: [
     {
       queryKey: 'user_id',
-      get: () => filters.user_id,
+      // Legacy read-only query support. New links keep the visible email/search
+      // text in user_search so refresh never turns the input into a raw ID.
+      get: () => null,
       set: (value) => {
         filters.user_id = value
-        filterUserKeyword.value = value ? `#${value}` : ''
       },
-      parse: 'number'
+      parse: 'number',
+      defaultValue: null
     },
+    { queryKey: 'user_search', get: () => filterUserKeyword.value, set: (value) => { filterUserKeyword.value = value }, defaultValue: '' },
     { queryKey: 'status', get: () => filters.status, set: (value) => { filters.status = value }, defaultValue: 'active', defaultQueryValue: 'active', emptyQueryValue: 'all' },
     { queryKey: 'group_id', get: () => filters.group_id, set: (value) => { filters.group_id = value }, defaultValue: '', defaultQueryValue: 'all' },
     { queryKey: 'platform', get: () => filters.platform, set: (value) => { filters.platform = value }, defaultValue: '', defaultQueryValue: 'all' },
   ],
 })
+
+const restoreSubscriptionRouteQuery = () => {
+  subscriptionRouteQuerySync.restoreFromRoute()
+}
+
+const findFilterUserMatch = (users: SimpleUser[], keyword: string): SimpleUser | null => {
+  const normalizedKeyword = keyword.trim().toLowerCase()
+  if (!normalizedKeyword) return null
+
+  const exactEmail = users.find((user) => user.email.toLowerCase() === normalizedKeyword)
+  if (exactEmail) return exactEmail
+
+  const exactUsername = users.find((user) => user.username?.trim().toLowerCase() === normalizedKeyword)
+  if (exactUsername) return exactUsername
+
+  return normalizedKeyword.includes('@') && users.length === 1 ? users[0] : null
+}
+
+const restoreFilterUserSelectionFromSearch = async () => {
+  const keyword = filterUserKeyword.value.trim()
+  if (!keyword) return
+
+  filterUserLoading.value = true
+  try {
+    const users = await adminAPI.usage.searchUsers(keyword)
+    syncFilterUserSuggestions(users)
+    const matchedUser = findFilterUserMatch(users, keyword)
+    if (!matchedUser) return
+
+    selectedFilterUser.value = matchedUser
+    filterUserKeyword.value = matchedUser.email
+    filters.user_id = matchedUser.id
+  } catch (error) {
+    console.error('Failed to restore subscription user filter from route:', error)
+    syncFilterUserSuggestions([])
+  } finally {
+    filterUserLoading.value = false
+  }
+}
 
 // Sorting state
 const sortState = reactive({
@@ -1831,14 +1873,19 @@ const handleClickOutside = (event: MouseEvent) => {
   }
 }
 
-onMounted(() => {
-  subscriptionRouteQuerySync.restoreFromRoute()
-  void subscriptionRouteQuerySync.syncToRoute()
+const initializeSubscriptionsView = async () => {
+  restoreSubscriptionRouteQuery()
+  await restoreFilterUserSelectionFromSearch()
   loadUserColumnMode()
   loadSavedColumns()
+  void subscriptionRouteQuerySync.syncToRoute()
   loadSubscriptions()
   loadGroups()
   document.addEventListener('click', handleClickOutside)
+}
+
+onMounted(() => {
+  void initializeSubscriptionsView()
 })
 
 onUnmounted(() => {

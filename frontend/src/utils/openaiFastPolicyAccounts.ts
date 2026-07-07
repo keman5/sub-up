@@ -1,6 +1,6 @@
 type RawAccountID = number | string | null | undefined
 
-export function normalizeOpenAIFastPolicyAccountAllowlist(
+export function normalizeOpenAIFastPolicyOpenAIAccountAllowlist(
   accountIDs?: RawAccountID[]
 ): number[] | undefined {
   const normalized = Array.from(
@@ -13,11 +13,11 @@ export function normalizeOpenAIFastPolicyAccountAllowlist(
   return normalized.length > 0 ? normalized : undefined
 }
 
-export function addOpenAIFastPolicyAccountID(
+export function addOpenAIFastPolicyOpenAIAccountID(
   accountIDs: RawAccountID[] | undefined,
   accountID: RawAccountID
 ): number[] {
-  return normalizeOpenAIFastPolicyAccountAllowlist([
+  return normalizeOpenAIFastPolicyOpenAIAccountAllowlist([
     ...(accountIDs || []),
     accountID
   ]) || []

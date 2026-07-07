@@ -386,14 +386,14 @@ type RectifierSettings struct {
 
 // BetaPolicyRule Beta 策略规则 DTO
 type BetaPolicyRule struct {
-	BetaToken            string   `json:"beta_token"`
-	Action               string   `json:"action"`
-	Scope                string   `json:"scope"`
-	ErrorMessage         string   `json:"error_message,omitempty"`
-	ModelWhitelist       []string `json:"model_whitelist,omitempty"`
-	AccountAllowlist     []int64  `json:"account_allowlist,omitempty"`
-	FallbackAction       string   `json:"fallback_action,omitempty"`
-	FallbackErrorMessage string   `json:"fallback_error_message,omitempty"`
+	BetaToken              string   `json:"beta_token"`
+	Action                 string   `json:"action"`
+	Scope                  string   `json:"scope"`
+	ErrorMessage           string   `json:"error_message,omitempty"`
+	ModelWhitelist         []string `json:"model_whitelist,omitempty"`
+	AccountAllowlist       []int64  `json:"account_allowlist,omitempty"`
+	FallbackAction         string   `json:"fallback_action,omitempty"`
+	FallbackErrorMessage   string   `json:"fallback_error_message,omitempty"`
 }
 
 // BetaPolicySettings Beta 策略配置 DTO
@@ -403,14 +403,15 @@ type BetaPolicySettings struct {
 
 // OpenAIFastPolicyRule OpenAI fast/flex 策略规则 DTO
 type OpenAIFastPolicyRule struct {
-	ServiceTier          string   `json:"service_tier"`
-	Action               string   `json:"action"`
-	Scope                string   `json:"scope"`
-	ErrorMessage         string   `json:"error_message,omitempty"`
-	ModelWhitelist       []string `json:"model_whitelist,omitempty"`
-	AccountAllowlist     []int64  `json:"account_allowlist,omitempty"`
-	FallbackAction       string   `json:"fallback_action,omitempty"`
-	FallbackErrorMessage string   `json:"fallback_error_message,omitempty"`
+	ServiceTier            string   `json:"service_tier"`
+	Action                 string   `json:"action"`
+	Scope                  string   `json:"scope"`
+	ErrorMessage           string   `json:"error_message,omitempty"`
+	ModelWhitelist         []string `json:"model_whitelist,omitempty"`
+	AccountAllowlist       []int64  `json:"account_allowlist"`
+	OpenAIAccountAllowlist []int64  `json:"openai_account_allowlist"`
+	FallbackAction         string   `json:"fallback_action,omitempty"`
+	FallbackErrorMessage   string   `json:"fallback_error_message,omitempty"`
 }
 
 // OpenAIFastPolicySettings OpenAI fast 策略配置 DTO
