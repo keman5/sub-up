@@ -898,6 +898,7 @@ import type { Column } from '@/components/common/types'
 import { formatDateOnly } from '@/utils/format'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useAppDialog } from '@/composables/useAppDialog'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { getSubscriptionUserLabel, getSubscriptionUserNotes } from './subscriptionUserDisplay'
 import { mergeSubscriptionProgressById } from './subscriptionProgressMerge'
 import { filterRecentRegisteredUsers } from './subscriptionRecentUsers'
@@ -1115,6 +1116,23 @@ const filters = reactive({
   user_id: null as number | null
 })
 
+const subscriptionRouteQuerySync = useRouteQuerySync({
+  fields: [
+    {
+      queryKey: 'user_id',
+      get: () => filters.user_id,
+      set: (value) => {
+        filters.user_id = value
+        filterUserKeyword.value = value ? `#${value}` : ''
+      },
+      parse: 'number'
+    },
+    { queryKey: 'status', get: () => filters.status, set: (value) => { filters.status = value }, defaultValue: 'active', defaultQueryValue: 'active', emptyQueryValue: 'all' },
+    { queryKey: 'group_id', get: () => filters.group_id, set: (value) => { filters.group_id = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'platform', get: () => filters.platform, set: (value) => { filters.platform = value }, defaultValue: '', defaultQueryValue: 'all' },
+  ],
+})
+
 // Sorting state
 const sortState = reactive({
   sort_by: 'created_at',
@@ -1207,6 +1225,7 @@ const subscriptionGroupOptions = computed(() =>
 
 const applyFilters = () => {
   pagination.page = 1
+  void subscriptionRouteQuerySync.syncToRoute()
   loadSubscriptions()
 }
 
@@ -1813,6 +1832,8 @@ const handleClickOutside = (event: MouseEvent) => {
 }
 
 onMounted(() => {
+  subscriptionRouteQuerySync.restoreFromRoute()
+  void subscriptionRouteQuerySync.syncToRoute()
   loadUserColumnMode()
   loadSavedColumns()
   loadSubscriptions()

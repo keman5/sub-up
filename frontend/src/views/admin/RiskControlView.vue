@@ -1125,6 +1125,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import { adminAPI } from '@/api/admin'
 import { useAppDialog } from '@/composables/useAppDialog'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import type {
   ContentModerationAPIKeyLoad,
   ContentModerationAPIKeyStatus,
@@ -1270,6 +1271,17 @@ const filters = reactive({
   search: '',
   from: '',
   to: '',
+})
+
+const riskLogRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'result', get: () => filters.result, set: (value) => { filters.result = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'group_id', get: () => filters.group_id, set: (value) => { filters.group_id = value }, parse: 'number', defaultValue: 0, defaultQueryValue: 'all' },
+    { queryKey: 'endpoint', get: () => filters.endpoint, set: (value) => { filters.endpoint = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'search', get: () => filters.search, set: (value) => { filters.search = value }, defaultValue: '' },
+    { queryKey: 'from', get: () => filters.from, set: (value) => { filters.from = value }, defaultValue: '' },
+    { queryKey: 'to', get: () => filters.to, set: (value) => { filters.to = value }, defaultValue: '' },
+  ],
 })
 
 const settingsTabs = computed<Array<{ id: SettingsTab; label: string }>>(() => [
@@ -1938,6 +1950,7 @@ function openSettings() {
 
 function reloadLogsFromFirstPage() {
   pagination.page = 1
+  void riskLogRouteQuerySync.syncToRoute()
   void loadLogs()
 }
 
@@ -2347,6 +2360,8 @@ function formatNumber(value: number): string {
 }
 
 onMounted(() => {
+  riskLogRouteQuerySync.restoreFromRoute()
+  void riskLogRouteQuerySync.syncToRoute()
   void loadAll()
   statusTimer = window.setInterval(() => {
     void loadStatus(true)

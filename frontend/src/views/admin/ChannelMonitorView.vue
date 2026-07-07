@@ -142,6 +142,7 @@ import MonitorPrimaryModelCell from '@/components/admin/monitor/MonitorPrimaryMo
 import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -158,6 +159,13 @@ const runningId = ref<number | null>(null)
 const searchQuery = ref('')
 const providerFilter = ref<Provider | ''>('')
 const enabledFilter = ref<'' | 'true' | 'false'>('')
+const monitorRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'search', get: () => searchQuery.value, set: (value) => { searchQuery.value = value }, defaultValue: '' },
+    { queryKey: 'provider', get: () => providerFilter.value, set: (value) => { providerFilter.value = value as Provider | '' }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'enabled', get: () => enabledFilter.value, set: (value) => { enabledFilter.value = value as '' | 'true' | 'false' }, defaultValue: '', defaultQueryValue: 'all' },
+  ],
+})
 const pagination = reactive({ page: 1, page_size: getPersistedPageSize(), total: 0 })
 
 const showDialog = ref(false)
@@ -187,6 +195,7 @@ const deleteConfirmMessage = computed(() => {
 })
 
 async function reload() {
+  void monitorRouteQuerySync.syncToRoute()
   if (abortController) abortController.abort()
   const ctrl = new AbortController()
   abortController = ctrl
@@ -296,7 +305,10 @@ async function confirmDelete() {
   }
 }
 
-onMounted(reload)
+onMounted(() => {
+  monitorRouteQuerySync.restoreFromRoute()
+  reload()
+})
 onUnmounted(() => {
   if (searchTimeout) clearTimeout(searchTimeout)
   abortController?.abort()

@@ -26,21 +26,21 @@
               :options="platformFilterOptions"
               :placeholder="t('admin.groups.allPlatforms')"
               class="w-44"
-              @change="loadGroups"
+              @change="applyGroupFilters"
             />
             <Select
               v-model="filters.status"
               :options="statusOptions"
               :placeholder="t('admin.groups.allStatus')"
               class="w-40"
-              @change="loadGroups"
+              @change="applyGroupFilters"
             />
             <Select
               v-model="filters.is_exclusive"
               :options="exclusiveOptions"
               :placeholder="t('admin.groups.allGroups')"
               class="w-44"
-              @change="loadGroups"
+              @change="applyGroupFilters"
             />
           </div>
 
@@ -4086,6 +4086,7 @@ import { useI18n } from "vue-i18n";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
 import { useOnboardingStore } from "@/stores/onboarding";
+import { useRouteQuerySync } from "@/composables/useRouteQuerySync";
 import { adminAPI } from "@/api/admin";
 import type { AdminGroup, GroupPlatform, SubscriptionType } from "@/types";
 import type { Column } from "@/components/common/types";
@@ -4457,6 +4458,15 @@ const pagination = reactive({
 const sortState = reactive({
   sort_by: "sort_order",
   sort_order: "asc" as "asc" | "desc",
+});
+
+const groupRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: "search", get: () => searchQuery.value, set: (value) => { searchQuery.value = value }, defaultValue: "" },
+    { queryKey: "platform", get: () => filters.platform, set: (value) => { filters.platform = value }, defaultValue: "", defaultQueryValue: "all" },
+    { queryKey: "status", get: () => filters.status, set: (value) => { filters.status = value }, defaultValue: "", defaultQueryValue: "all" },
+    { queryKey: "is_exclusive", get: () => filters.is_exclusive, set: (value) => { filters.is_exclusive = value }, defaultValue: "", defaultQueryValue: "all" },
+  ],
 });
 
 let abortController: AbortController | null = null;
@@ -4960,6 +4970,7 @@ const deleteConfirmMessage = computed(() => {
 });
 
 const loadGroups = async () => {
+  void groupRouteQuerySync.syncToRoute();
   if (abortController) {
     abortController.abort();
   }
@@ -5079,9 +5090,13 @@ let searchTimeout: ReturnType<typeof setTimeout>;
 const handleSearch = () => {
   clearTimeout(searchTimeout);
   searchTimeout = setTimeout(() => {
-    pagination.page = 1;
-    loadGroups();
+    applyGroupFilters();
   }, 300);
+};
+
+const applyGroupFilters = () => {
+  pagination.page = 1;
+  loadGroups();
 };
 
 const handlePageChange = (page: number) => {
@@ -5694,6 +5709,7 @@ const saveSortOrder = async () => {
 };
 
 onMounted(() => {
+  groupRouteQuerySync.restoreFromRoute();
   loadGroups();
   loadModelsListCandidates("create", 0, createForm.platform);
   document.addEventListener("click", handleClickOutside);

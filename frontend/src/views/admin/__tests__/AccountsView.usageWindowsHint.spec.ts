@@ -170,4 +170,12 @@ describe('admin AccountsView usage windows hint', () => {
     const visibleColumns = wrapper.get('[data-test="columns"]').text().split(',')
     expect(visibleColumns.slice(0, 3)).toEqual(['select', 'id', 'name'])
   })
+
+  it('does not render duplicate table column keys', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const visibleColumns = wrapper.get('[data-test="columns"]').text().split(',')
+    expect(new Set(visibleColumns).size).toBe(visibleColumns.length)
+  })
 })

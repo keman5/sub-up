@@ -6,6 +6,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import Select from '@/components/common/Select.vue'
 import { useAppStore } from '@/stores'
 import { useAppDialog } from '@/composables/useAppDialog'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 
 const appStore = useAppStore()
 const appDialog = useAppDialog()
@@ -60,6 +61,24 @@ const filters = reactive({
   platform: '',
   model: '',
   q: ''
+})
+
+const systemLogRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'log_time_range', get: () => filters.time_range, set: (value) => { filters.time_range = value }, defaultValue: '1h' },
+    { queryKey: 'log_start_time', get: () => filters.start_time, set: (value) => { filters.start_time = value }, defaultValue: '' },
+    { queryKey: 'log_end_time', get: () => filters.end_time, set: (value) => { filters.end_time = value }, defaultValue: '' },
+    { queryKey: 'log_level', get: () => filters.level, set: (value) => { filters.level = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'log_component', get: () => filters.component, set: (value) => { filters.component = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'log_request_id', get: () => filters.request_id, set: (value) => { filters.request_id = value }, defaultValue: '' },
+    { queryKey: 'log_client_request_id', get: () => filters.client_request_id, set: (value) => { filters.client_request_id = value }, defaultValue: '' },
+    { queryKey: 'log_user_id', get: () => filters.user_id, set: (value) => { filters.user_id = value }, defaultValue: '' },
+    { queryKey: 'log_api_key_id', get: () => filters.api_key_id, set: (value) => { filters.api_key_id = value }, defaultValue: '' },
+    { queryKey: 'log_account_id', get: () => filters.account_id, set: (value) => { filters.account_id = value }, defaultValue: '' },
+    { queryKey: 'log_platform', get: () => filters.platform, set: (value) => { filters.platform = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'log_model', get: () => filters.model, set: (value) => { filters.model = value }, defaultValue: '' },
+    { queryKey: 'log_q', get: () => filters.q, set: (value) => { filters.q = value }, defaultValue: '' },
+  ],
 })
 
 const runtimeLevelOptions = [
@@ -332,6 +351,7 @@ const resetFilters = () => {
   filters.model = ''
   filters.q = ''
   page.value = 1
+  void systemLogRouteQuerySync.syncToRoute()
   fetchLogs()
 }
 
@@ -361,13 +381,16 @@ const onPageSizeChange = (next: number) => {
 
 const applyFilters = () => {
   page.value = 1
+  void systemLogRouteQuerySync.syncToRoute()
   fetchLogs()
 }
 
 const hasData = computed(() => logs.value.length > 0)
 
 onMounted(async () => {
-  if (props.platformFilter) {
+  systemLogRouteQuerySync.restoreFromRoute()
+  void systemLogRouteQuerySync.syncToRoute()
+  if (props.platformFilter && !filters.platform) {
     filters.platform = props.platformFilter
   }
   await Promise.all([fetchLogs(), fetchHealth(), loadRuntimeConfig()])

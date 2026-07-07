@@ -97,6 +97,17 @@ const DataTableStub = {
   `
 }
 
+const PaginationStub = {
+  emits: ['update:page'],
+  template: '<button data-test="go-page-3" @click="$emit(\'update:page\', 3)">page 3</button>'
+}
+
+const SelectStub = {
+  props: ['modelValue', 'options'],
+  emits: ['update:modelValue', 'change'],
+  template: '<select :value="modelValue" data-test="filter-select" @change="$emit(\'update:modelValue\', $event.target.value); $emit(\'change\')"><option v-for="option in options" :key="option.value" :value="option.value">{{ option.label }}</option></select>'
+}
+
 const mountUsersView = () => mount(UsersView, {
   global: {
     stubs: {
@@ -105,11 +116,11 @@ const mountUsersView = () => mount(UsersView, {
         template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
       },
       DataTable: DataTableStub,
-      Pagination: true,
+      Pagination: PaginationStub,
       ConfirmDialog: true,
       EmptyState: true,
       GroupBadge: true,
-      Select: true,
+      Select: SelectStub,
       UserAttributesConfigModal: true,
       UserConcurrencyCell: true,
       UserCreateModal: true,
@@ -138,10 +149,10 @@ describe('admin UsersView', () => {
 
     listUsers.mockResolvedValue({
       items: [createAdminUser()],
-      total: 1,
+      total: 100,
       page: 1,
       page_size: 20,
-      pages: 1
+      pages: 5
     })
     getAllGroups.mockResolvedValue([])
     getBatchUsersUsage.mockResolvedValue({ stats: {} })
@@ -282,5 +293,32 @@ describe('admin UsersView', () => {
       expect.any(Object)
     )
     expect(wrapper.text()).toContain('scoped@example.com')
+  })
+
+  it('returns to the first page when a visible built-in filter changes', async () => {
+    localStorage.setItem('user-visible-filters', JSON.stringify(['status']))
+    const wrapper = mountUsersView()
+
+    await flushPromises()
+    await wrapper.get('[data-test="go-page-3"]').trigger('click')
+    await flushPromises()
+
+    expect(listUsers).toHaveBeenLastCalledWith(
+      3,
+      20,
+      expect.any(Object),
+      expect.any(Object)
+    )
+
+    const statusFilter = wrapper.findAll('[data-test="filter-select"]')[0]
+    await statusFilter.setValue('disabled')
+    await flushPromises()
+
+    expect(listUsers).toHaveBeenLastCalledWith(
+      1,
+      20,
+      expect.objectContaining({ status: 'disabled' }),
+      expect.any(Object)
+    )
   })
 })

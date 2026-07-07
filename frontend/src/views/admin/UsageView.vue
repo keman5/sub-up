@@ -162,6 +162,7 @@ import { saveAs } from 'file-saver'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'; import { adminAPI } from '@/api/admin'; import { adminUsageAPI } from '@/api/admin/usage'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { formatReasoningEffort } from '@/utils/format'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
 import { formatAdminUsageModel } from '@/utils/usageModelDisplay'
@@ -299,6 +300,37 @@ const applyRouteQueryFilters = () => {
   }
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
 }
+
+const adminUsageRouteQuerySync = useRouteQuerySync({
+  fields: [
+    {
+      queryKey: 'start_date',
+      get: () => startDate.value,
+      set: (value) => {
+        startDate.value = value
+        filters.value.start_date = value
+      },
+      defaultValue: defaultRange.start
+    },
+    {
+      queryKey: 'end_date',
+      get: () => endDate.value,
+      set: (value) => {
+        endDate.value = value
+        filters.value.end_date = value
+      },
+      defaultValue: defaultRange.end
+    },
+    { queryKey: 'user_id', get: () => filters.value.user_id, set: (value) => { filters.value.user_id = value }, parse: 'number', defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'api_key_id', get: () => filters.value.api_key_id, set: (value) => { filters.value.api_key_id = value }, parse: 'number', defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'account_id', get: () => filters.value.account_id, set: (value) => { filters.value.account_id = value }, parse: 'number', defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'group_id', get: () => filters.value.group_id, set: (value) => { filters.value.group_id = value }, parse: 'number', defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'model', get: () => filters.value.model, set: (value) => { filters.value.model = value }, defaultValue: '', defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'request_type', get: () => filters.value.request_type, set: (value) => { filters.value.request_type = value }, defaultValue: '', defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'billing_type', get: () => filters.value.billing_type as any, set: (value) => { filters.value.billing_type = value }, parse: 'number', defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'billing_mode', get: () => filters.value.billing_mode, set: (value) => { filters.value.billing_mode = value }, defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+  ],
+})
 
 const onDateRangeChange = (range: { startDate: string; endDate: string; preset: string | null }) => {
   startDate.value = range.startDate
@@ -457,6 +489,7 @@ const loadChartData = async () => {
 }
 const applyFilters = () => {
   pagination.page = 1
+  void adminUsageRouteQuerySync.syncToRoute()
   invalidateModelStatsCache()
   loadLogs()
   loadStats()
@@ -770,6 +803,9 @@ const handleColumnClickOutside = (event: MouseEvent) => {
 
 onMounted(() => {
   applyRouteQueryFilters()
+  adminUsageRouteQuerySync.restoreFromRoute()
+  void adminUsageRouteQuerySync.syncToRoute()
+  granularity.value = getGranularityForRange(startDate.value, endDate.value)
   loadLogs()
   loadStats()
   loadModelStats(modelDistributionSource.value, true)

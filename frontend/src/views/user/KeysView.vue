@@ -1157,13 +1157,14 @@
 </template>
 
 <script setup lang="ts">
-	import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
-	import { useI18n } from 'vue-i18n'
-	import { useAppStore } from '@/stores/app'
-	import { useOnboardingStore } from '@/stores/onboarding'
-	import { useSubscriptionStore } from '@/stores/subscriptions'
-	import { useClipboard } from '@/composables/useClipboard'
-	import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useAppStore } from '@/stores/app'
+import { useOnboardingStore } from '@/stores/onboarding'
+import { useSubscriptionStore } from '@/stores/subscriptions'
+import { useClipboard } from '@/composables/useClipboard'
+import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 
 const { t } = useI18n()
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
@@ -1322,6 +1323,14 @@ const filterStatus = ref('')
 const filterGroupId = ref<string | number>('')
 const showKeySearchDropdown = ref(false)
 
+const keyRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'search', get: () => filterSearch.value, set: (value) => { filterSearch.value = value }, defaultValue: '' },
+    { queryKey: 'status', get: () => filterStatus.value, set: (value) => { filterStatus.value = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'group_id', get: () => filterGroupId.value, set: (value) => { filterGroupId.value = value }, parse: 'number', defaultValue: '', defaultQueryValue: 'all' },
+  ],
+})
+
 const keyNameSuggestions = computed<SearchSuggestOption<ApiKey>[]>(() => {
   const keyword = filterSearch.value.trim().toLowerCase()
   return apiKeys.value
@@ -1437,6 +1446,7 @@ const statusFilterOptions = computed(() => [
 
 const onFilterChange = () => {
   pagination.value.page = 1
+  void keyRouteQuerySync.syncToRoute()
   loadApiKeys()
 }
 
@@ -2087,6 +2097,8 @@ function formatResetTime(resetAt: string | null): string {
 }
 
 onMounted(() => {
+  keyRouteQuerySync.restoreFromRoute()
+  void keyRouteQuerySync.syncToRoute()
   loadSavedColumns()
   loadApiKeys()
   loadGroups()

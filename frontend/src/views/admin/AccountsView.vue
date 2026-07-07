@@ -426,7 +426,7 @@
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
+import { defineAsyncComponent, ref, reactive, computed, nextTick, onMounted, onUnmounted, toRaw, watch } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -436,6 +436,7 @@ import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
 import { useAppDialog } from '@/composables/useAppDialog'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -613,6 +614,11 @@ const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
+
+const refreshCurrentPageUsageCells = async () => {
+  await nextTick()
+  usageManualRefreshToken.value += 1
+}
 
 const buildDefaultTodayStats = (): WindowStats => ({
   requests: 0,
@@ -828,6 +834,17 @@ const {
   }
 })
 
+const accountRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'search', get: () => params.search, set: (value) => { params.search = value }, defaultValue: '' },
+    { queryKey: 'platform', get: () => params.platform, set: (value) => { params.platform = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'type', get: () => params.type, set: (value) => { params.type = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'status', get: () => params.status, set: (value) => { params.status = value }, defaultValue: 'active', defaultQueryValue: 'active', emptyQueryValue: 'all' },
+    { queryKey: 'privacy_mode', get: () => params.privacy_mode, set: (value) => { params.privacy_mode = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'group', get: () => params.group, set: (value) => { params.group = value }, defaultValue: '', defaultQueryValue: 'all' },
+  ],
+})
+
 const {
   selectedIds: selIds,
   allVisibleSelected,
@@ -887,12 +904,14 @@ const reload = async () => {
   pendingTodayStatsRefresh.value = false
   await baseReload()
   await refreshTodayStatsBatch()
+  await refreshCurrentPageUsageCells()
 }
 
 const debouncedReload = () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
+  void accountRouteQuerySync.syncToRoute()
   baseDebouncedReload()
 }
 
@@ -1060,7 +1079,7 @@ const handleAccountRuntimeStateUpdated = async () => {
 const handleManualRefresh = async () => {
   await load()
   // Force usage cells to refetch /usage on explicit user refresh.
-  usageManualRefreshToken.value += 1
+  await refreshCurrentPageUsageCells()
 }
 
 const closeAccountToolsDropdown = () => {
@@ -1096,7 +1115,7 @@ const syncPendingListChanges = async () => {
   hasPendingListSync.value = false
   await load()
   // Keep behavior consistent with manual refresh.
-  usageManualRefreshToken.value += 1
+  await refreshCurrentPageUsageCells()
 }
 
 const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
@@ -1219,7 +1238,6 @@ const allColumns = computed(() => {
     { key: 'select', label: '', sortable: false },
     { key: 'id', label: t('admin.accounts.columns.id'), sortable: false },
     { key: 'name', label: t('admin.accounts.columns.name'), sortable: true },
-    { key: 'id', label: t('admin.accounts.columns.id'), sortable: true },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
@@ -1821,6 +1839,8 @@ const handleClickOutside = (event: MouseEvent) => {
 }
 
 onMounted(async () => {
+  accountRouteQuerySync.restoreFromRoute()
+  void accountRouteQuerySync.syncToRoute()
   load()
   try {
     const [p, g] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll()])

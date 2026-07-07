@@ -7,9 +7,9 @@
           <div class="flex-1 sm:max-w-64">
             <input v-model="orderSearch" type="text" :placeholder="t('payment.admin.searchOrders')" class="input" @input="debounceLoadOrders" />
           </div>
-          <Select v-model="orderFilters.status" :options="statusFilterOptions" class="w-36" @change="loadOrders" />
-          <Select v-model="orderFilters.payment_type" :options="paymentTypeFilterOptions" class="w-40" @change="loadOrders" />
-          <Select v-model="orderFilters.order_type" :options="orderTypeFilterOptions" class="w-36" @change="loadOrders" />
+          <Select v-model="orderFilters.status" :options="statusFilterOptions" class="w-36" @change="reloadOrdersFromFirstPage" />
+          <Select v-model="orderFilters.payment_type" :options="paymentTypeFilterOptions" class="w-40" @change="reloadOrdersFromFirstPage" />
+          <Select v-model="orderFilters.order_type" :options="orderTypeFilterOptions" class="w-36" @change="reloadOrdersFromFirstPage" />
           <div class="flex flex-1 flex-wrap items-center justify-end gap-2">
             <button @click="loadOrders" :disabled="ordersLoading" class="btn btn-secondary" :title="t('common.refresh')">
               <Icon name="refresh" size="md" :class="ordersLoading ? 'animate-spin' : ''" />
@@ -119,6 +119,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { adminPaymentAPI } from '@/api/admin/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import { formatOrderDateTime } from '@/components/payment/orderUtils'
@@ -148,6 +149,14 @@ const ordersLoading = ref(false)
 const orders = ref<PaymentOrder[]>([])
 const orderSearch = ref('')
 const orderFilters = reactive({ status: '', payment_type: '', order_type: '' })
+const adminOrderRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'search', get: () => orderSearch.value, set: (value) => { orderSearch.value = value }, defaultValue: '' },
+    { queryKey: 'status', get: () => orderFilters.status, set: (value) => { orderFilters.status = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'payment_type', get: () => orderFilters.payment_type, set: (value) => { orderFilters.payment_type = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'order_type', get: () => orderFilters.order_type, set: (value) => { orderFilters.order_type = value }, defaultValue: '', defaultQueryValue: 'all' },
+  ],
+})
 const orderPagination = reactive({ page: 1, page_size: 20, total: 0 })
 const selectedOrder = ref<PaymentOrder | null>(null)
 const showDetailDialog = ref(false)
@@ -164,10 +173,16 @@ function paymentAmountSymbol(order: PaymentOrder | null | undefined): string {
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 function debounceLoadOrders() {
   if (debounceTimer) clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(() => loadOrders(), 300)
+  debounceTimer = setTimeout(() => reloadOrdersFromFirstPage(), 300)
+}
+
+function reloadOrdersFromFirstPage() {
+  orderPagination.page = 1
+  loadOrders()
 }
 
 async function loadOrders() {
+  void adminOrderRouteQuerySync.syncToRoute()
   ordersLoading.value = true
   try {
     const res = await adminPaymentAPI.getOrders({
@@ -286,5 +301,8 @@ async function handleQueryRefund(order: PaymentOrder) {
 
 function formatDateTime(dateStr: string): string { return formatOrderDateTime(dateStr) }
 
-onMounted(() => loadOrders())
+onMounted(() => {
+  adminOrderRouteQuerySync.restoreFromRoute()
+  loadOrders()
+})
 </script>

@@ -760,6 +760,7 @@ import { ref, reactive, computed, nextTick, onMounted, onUnmounted, type CSSProp
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { clampFloatingMenuPosition, getActionMenuPosition } from '@/utils/floatingMenuPosition'
 import { formatDateTime } from '@/utils/format'
 import Icon from '@/components/icons/Icon.vue'
@@ -1179,6 +1180,59 @@ const saveFiltersToStorage = () => {
     console.error('Failed to save filters:', e)
   }
 }
+
+const showBuiltInFilterWhenValueExists = (key: string, value: unknown) => {
+  if (value != null && value !== '') {
+    visibleFilters.add(key)
+  }
+}
+
+const userRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'search', get: () => searchQuery.value, set: (value) => { searchQuery.value = value }, defaultValue: '' },
+    {
+      queryKey: 'role',
+      get: () => filters.role,
+      set: (value) => {
+        filters.role = value
+        showBuiltInFilterWhenValueExists('role', value)
+      },
+      defaultValue: '',
+      defaultQueryValue: 'all'
+    },
+    {
+      queryKey: 'status',
+      get: () => filters.status,
+      set: (value) => {
+        filters.status = value
+        showBuiltInFilterWhenValueExists('status', value)
+      },
+      defaultValue: '',
+      defaultQueryValue: 'all'
+    },
+    {
+      queryKey: 'group',
+      get: () => filters.group,
+      set: (value) => {
+        filters.group = value
+        showBuiltInFilterWhenValueExists('group', value)
+      },
+      defaultValue: '',
+      defaultQueryValue: 'all'
+    },
+    {
+      queryKey: 'api_key_group_id',
+      get: () => filters.apiKeyGroup,
+      set: (value) => {
+        filters.apiKeyGroup = value
+        showBuiltInFilterWhenValueExists('apiKeyGroup', value)
+      },
+      defaultValue: '',
+      defaultQueryValue: 'all',
+      parse: 'number'
+    },
+  ],
+})
 
 // Get attribute definition by ID
 const getAttributeDefinition = (attrId: number): UserAttributeDefinition | undefined => {
@@ -1607,6 +1661,7 @@ const debounceSearchSuggestions = () => {
   clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => {
     pagination.page = 1
+    void userRouteQuerySync.syncToRoute()
     loadUsers()
   }, 300)
 }
@@ -1658,6 +1713,7 @@ const selectUserSearchOption = (option: SearchSuggestOption<AdminUser>) => {
   showUserSearchDropdown.value = false
   clearTimeout(searchTimeout)
   pagination.page = 1
+  void userRouteQuerySync.syncToRoute()
   loadUsers()
 }
 
@@ -1709,6 +1765,7 @@ const toggleBuiltInFilter = (key: string) => {
   }
   saveFiltersToStorage()
   pagination.page = 1
+  void userRouteQuerySync.syncToRoute()
   loadUsers()
 }
 
@@ -1724,6 +1781,7 @@ const toggleAttributeFilter = (attr: UserAttributeDefinition) => {
   }
   saveFiltersToStorage()
   pagination.page = 1
+  void userRouteQuerySync.syncToRoute()
   loadUsers()
 }
 
@@ -1734,6 +1792,8 @@ const updateAttributeFilter = (attrId: number, value: string) => {
 // Apply filter and save to localStorage
 const applyFilter = () => {
   saveFiltersToStorage()
+  pagination.page = 1
+  void userRouteQuerySync.syncToRoute()
   loadUsers()
 }
 
@@ -1862,6 +1922,9 @@ const handleScroll = () => {
 onMounted(async () => {
   await loadAttributeDefinitions()
   loadSavedFilters()
+  userRouteQuerySync.restoreFromRoute()
+  void userRouteQuerySync.syncToRoute()
+  saveFiltersToStorage()
   loadSavedColumns()
   loadUsers()
   if (hasVisibleGroupsColumn.value || visibleFilters.has('group')) {

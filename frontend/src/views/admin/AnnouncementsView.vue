@@ -299,6 +299,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { adminAPI } from '@/api/admin'
 import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import type { AdminGroup, AdminUser, Announcement, AnnouncementEmailPushMode, AnnouncementTargeting } from '@/types'
@@ -338,6 +339,13 @@ const pagination = reactive({
 const sortState = reactive({
   sort_by: 'created_at',
   sort_order: 'desc' as 'asc' | 'desc'
+})
+
+const announcementRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'search', get: () => searchQuery.value, set: (value) => { searchQuery.value = value }, defaultValue: '' },
+    { queryKey: 'status', get: () => filters.status, set: (value) => { filters.status = value }, defaultValue: '', defaultQueryValue: 'all' },
+  ],
 })
 
 const statusFilterOptions = computed(() => [
@@ -391,6 +399,7 @@ const targetingSummary = (targeting: AnnouncementTargeting) => {
 let currentController: AbortController | null = null
 
 async function loadAnnouncements() {
+  void announcementRouteQuerySync.syncToRoute()
   currentController?.abort()
   const requestController = new AbortController()
   currentController = requestController
@@ -716,6 +725,7 @@ function openReadStatus(row: Announcement) {
 }
 
 onMounted(async () => {
+  announcementRouteQuerySync.restoreFromRoute()
   await loadSubscriptionGroups()
   await loadAnnouncements()
 })
