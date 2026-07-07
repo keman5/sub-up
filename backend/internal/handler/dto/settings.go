@@ -391,6 +391,7 @@ type BetaPolicyRule struct {
 	Scope                string   `json:"scope"`
 	ErrorMessage         string   `json:"error_message,omitempty"`
 	ModelWhitelist       []string `json:"model_whitelist,omitempty"`
+	AccountAllowlist     []int64  `json:"account_allowlist,omitempty"`
 	FallbackAction       string   `json:"fallback_action,omitempty"`
 	FallbackErrorMessage string   `json:"fallback_error_message,omitempty"`
 }
@@ -407,6 +408,7 @@ type OpenAIFastPolicyRule struct {
 	Scope                string   `json:"scope"`
 	ErrorMessage         string   `json:"error_message,omitempty"`
 	ModelWhitelist       []string `json:"model_whitelist,omitempty"`
+	AccountAllowlist     []int64  `json:"account_allowlist,omitempty"`
 	FallbackAction       string   `json:"fallback_action,omitempty"`
 	FallbackErrorMessage string   `json:"fallback_error_message,omitempty"`
 }

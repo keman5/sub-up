@@ -1282,6 +1282,165 @@
                   </button>
                 </div>
 
+                <!-- Account Allowlist -->
+                <div class="mt-3">
+                  <label
+                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                  >
+                    {{ t("admin.settings.openaiFastPolicy.accountAllowlist") }}
+                  </label>
+                  <p class="mb-2 text-xs text-gray-400 dark:text-gray-500">
+                    {{
+                      t("admin.settings.openaiFastPolicy.accountAllowlistHint")
+                    }}
+                  </p>
+                  <div
+                    v-if="
+                      normalizeOpenAIFastPolicyAccountAllowlist(
+                        rule.account_allowlist,
+                      )?.length
+                    "
+                    class="mb-2 flex flex-wrap gap-2"
+                  >
+                    <span
+                      v-for="accountID in normalizeOpenAIFastPolicyAccountAllowlist(
+                        rule.account_allowlist,
+                      )"
+                      :key="accountID"
+                      class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-primary-200 bg-primary-50 px-2 py-1 text-xs text-primary-700 dark:border-primary-800 dark:bg-primary-900/20 dark:text-primary-200"
+                    >
+                      <span class="min-w-0 truncate">
+                        {{
+                          getOpenAIFastPolicyAccountPrimaryLabel(accountID)
+                        }}
+                      </span>
+                      <span
+                        v-if="
+                          getOpenAIFastPolicyAccountSecondaryLabel(accountID)
+                        "
+                        class="shrink-0 text-primary-500 dark:text-primary-300"
+                      >
+                        {{
+                          getOpenAIFastPolicyAccountSecondaryLabel(accountID)
+                        }}
+                      </span>
+                      <button
+                        type="button"
+                        @click="
+                          removeOpenAIFastPolicyAccountAllowlistID(
+                            rule,
+                            accountID,
+                          )
+                        "
+                        class="shrink-0 rounded p-0.5 text-primary-500 transition-colors hover:bg-primary-100 hover:text-primary-700 dark:hover:bg-primary-900/40 dark:hover:text-primary-100"
+                        :title="
+                          t('admin.settings.openaiFastPolicy.removeAccount')
+                        "
+                      >
+                        <Icon name="x" size="xs" />
+                      </button>
+                    </span>
+                  </div>
+
+                  <div class="relative">
+                    <input
+                      v-model="
+                        getOpenAIFastPolicyAccountSearchState(ruleIndex)
+                          .keyword
+                      "
+                      type="text"
+                      class="input input-sm"
+                      :placeholder="
+                        t(
+                          'admin.settings.openaiFastPolicy.accountSearchPlaceholder',
+                        )
+                      "
+                      @input="
+                        scheduleOpenAIFastPolicyAccountSearch(ruleIndex)
+                      "
+                      @focus="
+                        focusOpenAIFastPolicyAccountSearch(ruleIndex)
+                      "
+                      @blur="blurOpenAIFastPolicyAccountSearch(ruleIndex)"
+                      @keydown.esc="
+                        closeOpenAIFastPolicyAccountSearch(ruleIndex)
+                      "
+                    />
+                    <div
+                      v-if="
+                        getOpenAIFastPolicyAccountSearchState(ruleIndex).open
+                      "
+                      class="absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+                    >
+                      <div
+                        v-if="
+                          getOpenAIFastPolicyAccountSearchState(ruleIndex)
+                            .loading
+                        "
+                        class="px-3 py-2 text-xs text-gray-500 dark:text-gray-400"
+                      >
+                        {{
+                          t("admin.settings.openaiFastPolicy.accountSearchLoading")
+                        }}
+                      </div>
+                      <button
+                        v-for="account in getOpenAIFastPolicyAccountSearchState(
+                          ruleIndex,
+                        ).results"
+                        :key="account.id"
+                        type="button"
+                        :disabled="
+                          (
+                            normalizeOpenAIFastPolicyAccountAllowlist(
+                              rule.account_allowlist,
+                            ) || []
+                          ).includes(account.id)
+                        "
+                        @mousedown.prevent
+                        @click="
+                          selectOpenAIFastPolicyAccount(
+                            rule,
+                            ruleIndex,
+                            account,
+                          )
+                        "
+                        class="flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-xs transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-dark-700"
+                      >
+                        <span class="min-w-0">
+                          <span
+                            class="block truncate font-medium text-gray-700 dark:text-gray-200"
+                          >
+                            {{ account.name || `#${account.id}` }}
+                          </span>
+                          <span
+                            class="block truncate text-gray-400 dark:text-gray-500"
+                          >
+                            {{
+                              formatOpenAIFastPolicyAccountSearchMeta(account)
+                            }}
+                          </span>
+                        </span>
+                        <span class="shrink-0 text-gray-400">
+                          #{{ account.id }}
+                        </span>
+                      </button>
+                      <div
+                        v-if="
+                          !getOpenAIFastPolicyAccountSearchState(ruleIndex)
+                            .loading &&
+                          getOpenAIFastPolicyAccountSearchState(ruleIndex)
+                            .results.length === 0
+                        "
+                        class="px-3 py-2 text-xs text-gray-500 dark:text-gray-400"
+                      >
+                        {{
+                          t("admin.settings.openaiFastPolicy.accountSearchEmpty")
+                        }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <!-- Fallback Action (only when model_whitelist is non-empty) -->
                 <div
                   v-if="
@@ -7372,6 +7531,7 @@ import type {
   WebSearchTestResult,
 } from "@/api/admin/settings";
 import type {
+  Account,
   AdminGroup,
   LoginAgreementDocument,
   NotifyEmailEntry,
@@ -7410,6 +7570,10 @@ import {
   defaultFingerprintSignalRows,
   type FingerprintSignalRow,
 } from "./codexFingerprintSignals";
+import {
+  addOpenAIFastPolicyAccountID,
+  normalizeOpenAIFastPolicyAccountAllowlist,
+} from "@/utils/openaiFastPolicyAccounts";
 
 const { t, locale } = useI18n();
 const appStore = useAppStore();
@@ -7587,6 +7751,21 @@ const openaiFastPolicyForm = reactive({
 // 标记 openai_fast_policy_settings 是否已成功从后端加载，
 // 避免后端 GET 出错或字段缺失时，保存把默认规则覆盖成空数组。
 const openaiFastPolicyLoaded = ref(false);
+type OpenAIFastPolicyAccountSearchState = {
+  keyword: string;
+  loading: boolean;
+  open: boolean;
+  results: Account[];
+  requestID: number;
+};
+const openaiFastPolicyAccountSearchStates = reactive<
+  Record<string, OpenAIFastPolicyAccountSearchState>
+>({});
+const openaiFastPolicyAccountCache = reactive<Record<number, Account>>({});
+const openaiFastPolicyAccountSearchTimers: Record<
+  string,
+  ReturnType<typeof setTimeout>
+> = {};
 
 const tablePageSizeMin = 5;
 const tablePageSizeMax = 1000;
@@ -9067,8 +9246,14 @@ async function loadSettings() {
           model_whitelist: rule.model_whitelist
             ? [...rule.model_whitelist]
             : [],
+          account_allowlist: rule.account_allowlist
+            ? [...rule.account_allowlist]
+            : [],
         }));
       openaiFastPolicyLoaded.value = true;
+      void preloadOpenAIFastPolicyAllowlistAccounts(
+        openaiFastPolicyForm.rules,
+      );
     }
 
     // Load web search emulation config separately
@@ -9555,6 +9740,9 @@ async function saveSettings() {
             error_message:
               rule.action === "block" ? rule.error_message : undefined,
             model_whitelist: hasWhitelist ? whitelist : undefined,
+            account_allowlist: normalizeOpenAIFastPolicyAccountAllowlist(
+              rule.account_allowlist,
+            ),
             fallback_action: hasWhitelist
               ? rule.fallback_action || "pass"
               : undefined,
@@ -9631,8 +9819,14 @@ async function saveSettings() {
           model_whitelist: rule.model_whitelist
             ? [...rule.model_whitelist]
             : [],
+          account_allowlist: rule.account_allowlist
+            ? [...rule.account_allowlist]
+            : [],
         }));
       openaiFastPolicyLoaded.value = true;
+      void preloadOpenAIFastPolicyAllowlistAccounts(
+        openaiFastPolicyForm.rules,
+      );
     }
     // Save web search emulation config separately (errors handled internally)
     const wsOk = await saveWebSearchConfig();
@@ -10051,6 +10245,7 @@ function addOpenAIFastPolicyRule() {
     scope: "all",
     error_message: "",
     model_whitelist: [],
+    account_allowlist: [],
     fallback_action: "pass",
     fallback_error_message: "",
   });
@@ -10070,6 +10265,165 @@ function removeOpenAIFastPolicyModelPattern(
   idx: number,
 ) {
   rule.model_whitelist?.splice(idx, 1);
+}
+
+function removeOpenAIFastPolicyAccountAllowlistID(
+  rule: OpenAIFastPolicyRule,
+  accountID: number,
+) {
+  rule.account_allowlist = (rule.account_allowlist || []).filter(
+    (id) => Number(id) !== accountID,
+  );
+}
+
+function getOpenAIFastPolicyAccountSearchState(
+  ruleIndex: number,
+): OpenAIFastPolicyAccountSearchState {
+  const key = String(ruleIndex);
+  if (!openaiFastPolicyAccountSearchStates[key]) {
+    openaiFastPolicyAccountSearchStates[key] = {
+      keyword: "",
+      loading: false,
+      open: false,
+      results: [],
+      requestID: 0,
+    };
+  }
+  return openaiFastPolicyAccountSearchStates[key];
+}
+
+function cacheOpenAIFastPolicyAccounts(accounts: Account[]) {
+  accounts.forEach((account) => {
+    openaiFastPolicyAccountCache[account.id] = account;
+  });
+}
+
+function getOpenAIFastPolicyAccountPrimaryLabel(accountID: number): string {
+  const account = openaiFastPolicyAccountCache[accountID];
+  return (
+    account?.name?.trim() ||
+    t("admin.settings.openaiFastPolicy.accountFallback", {
+      id: accountID,
+    })
+  );
+}
+
+function getOpenAIFastPolicyAccountSecondaryLabel(accountID: number): string {
+  const account = openaiFastPolicyAccountCache[accountID];
+  if (!account) {
+    return "";
+  }
+  return [account.platform, account.type].filter(Boolean).join(" · ");
+}
+
+function formatOpenAIFastPolicyAccountSearchMeta(account: Account): string {
+  return [account.notes?.trim(), account.platform, account.type]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function selectOpenAIFastPolicyAccount(
+  rule: OpenAIFastPolicyRule,
+  ruleIndex: number,
+  account: Account,
+) {
+  cacheOpenAIFastPolicyAccounts([account]);
+  rule.account_allowlist = addOpenAIFastPolicyAccountID(
+    rule.account_allowlist,
+    account.id,
+  );
+
+  const state = getOpenAIFastPolicyAccountSearchState(ruleIndex);
+  state.keyword = "";
+  state.results = [];
+  state.open = false;
+}
+
+function scheduleOpenAIFastPolicyAccountSearch(ruleIndex: number) {
+  const key = String(ruleIndex);
+  if (openaiFastPolicyAccountSearchTimers[key]) {
+    clearTimeout(openaiFastPolicyAccountSearchTimers[key]);
+  }
+  openaiFastPolicyAccountSearchTimers[key] = setTimeout(() => {
+    void searchOpenAIFastPolicyAccounts(ruleIndex);
+  }, 250);
+}
+
+function focusOpenAIFastPolicyAccountSearch(ruleIndex: number) {
+  const state = getOpenAIFastPolicyAccountSearchState(ruleIndex);
+  state.open = true;
+  if (state.results.length === 0 && !state.loading) {
+    void searchOpenAIFastPolicyAccounts(ruleIndex);
+  }
+}
+
+function blurOpenAIFastPolicyAccountSearch(ruleIndex: number) {
+  window.setTimeout(() => {
+    closeOpenAIFastPolicyAccountSearch(ruleIndex);
+  }, 150);
+}
+
+function closeOpenAIFastPolicyAccountSearch(ruleIndex: number) {
+  getOpenAIFastPolicyAccountSearchState(ruleIndex).open = false;
+}
+
+async function searchOpenAIFastPolicyAccounts(ruleIndex: number) {
+  const state = getOpenAIFastPolicyAccountSearchState(ruleIndex);
+  const requestID = state.requestID + 1;
+  state.requestID = requestID;
+  state.loading = true;
+  state.open = true;
+
+  try {
+    const keyword = state.keyword.trim();
+    const response = await adminAPI.accounts.list(1, 20, {
+      platform: "openai",
+      search: keyword || undefined,
+    });
+    if (state.requestID !== requestID) {
+      return;
+    }
+    state.results = response.items || [];
+    cacheOpenAIFastPolicyAccounts(state.results);
+  } catch {
+    if (state.requestID === requestID) {
+      state.results = [];
+    }
+  } finally {
+    if (state.requestID === requestID) {
+      state.loading = false;
+    }
+  }
+}
+
+async function preloadOpenAIFastPolicyAllowlistAccounts(
+  rules: OpenAIFastPolicyRule[],
+) {
+  const accountIDs = Array.from(
+    new Set(
+      rules.flatMap(
+        (rule) =>
+          normalizeOpenAIFastPolicyAccountAllowlist(rule.account_allowlist) ||
+          [],
+      ),
+    ),
+  ).filter((accountID) => !openaiFastPolicyAccountCache[accountID]);
+
+  if (accountIDs.length === 0) {
+    return;
+  }
+
+  const results = await Promise.allSettled(
+    accountIDs.map((accountID) => adminAPI.accounts.getById(accountID)),
+  );
+  cacheOpenAIFastPolicyAccounts(
+    results
+      .filter(
+        (result): result is PromiseFulfilledResult<Account> =>
+          result.status === "fulfilled",
+      )
+      .map((result) => result.value),
+  );
 }
 
 async function saveBetaPolicySettings() {

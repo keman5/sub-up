@@ -1247,6 +1247,7 @@ export interface OpenAIFastPolicyRule {
   scope: "all" | "oauth" | "apikey" | "bedrock";
   error_message?: string;
   model_whitelist?: string[];
+  account_allowlist?: number[];
   fallback_action?: "pass" | "filter" | "block" | "force_priority";
   fallback_error_message?: string;
 }

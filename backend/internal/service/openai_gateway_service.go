@@ -7723,6 +7723,9 @@ func evaluateOpenAIFastPolicyWithSettings(settings *OpenAIFastPolicySettings, ac
 		if ruleTier != "" && ruleTier != OpenAIFastTierAny && ruleTier != tier {
 			continue
 		}
+		if openAIFastPolicyAccountAllowlisted(rule.AccountAllowlist, account) {
+			return BetaPolicyActionPass, ""
+		}
 		eff := BetaPolicyRule{
 			Action:               rule.Action,
 			ErrorMessage:         rule.ErrorMessage,
@@ -7733,6 +7736,18 @@ func evaluateOpenAIFastPolicyWithSettings(settings *OpenAIFastPolicySettings, ac
 		return resolveRuleAction(eff, model)
 	}
 	return BetaPolicyActionPass, ""
+}
+
+func openAIFastPolicyAccountAllowlisted(accountAllowlist []int64, account *Account) bool {
+	if account == nil || account.ID <= 0 || len(accountAllowlist) == 0 {
+		return false
+	}
+	for _, allowedID := range accountAllowlist {
+		if allowedID == account.ID {
+			return true
+		}
+	}
+	return false
 }
 
 // openAIFastPolicyCtxKey 是 context 中预取的 OpenAIFastPolicySettings 缓存

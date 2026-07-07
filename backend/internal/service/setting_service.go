@@ -5205,6 +5205,11 @@ func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settin
 			}
 			settings.Rules[i].ModelWhitelist[j] = trimmed
 		}
+		for j, accountID := range rule.AccountAllowlist {
+			if accountID <= 0 {
+				return fmt.Errorf("rule[%d]: account_allowlist[%d] must be positive", i, j)
+			}
+		}
 		if rule.FallbackAction != "" && !validActions[rule.FallbackAction] {
 			return fmt.Errorf("rule[%d]: invalid fallback_action %q", i, rule.FallbackAction)
 		}
