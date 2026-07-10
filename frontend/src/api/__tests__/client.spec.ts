@@ -376,7 +376,7 @@ describe('API Client', () => {
       expect(axiosPost).toHaveBeenCalledWith(
         '/api/v1/auth/refresh',
         { refresh_token: 'old-refresh-token' },
-        { headers: { 'Content-Type': 'application/json' } }
+        { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
       )
       expect(listener).toHaveBeenCalledTimes(1)
       expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({

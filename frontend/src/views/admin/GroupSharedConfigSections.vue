@@ -144,6 +144,90 @@
     </p>
   </div>
 
+  <!-- 视频生成计费配置（仅 Grok 平台） -->
+  <div
+    v-if="supportsVideoPricingPlatform(form.platform)"
+    class="border-t pt-4"
+  >
+    <label class="mb-2 block font-medium text-gray-700 dark:text-gray-300">
+      {{ t("admin.groups.videoPricing.title") }}
+    </label>
+    <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+      {{ t("admin.groups.videoPricing.description") }}
+    </p>
+    <div class="mb-4">
+      <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+        <input
+          v-model="form.video_rate_independent"
+          type="checkbox"
+          class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        {{ t("admin.groups.videoPricing.independentMultiplier") }}
+      </label>
+    </div>
+    <div v-if="form.video_rate_independent" class="mb-4">
+      <label class="input-label">{{
+        t("admin.groups.videoPricing.videoMultiplier")
+      }}</label>
+      <input
+        v-model.number="form.video_rate_multiplier"
+        type="number"
+        step="0.0001"
+        min="0"
+        class="input"
+        placeholder="1"
+      />
+    </div>
+    <div class="grid grid-cols-3 gap-3">
+      <div>
+        <label class="input-label">480p ($/s)</label>
+        <input
+          v-model.number="form.video_price_480p"
+          type="number"
+          step="0.001"
+          min="0"
+          class="input"
+          :placeholder="getVideoPricePlaceholder(form.platform, 'video_price_480p')"
+        />
+      </div>
+      <div>
+        <label class="input-label">720p ($/s)</label>
+        <input
+          v-model.number="form.video_price_720p"
+          type="number"
+          step="0.001"
+          min="0"
+          class="input"
+          :placeholder="getVideoPricePlaceholder(form.platform, 'video_price_720p')"
+        />
+      </div>
+      <div>
+        <label class="input-label">1080p ($/s)</label>
+        <input
+          v-model.number="form.video_price_1080p"
+          type="number"
+          step="0.001"
+          min="0"
+          class="input"
+          :placeholder="getVideoPricePlaceholder(form.platform, 'video_price_1080p')"
+        />
+      </div>
+    </div>
+    <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+      {{ t("admin.groups.videoPricing.modeHint") }}
+    </p>
+    <div class="mt-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+      <div class="mb-1 font-medium">
+        {{ t("admin.groups.videoPricing.finalPricePreview") }}
+      </div>
+      <div class="grid grid-cols-3 gap-2">
+        <div v-for="item in videoFinalPricePreview" :key="item.label">
+          {{ item.label }}: {{ item.value }}
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 高峰时段倍率配置（仅订阅类型分组） -->
   <div v-if="form.subscription_type === 'subscription'" class="border-t pt-4">
     <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -341,9 +425,18 @@ import { useI18n } from "vue-i18n";
 import type { GroupPlatform, SelectOption, SubscriptionType } from "@/types";
 import Select from "@/components/common/Select.vue";
 import Icon from "@/components/icons/Icon.vue";
-import { supportsImagePricingPlatform } from "./groupsImagePricing";
+import {
+  getVideoPricePlaceholder,
+  supportsImagePricingPlatform,
+  supportsVideoPricingPlatform,
+} from "./groupsImagePricing";
 
 type ImageFinalPricePreviewItem = {
+  label: string;
+  value: string;
+};
+
+type VideoFinalPricePreviewItem = {
   label: string;
   value: string;
 };
@@ -360,6 +453,11 @@ export type GroupSharedConfigForm = {
   image_price_1k: number | string | null;
   image_price_2k: number | string | null;
   image_price_4k: number | string | null;
+  video_rate_independent: boolean;
+  video_rate_multiplier: number;
+  video_price_480p: number | string | null;
+  video_price_720p: number | string | null;
+  video_price_1080p: number | string | null;
   peak_rate_enabled: boolean;
   peak_start: string;
   peak_end: string;
@@ -373,6 +471,7 @@ export type GroupSharedConfigForm = {
 const props = defineProps<{
   form: GroupSharedConfigForm;
   imageFinalPricePreview: ImageFinalPricePreviewItem[];
+  videoFinalPricePreview: VideoFinalPricePreviewItem[];
   fallbackGroupOptions: SelectOption[];
 }>();
 

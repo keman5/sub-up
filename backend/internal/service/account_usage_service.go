@@ -121,8 +121,8 @@ const (
 	apiQueryMaxJitter         = 800 * time.Millisecond // 用量查询最大随机延迟
 	windowStatsCacheTTL       = 1 * time.Minute
 	openAIProbeCacheTTL       = 10 * time.Minute
+	openAICodexProbeVersion   = "0.144.1"
 	openAIOfficialQuotaTTL    = 1 * time.Minute
-	openAICodexProbeVersion   = "0.125.0"
 	openAICodexProbeModel     = "gpt-5.3-codex-spark"
 	openAICodexMainProbeModel = "gpt-5.3-codex"
 )
@@ -1178,6 +1178,9 @@ func (s *AccountUsageService) probeOpenAICodexSnapshotForModel(ctx context.Conte
 			req.Header.Set("User-Agent", strings.TrimSpace(fp.UserAgent))
 		}
 	}
+	// 与真实转发一致：originator 与最终 User-Agent（可能来自指纹缓存，如 codex-tui）首段配套，
+	// 否则探针被上游 404（issue #3901）。
+	enforceCodexIdentityHeaders(req.Header)
 	setOpenAIChatGPTAccountHeaders(req.Header, account)
 
 	proxyURL := ""

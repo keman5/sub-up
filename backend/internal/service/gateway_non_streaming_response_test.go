@@ -48,7 +48,7 @@ func TestHandleNonStreamingResponse_NonJSON2xxTriggersFailover(t *testing.T) {
 		rateLimitService: &RateLimitService{},
 	}
 
-	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, nil, "claude-sonnet-4-6", "claude-sonnet-4-6")
+	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, "claude-sonnet-4-6", "claude-sonnet-4-6")
 
 	require.Nil(t, usage)
 	var failoverErr *UpstreamFailoverError
@@ -76,7 +76,7 @@ func TestHandleNonStreamingResponse_ValidJSONUnchanged(t *testing.T) {
 		rateLimitService: &RateLimitService{},
 	}
 
-	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, nil, "claude-sonnet-4-6", "claude-sonnet-4-6")
+	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, "claude-sonnet-4-6", "claude-sonnet-4-6")
 
 	require.NoError(t, err)
 	require.NotNil(t, usage)
@@ -102,10 +102,7 @@ func TestClaudeHandleNonStreamingResponse_RewritesClientUsageForPresentation(t *
 		rateLimitService: &RateLimitService{},
 	}
 
-	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, &Group{
-		UsageMultiplierEnabled: true,
-		UsageMultiplier:        2,
-	}, "claude-sonnet-4-6", "claude-sonnet-4-6")
+	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, "claude-sonnet-4-6", "claude-sonnet-4-6")
 
 	require.NoError(t, err)
 	require.NotNil(t, usage)
@@ -137,10 +134,7 @@ func TestClaudeHandleNonStreamingResponse_RewritesClientUsageForPresentationWith
 		rateLimitService: &RateLimitService{},
 	}
 
-	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, &Group{
-		UsageMultiplierEnabled: true,
-		UsageMultiplier:        2,
-	}, "claude-sonnet-4-6", "claude-sonnet-4-6")
+	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, "claude-sonnet-4-6", "claude-sonnet-4-6")
 
 	require.NoError(t, err)
 	require.NotNil(t, usage)
@@ -229,7 +223,7 @@ func TestHandleNonStreamingResponse_NonJSON2xxMatchesTempUnschedulableRule(t *te
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
 
-	_, err := svc.handleNonStreamingResponse(context.Background(), resp, c, account, nil, "claude-sonnet-4-6", "claude-sonnet-4-6")
+	_, err := svc.handleNonStreamingResponse(context.Background(), resp, c, account, "claude-sonnet-4-6", "claude-sonnet-4-6")
 
 	var failoverErr *UpstreamFailoverError
 	require.True(t, errors.As(err, &failoverErr))

@@ -32,6 +32,12 @@ describe("groups form single-render controls", () => {
       ),
     ).toBe(1);
     expect(
+      countOccurrences(
+        sharedConfigSectionsSource,
+        "admin.groups.videoPricing.title",
+      ),
+    ).toBe(1);
+    expect(
       countOccurrences(sharedConfigSectionsSource, "admin.groups.peakRate.enable"),
     ).toBe(1);
     expect(
@@ -48,6 +54,9 @@ describe("groups form single-render controls", () => {
     ).toBe(1);
     expect(
       countOccurrences(groupsViewSource, "admin.groups.imagePricing.title"),
+    ).toBe(0);
+    expect(
+      countOccurrences(groupsViewSource, "admin.groups.videoPricing.title"),
     ).toBe(0);
     expect(countOccurrences(groupsViewSource, "admin.groups.peakRate.enable")).toBe(
       0,

@@ -38,6 +38,27 @@ func ResolvePresentationMultiplierWithImageOutput(group *Group, inputTokens, out
 	return group.UsageMultiplier
 }
 
+func gatewayResponsePresentationGroup(c interface{ Get(string) (any, bool) }) *Group {
+	if group := apiKeyGroup(getAPIKeyFromContext(c)); group != nil {
+		return group
+	}
+	return &Group{
+		UsageMultiplierEnabled: true,
+		UsageMultiplier:        2,
+	}
+}
+
+func ResolveGatewayResponsePresentationMultiplier(c interface{ Get(string) (any, bool) }, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, imageOutputTokens int) float64 {
+	return ResolvePresentationMultiplierWithImageOutput(
+		gatewayResponsePresentationGroup(c),
+		inputTokens,
+		outputTokens,
+		cacheCreationTokens,
+		cacheReadTokens,
+		imageOutputTokens,
+	)
+}
+
 func UsagePresentationMultiplier(log *UsageLog) float64 {
 	if log == nil || log.PresentationMultiplier <= 0 {
 		return 1

@@ -135,14 +135,23 @@ func (r *fallbackSubRepo) Restore(ctx context.Context, id int64, restoredStatus 
 	r.subscriptions[r.key(sub.UserID, sub.GroupID)] = sub
 	return sub, nil
 }
-func (r *fallbackSubRepo) ExtendExpiry(context.Context, int64, time.Time) error      { return nil }
-func (r *fallbackSubRepo) UpdateStatus(context.Context, int64, string) error         { return nil }
-func (r *fallbackSubRepo) UpdateNotes(context.Context, int64, string) error          { return nil }
-func (r *fallbackSubRepo) ActivateWindows(context.Context, int64, time.Time) error   { return nil }
-func (r *fallbackSubRepo) ResetDailyUsage(context.Context, int64, time.Time) error   { return nil }
-func (r *fallbackSubRepo) ResetWeeklyUsage(context.Context, int64, time.Time) error  { return nil }
-func (r *fallbackSubRepo) ResetMonthlyUsage(context.Context, int64, time.Time) error { return nil }
-func (r *fallbackSubRepo) IncrementUsage(context.Context, int64, float64) error      { return nil }
+func (r *fallbackSubRepo) ExtendExpiry(context.Context, int64, time.Time) error    { return nil }
+func (r *fallbackSubRepo) UpdateStatus(context.Context, int64, string) error       { return nil }
+func (r *fallbackSubRepo) UpdateNotes(context.Context, int64, string) error        { return nil }
+func (r *fallbackSubRepo) ActivateWindows(context.Context, int64, time.Time) error { return nil }
+func (r *fallbackSubRepo) ResetUsageWindows(context.Context, int64, bool, bool, bool, time.Time) error {
+	return nil
+}
+func (r *fallbackSubRepo) ResetDailyUsage(context.Context, int64, *time.Time, time.Time) error {
+	return nil
+}
+func (r *fallbackSubRepo) ResetWeeklyUsage(context.Context, int64, *time.Time, time.Time) error {
+	return nil
+}
+func (r *fallbackSubRepo) ResetMonthlyUsage(context.Context, int64, *time.Time, time.Time) error {
+	return nil
+}
+func (r *fallbackSubRepo) IncrementUsage(context.Context, int64, float64) error { return nil }
 func (r *fallbackSubRepo) BatchUpdateExpiredStatus(context.Context) ([]service.UserSubscription, error) {
 	return nil, nil
 }

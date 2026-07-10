@@ -749,6 +749,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import SearchInput from '@/components/common/SearchInput.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { useAppDialog } from '@/composables/useAppDialog'
 import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize, setPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useAppStore } from '@/stores/app'
@@ -823,6 +824,7 @@ const outputCountOptions = Array.from({ length: BATCH_IMAGE_MAX_OUTPUTS_PER_ITEM
 const batchPageSizeOptions: SelectOption[] = [20, 50, 100].map(size => ({ value: size, label: String(size) }))
 
 const appStore = useAppStore()
+const appDialog = useAppDialog()
 const { copyToClipboard } = useClipboard()
 const { locale } = useI18n()
 
@@ -1759,7 +1761,7 @@ async function cancelSelected() {
   if (!currentJob.value) return
   const key = keyForSelectedBatch() || requireApiKey()
   if (!key) return
-  if (!window.confirm(batchImageText('cancelConfirm'))) return
+  if (!(await appDialog.confirm({ message: batchImageText('cancelConfirm'), danger: true }))) return
   cancelling.value = true
   try {
     const job = await cancelBatchImageJob(key.key, currentJob.value.id)
@@ -1895,7 +1897,7 @@ async function deleteJob(job: BatchImageJobRow) {
   closeMoreMenu()
   const key = apiKeyForJob(job)
   if (!key) return
-  if (!window.confirm(batchImageText('deleteConfirm'))) return
+  if (!(await appDialog.confirm({ message: batchImageText('deleteConfirm'), danger: true }))) return
   deletingBatchId.value = job.id
   try {
     await deleteBatchImageJobRecord(key.key, job.id)
@@ -1911,7 +1913,7 @@ async function deleteJob(job: BatchImageJobRow) {
 async function deleteSelectedJobs() {
   const rows = selectedRows.value.filter(job => canDeleteRecord(job))
   if (bulkDeleting.value || rows.length === 0) return
-  if (!window.confirm(batchImageText('deleteSelectedConfirm'))) return
+  if (!(await appDialog.confirm({ message: batchImageText('deleteSelectedConfirm'), danger: true }))) return
   bulkDeleting.value = true
   try {
     for (const row of rows) {

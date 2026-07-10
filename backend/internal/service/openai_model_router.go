@@ -59,6 +59,59 @@ type openAIModelRouteEvalInput struct {
 	RequestMeta    openAIModelRouterRequestMeta
 }
 
+type openAIModelRouteEvalCtxKey struct{}
+
+func withOpenAIModelRouteEvalInput(ctx context.Context, input *openAIModelRouteEvalInput) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if input == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, openAIModelRouteEvalCtxKey{}, input)
+}
+
+func openAIModelRouteEvalInputFromContext(ctx context.Context) *openAIModelRouteEvalInput {
+	if ctx == nil {
+		return nil
+	}
+	input, _ := ctx.Value(openAIModelRouteEvalCtxKey{}).(*openAIModelRouteEvalInput)
+	return input
+}
+
+func (s *OpenAIGatewayService) WithModelRouteRequestContext(
+	ctx context.Context,
+	sessionHash string,
+	requestedModel string,
+	imageIntent bool,
+	reqBody map[string]any,
+	rawBody []byte,
+) context.Context {
+	if s == nil || s.cfg == nil {
+		return ctx
+	}
+	return withOpenAIModelRouteEvalInput(ctx, &openAIModelRouteEvalInput{
+		SessionHash:    sessionHash,
+		RequestedModel: requestedModel,
+		RequestMeta: openAIModelRouterRequestMeta{
+			RequestedModel: strings.TrimSpace(requestedModel),
+			ImageIntent:    imageIntent,
+			ComplexText: isOpenAIModelRouterComplexText(
+				reqBody,
+				rawBody,
+				s.cfg.Gateway.ModelRouter.ComplexInputMinChars,
+				0,
+			),
+			PremiumText: isOpenAIModelRouterComplexText(
+				reqBody,
+				rawBody,
+				s.cfg.Gateway.ModelRouter.PremiumInputMinChars,
+				s.cfg.Gateway.ModelRouter.PremiumInputMinItems,
+			),
+		},
+	})
+}
+
 func (s *OpenAIGatewayService) isOpenAIModelRouterEnabled() bool {
 	if s == nil || s.cfg == nil || !s.cfg.Gateway.ModelRouter.Enabled {
 		return false
