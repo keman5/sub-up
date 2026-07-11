@@ -62,9 +62,17 @@
               >{{ index + 1 }}</span>
               <span v-else class="inline-block w-6 text-center text-sm tabular-nums text-gray-400">{{ index + 1 }}</span>
             </td>
-            <td class="max-w-[260px] truncate px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-200" :title="item.email">
-              {{ item.email || `User #${item.user_id}` }}
-              <span class="ml-1 font-normal text-gray-400 dark:text-gray-500">#{{ item.user_id }}</span>
+            <td
+              class="max-w-[260px] px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-200"
+              :title="[item.email, item.notes].filter(Boolean).join('\n')"
+            >
+              <div class="truncate">
+                {{ item.email || `User #${item.user_id}` }}
+                <span class="ml-1 font-normal text-gray-400 dark:text-gray-500">#{{ item.user_id }}</span>
+              </div>
+              <div v-if="item.notes?.trim()" class="mt-0.5 truncate text-xs font-normal text-gray-400 dark:text-gray-500">
+                {{ item.notes.trim() }}
+              </div>
             </td>
             <td class="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-gray-500 dark:text-gray-400">{{ item.requests.toLocaleString() }}</td>
             <td class="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-gray-500 dark:text-gray-400">{{ fmtTokens(item.input_tokens) }}</td>

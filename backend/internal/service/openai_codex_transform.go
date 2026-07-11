@@ -780,6 +780,18 @@ func stripCodexSparkImageGenerationTools(reqBody map[string]any) bool {
 	return stripOpenAIImageGenerationTools(reqBody)
 }
 
+func stripCodexSparkReasoningSummary(reqBody map[string]any) bool {
+	reasoning, ok := reqBody["reasoning"].(map[string]any)
+	if !ok {
+		return false
+	}
+	if _, exists := reasoning["summary"]; !exists {
+		return false
+	}
+	delete(reasoning, "summary")
+	return true
+}
+
 func hasOpenAIInputImage(reqBody map[string]any) bool {
 	if reqBody == nil {
 		return false

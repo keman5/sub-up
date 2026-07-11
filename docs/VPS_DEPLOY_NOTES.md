@@ -1407,3 +1407,27 @@ pnpm dlx wrangler pages deploy /tmp/sub2api-pages-test --project-name sub2api-fr
 ### 6. Headroom 相关历史路径已删除
 
 2026-07-07 起，a1 Claude Messages、Chat Completions、Images、WS bridge 等路径不再支持或依赖 Headroom sidecar override。相关历史修复仅作为 git 历史存在，不再在部署文档中保留可执行恢复步骤。
+
+### 7. Cloudflare 524 与 OpenAI 上游响应头超时
+
+三套 API 域名均经过 Cloudflare。Cloudflare 与源站连接成功、但源站在 120 秒内没有返回完整响应时，会由边缘生成 524；这类响应不是 sub2api 生成的，后端无法在 524 正文后补充本地化说明。
+
+线上统一配置：
+
+```env
+GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT=100
+```
+
+该值只限制 OpenAI/Codex 上游返回响应头前的等待时间。超过 100 秒时，sub2api 返回结构化 504 `upstream_timeout`，客户端能够收到中英文说明；上游一旦返回响应头并建立 SSE 流，仍由 `GATEWAY_STREAM_KEEPALIVE_INTERVAL=10` 保活，不限制正常长流的总时长。
+
+2026-07-10 A1 的 524 复盘：对应时段 VPS CPU 正常，OpenAI 账号 53 在 20 分钟内处理 312 个请求，平均首 Token 约 50 秒，最长超过 1500 秒，并出现 `unexpected EOF` 和集中上游 502。故障属于上游账号响应挂起，不是 Cloudflare 无法连接源站，也不是 VPS CPU 打满。
+
+部署后检查：
+
+```bash
+ssh 51tokens 'docker exec sub2api env | grep GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT'
+ssh 51tokens 'docker exec sub2api-ap1 env | grep GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT'
+ssh 51tokens 'docker exec sub2api-test env | grep GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT'
+```
+
+三套都应输出 `GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT=100`。不要重新设为 `0` 或高于 120，否则慢上游会再次由 Cloudflare 先返回不可控的 524。

@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -199,7 +201,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 				if needsMaintenance && validateErr == nil {
 					refreshed, maintenanceErr := subscriptionService.EnsureWindowMaintenance(c.Request.Context(), subscription)
 					if maintenanceErr != nil {
-						AbortWithError(c, 500, "SUBSCRIPTION_MAINTENANCE_FAILED", "Failed to maintain subscription usage windows")
+						AbortWithError(c, http.StatusServiceUnavailable, "SUBSCRIPTION_MAINTENANCE_FAILED", "Failed to maintain subscription usage windows")
 						return
 					}
 					subscription = refreshed
@@ -219,13 +221,19 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 						}
 						goto billingValidated
 					}
-					code := "SUBSCRIPTION_INVALID"
-					status := 403
-					if service.IsSubscriptionLimitError(validateErr) {
-						code = "USAGE_LIMIT_EXCEEDED"
-						status = 429
+					code := pkgerrors.Reason(validateErr)
+					if code == "" {
+						code = "SUBSCRIPTION_INVALID"
 					}
-					AbortWithError(c, status, code, validateErr.Error())
+					status := pkgerrors.Code(validateErr)
+					if status < http.StatusBadRequest {
+						status = http.StatusForbidden
+					}
+					message := pkgerrors.Message(validateErr)
+					if message == "" {
+						message = "Subscription is not available"
+					}
+					AbortWithError(c, status, code, message)
 					return
 				}
 			} else {

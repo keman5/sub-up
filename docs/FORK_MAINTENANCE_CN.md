@@ -766,6 +766,28 @@ git diff --check
 - 继续搜索 `headroom-main`、`headroom-a1`、`GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES`、`HEADROOM_STATS`、`openai_headroom_enabled`、`OpsHeadroomStatsCard`、`HeadroomStatsService`。
 - 当前生产和代码均不得恢复 Headroom sidecar、Responses override、后台开关或 stats API；如果官方也移除了相关能力，本地补丁可以删除。
 
+### 2026-07-13: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `backend/internal/service/client_error_localization.go`
+- `backend/internal/service/client_error_localization_test.go`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：

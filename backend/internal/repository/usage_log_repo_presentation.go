@@ -594,6 +594,10 @@ func (r *usageLogRepository) GetUserBreakdownStatsForView(ctx context.Context, s
 		return r.GetUserBreakdownStats(ctx, startTime, endTime, dim, limit)
 	}
 	presentationFactor := usagePresentationFactorSQL("ul.", true)
+	inputTokensExpr := usagePresentationTokenSQL("ul.input_tokens", presentationFactor)
+	outputTokensExpr := usagePresentationOutputTokensSQL("ul.", presentationFactor)
+	cacheTokensExpr := usagePresentationTokenSQL("ul.cache_creation_tokens", presentationFactor) + " + " +
+		usagePresentationTokenSQL("ul.cache_read_tokens", presentationFactor)
 	totalTokensExpr := usagePresentationTotalTokensSQL("ul.", presentationFactor)
 	totalCostExpr := usagePresentationCostSQL("ul.total_cost", presentationFactor)
 	actualCostExpr := usagePresentationCostSQL("ul.actual_cost", presentationFactor)
@@ -602,7 +606,11 @@ func (r *usageLogRepository) GetUserBreakdownStatsForView(ctx context.Context, s
 		SELECT
 			COALESCE(ul.user_id, 0) as user_id,
 			COALESCE(u.email, '') as email,
+			COALESCE(u.notes, '') as notes,
 			COUNT(*) as requests,
+			COALESCE(SUM(` + inputTokensExpr + `), 0) as input_tokens,
+			COALESCE(SUM(` + outputTokensExpr + `), 0) as output_tokens,
+			COALESCE(SUM(` + cacheTokensExpr + `), 0) as cache_tokens,
 			COALESCE(SUM(` + totalTokensExpr + `), 0) as total_tokens,
 			COALESCE(SUM(` + totalCostExpr + `), 0) as cost,
 			COALESCE(SUM(` + actualCostExpr + `), 0) as actual_cost,
@@ -654,7 +662,7 @@ func (r *usageLogRepository) GetUserBreakdownStatsForView(ctx context.Context, s
 	case "total_tokens", "input_tokens", "output_tokens", "cache_tokens", "requests", "cost", "actual_cost":
 		orderBy = dim.SortBy
 	}
-	query += " GROUP BY ul.user_id, u.email ORDER BY " + orderBy + " DESC"
+	query += " GROUP BY ul.user_id, u.email, u.notes ORDER BY " + orderBy + " DESC"
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
@@ -671,7 +679,19 @@ func (r *usageLogRepository) GetUserBreakdownStatsForView(ctx context.Context, s
 	results = make([]usagestats.UserBreakdownItem, 0)
 	for rows.Next() {
 		var row usagestats.UserBreakdownItem
-		if err := rows.Scan(&row.UserID, &row.Email, &row.Requests, &row.TotalTokens, &row.Cost, &row.ActualCost, &row.AccountCost); err != nil {
+		if err := rows.Scan(
+			&row.UserID,
+			&row.Email,
+			&row.Notes,
+			&row.Requests,
+			&row.InputTokens,
+			&row.OutputTokens,
+			&row.CacheTokens,
+			&row.TotalTokens,
+			&row.Cost,
+			&row.ActualCost,
+			&row.AccountCost,
+		); err != nil {
 			return nil, err
 		}
 		results = append(results, row)

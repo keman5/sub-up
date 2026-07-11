@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
+	"regexp"
 	"testing"
 	"time"
 
@@ -652,29 +653,50 @@ func TestUsageLogRepositoryGetUserBreakdownStatsForViewUsesPresentationMultiplie
 	startTime := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
 	endTime := startTime.Add(24 * time.Hour)
 
-	mock.ExpectQuery("ul\\.actual_cost \\* COALESCE\\(NULLIF\\(ul\\.presentation_multiplier, 0\\), 1\\)").
+	presentationFactor := usagePresentationFactorSQL("ul.", true)
+	tokenExpressions := []string{
+		usagePresentationTokenSQL("ul.input_tokens", presentationFactor),
+		usagePresentationOutputTokensSQL("ul.", presentationFactor),
+		usagePresentationTokenSQL("ul.cache_creation_tokens", presentationFactor),
+		usagePresentationTokenSQL("ul.cache_read_tokens", presentationFactor),
+		usagePresentationTotalTokensSQL("ul.", presentationFactor),
+	}
+	queryPattern := `(?s)` + regexp.QuoteMeta("COALESCE(u.notes, '') as notes") + `.*`
+	for _, expression := range tokenExpressions {
+		queryPattern += regexp.QuoteMeta(expression) + ".*"
+	}
+
+	mock.ExpectQuery(queryPattern).
 		WithArgs(startTime, endTime).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"user_id",
 			"email",
+			"notes",
 			"requests",
+			"input_tokens",
+			"output_tokens",
+			"cache_tokens",
 			"total_tokens",
 			"cost",
 			"actual_cost",
 			"account_cost",
-		}).AddRow(int64(9), "breakdown@example.com", int64(3), int64(600), 3.5, 2.5, 1.5))
+		}).AddRow(int64(9), "breakdown@example.com", "priority customer", int64(3), int64(300), int64(200), int64(100), int64(600), 3.5, 2.5, 1.5))
 
 	got, err := repo.GetUserBreakdownStatsForView(context.Background(), startTime, endTime, usagestats.UserBreakdownDimension{}, 10, true)
 
 	require.NoError(t, err)
 	require.Equal(t, []usagestats.UserBreakdownItem{{
-		UserID:      9,
-		Email:       "breakdown@example.com",
-		Requests:    3,
-		TotalTokens: 600,
-		Cost:        3.5,
-		ActualCost:  2.5,
-		AccountCost: 1.5,
+		UserID:       9,
+		Email:        "breakdown@example.com",
+		Notes:        "priority customer",
+		Requests:     3,
+		InputTokens:  300,
+		OutputTokens: 200,
+		CacheTokens:  100,
+		TotalTokens:  600,
+		Cost:         3.5,
+		ActualCost:   2.5,
+		AccountCost:  1.5,
 	}}, got)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
