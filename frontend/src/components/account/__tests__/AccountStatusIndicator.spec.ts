@@ -13,12 +13,13 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
-vi.mock('@/utils/format', () => ({
-  formatCountdown: vi.fn(() => '1h'),
-  formatCountdownWithSuffix: vi.fn(() => ''),
-  formatDateTime: vi.fn((value: string | null | undefined) => value || ''),
-  formatTime: vi.fn((value: string | null | undefined) => value || '')
-}))
+vi.mock('@/utils/format', async () => {
+  const actual = await vi.importActual<typeof import('@/utils/format')>('@/utils/format')
+  return {
+    ...actual,
+    formatCountdown: () => '1h'
+  }
+})
 
 function makeAccount(overrides: Partial<Account>): Account {
   return {

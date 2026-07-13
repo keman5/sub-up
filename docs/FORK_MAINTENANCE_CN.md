@@ -907,6 +907,130 @@ TODO: 填写验证命令
 
 - TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
 
+### 2026-07-13: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `.github/workflows/backend-ci.yml`
+- `.gitignore`
+- `README.md`
+- `README_CN.md`
+- `README_JA.md`
+- `backend/cmd/server/VERSION`
+- `backend/cmd/server/wire_gen.go`
+- `backend/internal/config/config.go`
+- `backend/internal/config/config_test.go`
+- `backend/internal/handler/endpoint.go`
+- `backend/internal/handler/failover_loop.go`
+- `backend/internal/handler/failover_loop_test.go`
+- `backend/internal/handler/gateway_handler.go`
+- `backend/internal/handler/gateway_handler_chat_completions.go`
+- `backend/internal/handler/gateway_handler_responses.go`
+- `backend/internal/handler/gateway_handler_usage_test.go`
+- `backend/internal/handler/gateway_helper.go`
+- `backend/internal/handler/gateway_helper_fastpath_test.go`
+- `backend/internal/handler/gemini_v1beta_handler.go`
+- `backend/internal/handler/grok_media.go`
+- `backend/internal/handler/openai_chat_completions.go`
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/handler/openai_gateway_handler_test.go`
+- `backend/internal/handler/payment_handler.go`
+- `backend/internal/handler/payment_handler_resume_test.go`
+- `backend/internal/pkg/apicompat/anthropic_responses_test.go`
+- `backend/internal/pkg/apicompat/anthropic_to_responses_response.go`
+- `backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go`
+- `backend/internal/pkg/apicompat/chatcompletions_responses_bridge_custom_tools_test.go`
+- `backend/internal/pkg/apicompat/responses_to_anthropic.go`
+- `backend/internal/pkg/apicompat/responses_to_anthropic_read_tool_test.go`
+- `backend/internal/pkg/apicompat/responses_to_chatcompletions.go`
+- `backend/internal/pkg/apicompat/streaming_stop_reason_test.go`
+- `backend/internal/pkg/pagination/pagination.go`
+- `backend/internal/pkg/pagination/pagination_test.go`
+- `backend/internal/pkg/xai/oauth.go`
+- `backend/internal/pkg/xai/oauth_test.go`
+- `backend/internal/repository/api_key_repo.go`
+- `backend/internal/repository/api_key_repo_last_used_unit_test.go`
+- `backend/internal/repository/concurrency_cache.go`
+- `backend/internal/repository/concurrency_cache_integration_test.go`
+- `backend/internal/repository/migrations_runner.go`
+- `backend/internal/repository/migrations_runner_notx_test.go`
+- `backend/internal/repository/scheduler_cache.go`
+- `backend/internal/repository/scheduler_cache_unit_test.go`
+- `backend/internal/server/routes/gateway.go`
+- `backend/internal/server/routes/gateway_test.go`
+- `backend/internal/server/routes/payment.go`
+- `backend/internal/service/account.go`
+- `backend/internal/service/account_base_url_test.go`
+- `backend/internal/service/account_test_service.go`
+- `backend/internal/service/account_test_service_openai_test.go`
+- `backend/internal/service/concurrency_service.go`
+- `backend/internal/service/concurrency_service_test.go`
+- `backend/internal/service/grok_media.go`
+- `backend/internal/service/model_not_found_error.go`
+- `backend/internal/service/model_not_found_error_test.go`
+- `backend/internal/service/openai_gateway_grok_test.go`
+- `backend/internal/service/openai_gateway_messages.go`
+- `backend/internal/service/openai_gateway_responses_chat_fallback.go`
+- `backend/internal/service/openai_ws_client.go`
+- `backend/internal/service/openai_ws_client_test.go`
+- `backend/internal/service/openai_ws_forwarder_ingress.go`
+- `backend/internal/service/openai_ws_forwarder_ingress_session_test.go`
+- `backend/internal/service/openai_ws_http_bridge_test.go`
+- `backend/internal/service/openai_ws_pool.go`
+- `backend/internal/service/openai_ws_pool_test.go`
+- `backend/internal/service/ratelimit_service.go`
+- `backend/internal/service/ratelimit_service_model_not_found_test.go`
+- `backend/internal/service/upstream_models.go`
+- `backend/internal/service/upstream_models_test.go`
+- `backend/internal/web/embed_on.go`
+- `backend/internal/web/embed_test.go`
+- `backend/internal/web/static_cache.go`
+- `backend/internal/web/static_cache_test.go`
+- `backend/migrations/174_add_usage_logs_api_key_latest_ip_index_notx.sql`
+- `backend/migrations/latest_api_key_ip_index_test.go`
+- `deploy/.env.example`
+- `deploy/APPLE_CONTAINER.md`
+- `deploy/README.md`
+- `deploy/apple-container.sh`
+- `deploy/config.example.yaml`
+- `deploy/tests/apple-container-test.sh`
+- `deploy/tests/fixtures/bin/container`
+- `deploy/tests/fixtures/bin/curl`
+- `frontend/src/api/payment.ts`
+- `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/components/account/__tests__/AccountStatusIndicator.spec.ts`
+- `frontend/src/components/account/__tests__/credentialsBuilder.spec.ts`
+- `frontend/src/components/account/credentialsBuilder.ts`
+- `frontend/src/components/common/DataTable.vue`
+- `frontend/src/components/common/__tests__/DataTable.spec.ts`
+- `frontend/src/composables/__tests__/useSwipeSelect.spec.ts`
+- `frontend/src/composables/useSwipeSelect.ts`
+- `frontend/src/i18n/locales/en/admin/accounts.ts`
+- `frontend/src/i18n/locales/zh/admin/accounts.ts`
+- `frontend/src/i18n/locales/zh/admin/overview.ts`
+- `frontend/src/utils/__tests__/formatDateLocalInput.spec.ts`
+- `frontend/src/utils/format.ts`
+- `frontend/src/views/KeyUsageView.vue`
+- `frontend/src/views/__tests__/KeyUsageView.spec.ts`
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/views/admin/GroupsView.vue`
+- `frontend/src/views/user/DashboardView.vue`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：

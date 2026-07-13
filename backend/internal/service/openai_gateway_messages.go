@@ -389,7 +389,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 
 	// Extract and save the model-specific Codex usage snapshot for OAuth accounts.
-	// Grok usage is updated before response handling so it receives its own quota data.
+	// Shadow accounts are updated only through QueryUsage; Grok records its quota earlier.
 	if handleErr == nil && account.Type == AccountTypeOAuth && !account.IsShadow() && account.Platform != PlatformGrok {
 		if snapshot := ParseCodexRateLimitHeadersForModel(resp.Header, upstreamModel); snapshot != nil {
 			s.updateCodexUsageSnapshot(ctx, account.ID, snapshot, upstreamModel)
