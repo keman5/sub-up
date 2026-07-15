@@ -201,6 +201,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	if err != nil {
 		return nil, err
 	}
+	if account.Platform != PlatformGrok && isOpenAIResponsesLiteWebSocketPayload(payload) {
+		upstreamReq.Header.Set(responsesLiteHeader, "true")
+	}
 
 	proxyURL := s.openAICodexHTTPProxyURL(account, upstreamReq)
 	if c != nil {
@@ -428,7 +431,7 @@ func resolveGrokWSUpstreamModel(account *Account, body []byte, originalModel str
 		}
 	}
 	if upstreamModel == "" {
-		upstreamModel = "grok-4.3"
+		upstreamModel = grokDefaultResponsesModel
 	}
 	return upstreamModel
 }
