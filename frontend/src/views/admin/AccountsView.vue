@@ -64,10 +64,7 @@
               <!-- More Tools Dropdown -->
               <div class="relative" ref="accountToolsDropdownRef">
                 <button
-                  @click="
-                    showAccountToolsDropdown = !showAccountToolsDropdown;
-                    showAutoRefreshDropdown = false
-                  "
+                  @click="toggleAccountToolsDropdown"
                   class="btn btn-secondary px-2 md:px-3"
                   :title="t('admin.accounts.moreActions')"
                 >
@@ -77,7 +74,9 @@
                 </button>
                 <div
                   v-if="showAccountToolsDropdown"
-                  class="absolute right-0 z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] origin-top-right overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800"
+                  ref="accountToolsMenuRef"
+                  class="fixed z-50 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800"
+                  :style="accountToolsMenuStyle"
                 >
                   <div class="max-h-[70vh] overflow-y-auto p-2">
                     <div class="px-2 py-2">
@@ -427,7 +426,7 @@
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, ref, reactive, computed, nextTick, onMounted, onUnmounted, toRaw, watch } from 'vue'
+import { defineAsyncComponent, ref, reactive, computed, nextTick, onMounted, onUnmounted, toRaw, watch, type CSSProperties } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -457,7 +456,7 @@ import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
-import { getActionMenuPosition } from '@/utils/floatingMenuPosition'
+import { clampFloatingMenuPosition, getActionMenuPosition } from '@/utils/floatingMenuPosition'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
@@ -556,6 +555,20 @@ const exportingData = ref(false)
 // Account tools dropdown
 const showAccountToolsDropdown = ref(false)
 const accountToolsDropdownRef = ref<HTMLElement | null>(null)
+const accountToolsMenuRef = ref<HTMLElement | null>(null)
+const accountToolsTriggerRef = ref<HTMLElement | null>(null)
+const accountToolsMenuPosition = ref<{ top: number; left: number; maxHeight: number } | null>(null)
+const accountToolsMenuStyle = computed<CSSProperties>(() => {
+  const position = accountToolsMenuPosition.value
+  if (!position) return {}
+
+  return {
+    top: `${position.top}px`,
+    left: `${position.left}px`,
+    maxHeight: `${position.maxHeight}px`,
+    overflowY: 'auto'
+  }
+})
 const hiddenColumns = reactive<Set<string>>(new Set())
 const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
@@ -1117,6 +1130,55 @@ const handleManualRefresh = async () => {
 
 const closeAccountToolsDropdown = () => {
   showAccountToolsDropdown.value = false
+  accountToolsMenuPosition.value = null
+  accountToolsTriggerRef.value = null
+}
+
+const adjustAccountToolsMenuPosition = () => {
+  if (!showAccountToolsDropdown.value || !accountToolsTriggerRef.value) return
+
+  nextTick(() => {
+    const triggerRect = accountToolsTriggerRef.value?.getBoundingClientRect()
+    const menuRect = accountToolsMenuRef.value?.getBoundingClientRect()
+    if (!triggerRect || !menuRect) return
+
+    const viewport = { width: window.innerWidth, height: window.innerHeight }
+    const padding = 8
+    let top = triggerRect.bottom + 8
+    if (top + menuRect.height > viewport.height - padding) {
+      top = triggerRect.top - menuRect.height - 8
+    }
+
+    accountToolsMenuPosition.value = clampFloatingMenuPosition(
+      { top, left: triggerRect.right - menuRect.width },
+      { width: menuRect.width, height: menuRect.height },
+      viewport,
+      padding
+    )
+  })
+}
+
+const toggleAccountToolsDropdown = (event: MouseEvent) => {
+  if (showAccountToolsDropdown.value) {
+    closeAccountToolsDropdown()
+    return
+  }
+
+  const trigger = event.currentTarget as HTMLElement | null
+  if (!trigger) return
+
+  showAutoRefreshDropdown.value = false
+  accountToolsTriggerRef.value = trigger
+  const triggerRect = trigger.getBoundingClientRect()
+  const viewport = { width: window.innerWidth, height: window.innerHeight }
+  const estimatedWidth = Math.min(320, Math.max(0, viewport.width - 16))
+  accountToolsMenuPosition.value = clampFloatingMenuPosition(
+    { top: triggerRect.bottom + 8, left: triggerRect.right - estimatedWidth },
+    { width: estimatedWidth, height: 0 },
+    viewport
+  )
+  showAccountToolsDropdown.value = true
+  adjustAccountToolsMenuPosition()
 }
 
 const openSyncFromCrs = () => {
@@ -1879,6 +1941,7 @@ const proxyExpiryText = (p: AccountProxy): string => {
 // 滚动时关闭操作菜单（不关闭列设置下拉菜单）
 const handleScroll = () => {
   menu.show = false
+  adjustAccountToolsMenuPosition()
 }
 
 // 点击外部关闭顶部下拉菜单
@@ -1904,6 +1967,7 @@ onMounted(async () => {
     console.error('Failed to load proxies/groups:', error)
   }
   window.addEventListener('scroll', handleScroll, true)
+  window.addEventListener('resize', adjustAccountToolsMenuPosition)
   document.addEventListener('click', handleClickOutside)
 
   if (autoRefreshEnabled.value) {
@@ -1916,6 +1980,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll, true)
+  window.removeEventListener('resize', adjustAccountToolsMenuPosition)
   document.removeEventListener('click', handleClickOutside)
 })
 </script>

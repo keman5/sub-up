@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { clampFloatingMenuPosition } from '../floatingMenuPosition'
+import { clampFloatingMenuPosition, getActionMenuPosition } from '../floatingMenuPosition'
 
 describe('floating menu positioning', () => {
   it('keeps a measured menu inside the bottom edge of the viewport', () => {
@@ -27,5 +27,29 @@ describe('floating menu positioning', () => {
     expect(result.top).toBe(8)
     expect(result.left).toBe(20)
     expect(result.maxHeight).toBe(344)
+  })
+
+  it('keeps a mobile action menu inside the left edge when its trigger is near the edge', () => {
+    const result = getActionMenuPosition({
+      triggerRect: { top: 120, right: 32, bottom: 152, left: 8, width: 24 },
+      pointerX: 20,
+      pointerY: 136,
+      menuSize: { width: 208, height: 240 },
+      viewport: { width: 320, height: 640 }
+    })
+
+    expect(result.left).toBe(8)
+    expect(result.left + 208).toBeLessThanOrEqual(312)
+  })
+
+  it('clamps a wide dropdown that would otherwise start outside the viewport', () => {
+    const result = clampFloatingMenuPosition(
+      { top: 80, left: -120 },
+      { width: 288, height: 420 },
+      { width: 320, height: 640 }
+    )
+
+    expect(result.left).toBe(8)
+    expect(result.left + 288).toBeLessThanOrEqual(312)
   })
 })
