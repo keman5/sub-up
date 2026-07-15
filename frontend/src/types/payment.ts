@@ -66,6 +66,7 @@ export interface CheckoutInfoResponse {
   plans: SubscriptionPlan[]
   balance_disabled: boolean
   balance_recharge_multiplier: number
+  subscription_usd_to_cny_rate: number
   recharge_fee_rate: number
   help_text: string
   help_image_url: string
@@ -122,6 +123,8 @@ export interface SubscriptionPlan {
   description: string
   price: number
   original_price?: number
+  /** Display-only ISO 4217 currency label (e.g. "NZD"); empty means no label */
+  currency?: string
   validity_days: number
   validity_unit: string
   /** Stored as JSON string in backend; API layer should parse before use */

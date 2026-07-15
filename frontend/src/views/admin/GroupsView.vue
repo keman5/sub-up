@@ -128,6 +128,12 @@
             }}</span>
           </template>
 
+          <template #cell-id="{ value }">
+            <span class="font-mono text-xs text-gray-500 dark:text-gray-400"
+              >#{{ value }}</span
+            >
+          </template>
+
           <template #cell-platform="{ value }">
             <span
               :class="[
@@ -865,6 +871,41 @@
           </div>
         </div>
 
+
+        <!-- Codex 网页搜索按次计费（仅 openai 平台） -->
+        <div
+          v-if="createForm.platform === 'openai'"
+          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+        >
+          <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+            {{ t("admin.groups.webSearchPricing.title") }}
+          </h4>
+          <div>
+            <label class="input-label">{{
+              t("admin.groups.webSearchPricing.pricePerCall")
+            }}</label>
+            <input
+              v-model.number="createForm.web_search_price_per_call"
+              type="number"
+              step="0.001"
+              min="0"
+              placeholder="0.01"
+              class="input"
+            />
+            <p class="input-hint">
+              {{ t("admin.groups.webSearchPricing.pricePerCallHint") }}
+            </p>
+            <div
+              class="mt-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300"
+            >
+              {{
+                t("admin.groups.webSearchPricing.finalPricePreview", {
+                  price: createWebSearchFinalPricePreview,
+                })
+              }}
+            </div>
+          </div>
+        </div>
 
         <!-- Codex 网页搜索按次计费（仅 openai 平台） -->
         <div
@@ -2153,6 +2194,41 @@
           </div>
         </div>
 
+        <!-- Codex 网页搜索按次计费（仅 openai 平台） -->
+        <div
+          v-if="editForm.platform === 'openai'"
+          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+        >
+          <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+            {{ t("admin.groups.webSearchPricing.title") }}
+          </h4>
+          <div>
+            <label class="input-label">{{
+              t("admin.groups.webSearchPricing.pricePerCall")
+            }}</label>
+            <input
+              v-model.number="editForm.web_search_price_per_call"
+              type="number"
+              step="0.001"
+              min="0"
+              placeholder="0.01"
+              class="input"
+            />
+            <p class="input-hint">
+              {{ t("admin.groups.webSearchPricing.pricePerCallHint") }}
+            </p>
+            <div
+              class="mt-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300"
+            >
+              {{
+                t("admin.groups.webSearchPricing.finalPricePreview", {
+                  price: editWebSearchFinalPricePreview,
+                })
+              }}
+            </div>
+          </div>
+        </div>
+
         <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
         <div
           v-if="editForm.platform === 'openai'"
@@ -2935,10 +3011,19 @@ const onboardingStore = useOnboardingStore();
 const isSuperAdmin = computed(() => authStore.user?.role === "super_admin");
 
 const ALWAYS_VISIBLE_COLUMNS = new Set(["name", "actions"]);
+// Default hidden columns (hidden on first load / after schema bumps).
+const DEFAULT_HIDDEN_COLUMNS = ["id"];
 const HIDDEN_COLUMNS_KEY = "group-hidden-columns";
+// Bump when adding new default-hidden columns so existing admins pick them up once.
+const COLUMN_SETTINGS_VERSION_KEY = "group-column-settings-version";
+const COLUMN_SETTINGS_VERSION = 2;
+const VERSION_NEW_HIDDEN_COLUMNS: Record<number, string[]> = {
+  2: ["id"],
+};
 
 const allColumns = computed<Column[]>(() => [
   { key: "name", label: t("admin.groups.columns.name"), sortable: true },
+  { key: "id", label: t("admin.groups.columns.id"), sortable: true },
   {
     key: "platform",
     label: t("admin.groups.columns.platform"),
@@ -2988,16 +3073,51 @@ const loadSavedColumns = () => {
   hiddenColumns.clear();
   try {
     const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY);
-    if (!saved) return;
-    const parsed = JSON.parse(saved);
-    if (!Array.isArray(parsed)) return;
-
     const validKeys = getValidHiddenColumnKeys();
-    parsed
-      .filter((key): key is string => typeof key === "string" && validKeys.has(key))
-      .forEach((key) => hiddenColumns.add(key));
+
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        parsed
+          .filter(
+            (key): key is string =>
+              typeof key === "string" && validKeys.has(key),
+          )
+          .forEach((key) => hiddenColumns.add(key));
+      }
+
+      // Existing admins: auto-hide columns newly added as default-hidden.
+      const storedVersion = Number(
+        localStorage.getItem(COLUMN_SETTINGS_VERSION_KEY) ?? "1",
+      );
+      if (storedVersion < COLUMN_SETTINGS_VERSION) {
+        let mutated = false;
+        for (let v = storedVersion + 1; v <= COLUMN_SETTINGS_VERSION; v++) {
+          for (const key of VERSION_NEW_HIDDEN_COLUMNS[v] ?? []) {
+            if (validKeys.has(key) && !hiddenColumns.has(key)) {
+              hiddenColumns.add(key);
+              mutated = true;
+            }
+          }
+        }
+        if (mutated) {
+          saveColumnsToStorage();
+        } else {
+          localStorage.setItem(
+            COLUMN_SETTINGS_VERSION_KEY,
+            String(COLUMN_SETTINGS_VERSION),
+          );
+        }
+      }
+    } else {
+      DEFAULT_HIDDEN_COLUMNS.forEach((key) => {
+        if (validKeys.has(key)) hiddenColumns.add(key);
+      });
+      saveColumnsToStorage();
+    }
   } catch (error) {
     console.error("Failed to load group column settings:", error);
+    DEFAULT_HIDDEN_COLUMNS.forEach((key) => hiddenColumns.add(key));
   }
 };
 
@@ -3006,6 +3126,10 @@ const saveColumnsToStorage = () => {
     const validKeys = getValidHiddenColumnKeys();
     const keys = [...hiddenColumns].filter((key) => validKeys.has(key));
     localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify(keys));
+    localStorage.setItem(
+      COLUMN_SETTINGS_VERSION_KEY,
+      String(COLUMN_SETTINGS_VERSION),
+    );
   } catch (error) {
     console.error("Failed to save group column settings:", error);
   }

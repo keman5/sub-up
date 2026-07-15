@@ -84,6 +84,43 @@ const BulkEditAccountModalStub = {
   template: '<div data-test="bulk-edit-modal" :data-show="String(show)" :data-target-mode="target?.mode ?? \'\'"></div>'
 }
 
+const mountAccountsView = () => mount(AccountsView, {
+  global: {
+    stubs: {
+      AppLayout: { template: '<div><slot /></div>' },
+      TablePageLayout: {
+        template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+      },
+      DataTable: DataTableStub,
+      Pagination: true,
+      ConfirmDialog: true,
+      AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+      AccountTableFilters: { template: '<div></div>' },
+      AccountBulkActionsBar: AccountBulkActionsBarStub,
+      AccountActionMenu: true,
+      ImportDataModal: true,
+      ReAuthAccountModal: true,
+      AccountTestModal: true,
+      AccountStatsModal: true,
+      ScheduledTestsPanel: true,
+      SyncFromCrsModal: true,
+      TempUnschedStatusModal: true,
+      ErrorPassthroughRulesModal: true,
+      TLSFingerprintProfilesModal: true,
+      CreateAccountModal: true,
+      EditAccountModal: true,
+      BulkEditAccountModal: BulkEditAccountModalStub,
+      PlatformTypeBadge: true,
+      AccountCapacityCell: true,
+      AccountStatusIndicator: true,
+      AccountTodayStatsCell: true,
+      AccountGroupsCell: true,
+      AccountUsageCell: true,
+      Icon: true
+    }
+  }
+})
+
 describe('admin AccountsView bulk edit scope', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -112,42 +149,7 @@ describe('admin AccountsView bulk edit scope', () => {
   })
 
   it('opens bulk edit in filtered-results mode from the bulk actions dropdown', async () => {
-    const wrapper = mount(AccountsView, {
-      global: {
-        stubs: {
-          AppLayout: { template: '<div><slot /></div>' },
-          TablePageLayout: {
-            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
-          },
-          DataTable: DataTableStub,
-          Pagination: true,
-          ConfirmDialog: true,
-          AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
-          AccountTableFilters: { template: '<div></div>' },
-          AccountBulkActionsBar: AccountBulkActionsBarStub,
-          AccountActionMenu: true,
-          ImportDataModal: true,
-          ReAuthAccountModal: true,
-          AccountTestModal: true,
-          AccountStatsModal: true,
-          ScheduledTestsPanel: true,
-          SyncFromCrsModal: true,
-          TempUnschedStatusModal: true,
-          ErrorPassthroughRulesModal: true,
-          TLSFingerprintProfilesModal: true,
-          CreateAccountModal: true,
-          EditAccountModal: true,
-          BulkEditAccountModal: BulkEditAccountModalStub,
-          PlatformTypeBadge: true,
-          AccountCapacityCell: true,
-          AccountStatusIndicator: true,
-          AccountTodayStatsCell: true,
-          AccountGroupsCell: true,
-          AccountUsageCell: true,
-          Icon: true
-        }
-      }
-    })
+    const wrapper = mountAccountsView()
 
     await flushPromises()
     await wrapper.get('[data-test="edit-filtered"]').trigger('click')
@@ -157,7 +159,7 @@ describe('admin AccountsView bulk edit scope', () => {
     expect(wrapper.get('[data-test="bulk-edit-modal"]').attributes('data-target-mode')).toBe('filtered')
   })
 
-  it('renders the created_at column by default', async () => {
+  it('uses the requested account activity columns by default', async () => {
     listAccounts.mockResolvedValue({
       items: [
         {
@@ -177,51 +179,60 @@ describe('admin AccountsView bulk edit scope', () => {
       pages: 1
     })
 
-    const wrapper = mount(AccountsView, {
-      global: {
-        stubs: {
-          AppLayout: { template: '<div><slot /></div>' },
-          TablePageLayout: {
-            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
-          },
-          DataTable: DataTableStub,
-          Pagination: true,
-          ConfirmDialog: true,
-          AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
-          AccountTableFilters: { template: '<div></div>' },
-          AccountBulkActionsBar: AccountBulkActionsBarStub,
-          AccountActionMenu: true,
-          ImportDataModal: true,
-          ReAuthAccountModal: true,
-          AccountTestModal: true,
-          AccountStatsModal: true,
-          ScheduledTestsPanel: true,
-          SyncFromCrsModal: true,
-          TempUnschedStatusModal: true,
-          ErrorPassthroughRulesModal: true,
-          TLSFingerprintProfilesModal: true,
-          CreateAccountModal: true,
-          EditAccountModal: true,
-          BulkEditAccountModal: BulkEditAccountModalStub,
-          PlatformTypeBadge: true,
-          AccountCapacityCell: true,
-          AccountStatusIndicator: true,
-          AccountTodayStatsCell: true,
-          AccountGroupsCell: true,
-          AccountUsageCell: true,
-          Icon: true
-        }
-      }
-    })
+    const wrapper = mountAccountsView()
 
     await flushPromises()
 
     const columnKeys = wrapper.findAll('[data-test="column-key"]').map(node => node.text())
-    expect(columnKeys).toContain('created_at')
+    expect(columnKeys).toContain('today_stats')
+    expect(columnKeys).not.toContain('last_used_at')
+    expect(columnKeys).not.toContain('created_at')
+    expect(columnKeys).not.toContain('expires_at')
     const columns = wrapper.getComponent(DataTableStub).props('columns') as Array<{ key: string; label: string; sortable: boolean }>
-    expect(columns.find(column => column.key === 'created_at')).toMatchObject({
-      label: 'admin.accounts.columns.createdAt',
-      sortable: true
+    expect(columns.find(column => column.key === 'today_stats')).toMatchObject({
+      label: 'admin.accounts.columns.todayStats',
+      sortable: false
     })
+  })
+
+  it('migrates the previous untouched default without changing custom layouts', async () => {
+    localStorage.setItem(
+      'account-hidden-columns',
+      JSON.stringify(['today_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier'])
+    )
+
+    const wrapper = mountAccountsView()
+
+    await flushPromises()
+
+    const columnKeys = wrapper.findAll('[data-test="column-key"]').map(node => node.text())
+    expect(columnKeys).toContain('today_stats')
+    expect(columnKeys).not.toContain('last_used_at')
+    expect(columnKeys).not.toContain('created_at')
+    expect(columnKeys).not.toContain('expires_at')
+    expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toEqual([
+      'proxy',
+      'notes',
+      'priority',
+      'scheduler_score',
+      'rate_multiplier',
+      'last_used_at',
+      'created_at',
+      'expires_at'
+    ])
+
+    localStorage.clear()
+    localStorage.setItem('account-hidden-columns', JSON.stringify(['today_stats', 'created_at']))
+    localStorage.setItem('account-hidden-columns-version', 'today-stats-visible-activity-dates-hidden')
+    const customWrapper = mountAccountsView()
+
+    await flushPromises()
+
+    const customColumnKeys = customWrapper.findAll('[data-test="column-key"]').map(node => node.text())
+    expect(customColumnKeys).not.toContain('today_stats')
+    expect(customColumnKeys).not.toContain('created_at')
+    expect(customColumnKeys).toContain('last_used_at')
+    expect(customColumnKeys).toContain('expires_at')
+    expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toEqual(['today_stats', 'created_at'])
   })
 })

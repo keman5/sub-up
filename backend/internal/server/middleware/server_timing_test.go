@@ -51,10 +51,10 @@ func TestServerTimingScopesAndRoleGate(t *testing.T) {
 		{name: "disabled", enabled: false, path: "/api/v1/admin/users", role: "admin"},
 		{name: "admin API path", enabled: true, path: "/api/v1/admin/users", role: "admin", wantHeader: true},
 		{name: "shared API marked by admin UI", enabled: true, path: "/api/v1/groups/available", marker: "1", role: "admin", wantHeader: true},
-		{name: "non admin role", enabled: true, path: "/api/v1/groups/available", marker: "1", role: "user"},
+		{name: "non admin role on admin API", enabled: true, path: "/api/v1/admin/users", marker: "1", role: "user"},
 		{name: "unauthenticated public request", enabled: true, path: "/api/v1/settings/public", marker: "1"},
-		{name: "unmarked shared API", enabled: true, path: "/api/v1/groups/available", role: "admin"},
-		{name: "invalid marker", enabled: true, path: "/api/v1/groups/available", marker: "true", role: "admin"},
+		{name: "unmarked shared API", enabled: true, path: "/api/v1/groups/available", role: "admin", wantHeader: true},
+		{name: "invalid marker", enabled: true, path: "/api/v1/groups/available", marker: "true", role: "admin", wantHeader: true},
 		{name: "admin prefix boundary", enabled: true, path: "/api/v1/administrator", role: "admin"},
 	}
 

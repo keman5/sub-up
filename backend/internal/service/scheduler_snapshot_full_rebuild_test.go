@@ -17,6 +17,7 @@ type schedulerFullRebuildTestCache struct {
 	mu        sync.Mutex
 	listErr   error
 	listCalls int
+	captures  int
 	lockCalls int
 }
 
@@ -32,6 +33,17 @@ func (c *schedulerFullRebuildTestCache) TryLockBucket(context.Context, Scheduler
 	defer c.mu.Unlock()
 	c.lockCalls++
 	return false, nil
+}
+
+func (c *schedulerFullRebuildTestCache) CaptureBucketWriteToken(_ context.Context, bucket SchedulerBucket) (SchedulerBucketWriteToken, error) {
+	c.mu.Lock()
+	c.captures++
+	c.mu.Unlock()
+	return SchedulerBucketWriteToken{Bucket: bucket, Epoch: 1}, nil
+}
+
+func (c *schedulerFullRebuildTestCache) ReopenBucket(_ context.Context, bucket SchedulerBucket) (SchedulerBucketWriteToken, error) {
+	return SchedulerBucketWriteToken{Bucket: bucket, Epoch: 1}, nil
 }
 
 func TestSchedulerSnapshotServiceFullRebuildCoalescesConcurrentRequestsIntoTrailingRun(t *testing.T) {

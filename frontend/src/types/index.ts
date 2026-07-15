@@ -1082,6 +1082,34 @@ export interface GrokBillingSummary {
   failed_windows?: string[]
 }
 
+export interface GrokBillingProductUsage {
+  product: string
+  usage_percent?: number | null
+}
+
+export interface GrokBillingSummary {
+  period_type?: string
+  usage_percent?: number | null
+  period_start?: string
+  period_end?: string
+  product_usage?: GrokBillingProductUsage[]
+  monthly_limit_cents?: number | null
+  used_cents?: number | null
+  included_used_cents?: number | null
+  billing_period_start?: string
+  billing_period_end?: string
+  used_percent?: number | null
+  plan?: string
+  status_code?: number
+  source?: string
+  fetched_at?: string
+  updated_at?: string
+  weekly_updated_at?: string
+  monthly_updated_at?: string
+  partial?: boolean
+  failed_windows?: string[]
+}
+
 export interface AccountUsageInfo extends CodexUsageSnapshot {
   source?: 'passive' | 'active'
   updated_at: string | null

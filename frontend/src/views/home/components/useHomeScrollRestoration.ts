@@ -15,12 +15,16 @@ function readStoredScrollTop(key: string) {
   try {
     const value = Number(window.sessionStorage.getItem(key))
     if (Number.isFinite(value) && value > 0) return value
-  } catch (_) {}
+  } catch (_) {
+    // Storage can be unavailable in private browsing or restricted frames.
+  }
 
   try {
     const value = Number(window.localStorage.getItem(key))
     if (Number.isFinite(value) && value > 0) return value
-  } catch (_) {}
+  } catch (_) {
+    // Storage can be unavailable in private browsing or restricted frames.
+  }
 
   const homeScroll = window.history.state?.homeScroll
   const stateValue = Number(homeScroll?.[key])
@@ -30,11 +34,15 @@ function readStoredScrollTop(key: string) {
 function writeStoredScrollTop(key: string, top: number) {
   try {
     window.sessionStorage.setItem(key, String(top))
-  } catch (_) {}
+  } catch (_) {
+    // Storage can be unavailable in private browsing or restricted frames.
+  }
 
   try {
     window.localStorage.setItem(key, String(top))
-  } catch (_) {}
+  } catch (_) {
+    // History state may be unavailable in restricted browsing contexts.
+  }
 
   try {
     const currentState = window.history.state && typeof window.history.state === 'object' ? window.history.state : {}
@@ -52,7 +60,9 @@ function writeStoredScrollTop(key: string, top: number) {
       document.title,
       window.location.href
     )
-  } catch (_) {}
+  } catch (_) {
+    // History state may be unavailable in restricted browsing contexts.
+  }
 }
 
 function withInstantScroll(callback: () => void) {

@@ -80,5 +80,6 @@ func TestResToAnthFuncArgsDelta_NonReadToolUnchanged(t *testing.T) {
 
 	require.Len(t, events, 1)
 	assert.Equal(t, "content_block_delta", events[0].Type)
+	assert.Equal(t, `{"file_path":"/tmp/out.txt","content":"hello"}`, events[0].Delta.PartialJSON)
 	assert.True(t, state.CurrentToolHadDelta)
 }

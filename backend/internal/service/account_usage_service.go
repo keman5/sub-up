@@ -338,6 +338,8 @@ type AccountUsageService struct {
 	identityCache             IdentityCache
 	tlsFPProfileService       *TLSFingerprintProfileService
 	openAIQuotaUsageRefresher openAIQuotaUsageRefresher
+	agentIdentityTaskMu       sync.Mutex
+	agentIdentityWS           agentIdentityWSConnectionInvalidator
 }
 
 type openAIQuotaUsageRefresher interface {
@@ -1177,7 +1179,19 @@ func (s *AccountUsageService) probeOpenAICodexSnapshotForModel(ctx context.Conte
 	}
 	req.Host = "chatgpt.com"
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+accessToken)
+	if account.IsOpenAIAgentIdentity() {
+		authHeaders, authErr := buildAgentIdentityAuthenticationHeaders(ctx, s.accountRepo, s.agentIdentityWS, &s.agentIdentityTaskMu, account)
+		if authErr != nil {
+			return nil, fmt.Errorf("build Agent Identity authentication: %w", authErr)
+		}
+		for key, values := range authHeaders {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+	} else {
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("OpenAI-Beta", "responses=experimental")
 	req.Header.Set("Originator", "codex_cli_rs")

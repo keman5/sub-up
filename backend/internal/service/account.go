@@ -1264,6 +1264,10 @@ func (a *Account) GetOpenAIRefreshToken() string {
 // GetGrokBaseURL selects the upstream used by Grok text and Responses traffic.
 // Grok media traffic has a different transport contract and must use
 // GetGrokMediaBaseURL instead.
+//
+// The stored base_url only rewrites forwarding endpoints. Credential lifecycle
+// traffic (OAuth authorization and token refresh) always uses the official
+// auth endpoints regardless of this value.
 func (a *Account) GetGrokBaseURL() string {
 	if !a.IsGrok() {
 		return ""

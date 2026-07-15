@@ -269,6 +269,7 @@
     <Teleport to="body">
       <div
         v-if="openMoreJobId"
+        ref="moreMenuRef"
         class="fixed z-[9999] w-44 overflow-hidden rounded-xl bg-white py-1 text-sm shadow-lg ring-1 ring-black/5 dark:bg-dark-800 dark:ring-white/10"
         :style="moreMenuStyle"
         @click.stop
@@ -740,7 +741,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -749,6 +750,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import SearchInput from '@/components/common/SearchInput.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { clampFloatingMenuPosition } from '@/utils/floatingMenuPosition'
 import { useAppDialog } from '@/composables/useAppDialog'
 import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize, setPersistedPageSize } from '@/composables/usePersistedPageSize'
@@ -914,6 +916,8 @@ const availableBatchImageModels = ref<Array<{ value: string; label: string }>>([
 const modelLoadError = ref('')
 const openMoreJobId = ref('')
 const moreMenuStyle = ref<Record<string, string>>({})
+const moreMenuRef = ref<HTMLElement | null>(null)
+const moreMenuTrigger = ref<HTMLElement | null>(null)
 const promptPopover = reactive({
   visible: false,
   text: '',
@@ -1383,6 +1387,8 @@ function toggleChildRows(batchId: string) {
 
 function closeMoreMenu() {
   openMoreJobId.value = ''
+  moreMenuStyle.value = {}
+  moreMenuTrigger.value = null
 }
 
 function toggleMoreMenu(job: BatchImageJobRow, event: MouseEvent) {
@@ -1395,13 +1401,40 @@ function toggleMoreMenu(job: BatchImageJobRow, event: MouseEvent) {
   if (!rect) return
   const menuWidth = 176
   const margin = 8
-  const left = Math.max(margin, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - margin))
-  const top = Math.min(rect.bottom + margin, window.innerHeight - 96)
+  moreMenuTrigger.value = trigger
+  const initialPosition = clampFloatingMenuPosition(
+    { left: rect.right - menuWidth, top: rect.bottom + margin },
+    { width: menuWidth, height: 0 },
+    { width: window.innerWidth, height: window.innerHeight },
+    margin
+  )
   moreMenuStyle.value = {
-    left: `${left}px`,
-    top: `${Math.max(margin, top)}px`,
+    left: `${initialPosition.left}px`,
+    top: `${initialPosition.top}px`,
   }
   openMoreJobId.value = job.id
+  nextTick(() => {
+    const triggerRect = moreMenuTrigger.value?.getBoundingClientRect()
+    const menuRect = moreMenuRef.value?.getBoundingClientRect()
+    if (!triggerRect || !menuRect || openMoreJobId.value !== job.id) return
+
+    let top = triggerRect.bottom + margin
+    if (top + menuRect.height > window.innerHeight - margin) {
+      top = triggerRect.top - menuRect.height - margin
+    }
+    const position = clampFloatingMenuPosition(
+      { left: triggerRect.right - menuRect.width, top },
+      { width: menuRect.width, height: menuRect.height },
+      { width: window.innerWidth, height: window.innerHeight },
+      margin
+    )
+    moreMenuStyle.value = {
+      left: `${position.left}px`,
+      top: `${position.top}px`,
+      maxHeight: `${position.maxHeight}px`,
+      overflowY: 'auto',
+    }
+  })
 }
 
 function cancelPromptPopoverClose() {

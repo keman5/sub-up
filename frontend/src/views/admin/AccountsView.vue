@@ -19,10 +19,7 @@
               <!-- Auto Refresh Dropdown -->
               <div class="relative" ref="autoRefreshDropdownRef">
                 <button
-                  @click="
-                    showAutoRefreshDropdown = !showAutoRefreshDropdown;
-                    showAccountToolsDropdown = false
-                  "
+                  @click="toggleAutoRefreshDropdown"
                   class="btn btn-secondary px-2 md:px-3"
                   :title="t('admin.accounts.autoRefresh')"
                 >
@@ -35,10 +32,14 @@
                     }}
                   </span>
                 </button>
-                <div
-                  v-if="showAutoRefreshDropdown"
-                  class="absolute right-0 z-50 mt-2 w-56 origin-top-right rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800"
-                >
+                <Teleport to="body">
+                  <div
+                    v-if="showAutoRefreshDropdown"
+                    ref="autoRefreshMenuRef"
+                    class="fixed z-50 max-w-[calc(100vw-1rem)] w-56 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800"
+                    :style="autoRefreshMenuStyle"
+                    @click.stop
+                  >
                   <div class="p-2">
                     <button
                       @click="setAutoRefreshEnabled(!autoRefreshEnabled)"
@@ -58,7 +59,8 @@
                       <Icon v-if="autoRefreshIntervalSeconds === sec" name="check" size="sm" class="text-primary-500" />
                     </button>
                   </div>
-                </div>
+                  </div>
+                </Teleport>
               </div>
 
               <!-- More Tools Dropdown -->
@@ -232,6 +234,7 @@
             <div class="flex min-w-0 flex-col gap-1">
               <div class="flex flex-wrap items-center gap-1">
                 <PlatformTypeBadge :platform="row.platform" :type="row.type"
+                  :auth-mode="getOpenAIAuthMode(row)"
                   :plan-type="getAccountPlanType(row)"
                   :privacy-mode="row.extra?.privacy_mode || row.parent_privacy_mode"
                   :subscription-expires-at="row.credentials?.subscription_expires_at || row.parent_subscription_expires_at" />
@@ -397,7 +400,7 @@
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -570,11 +573,36 @@ const accountToolsMenuStyle = computed<CSSProperties>(() => {
   }
 })
 const hiddenColumns = reactive<Set<string>>(new Set())
-const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
+const DEFAULT_HIDDEN_COLUMNS = [
+  'proxy',
+  'notes',
+  'priority',
+  'scheduler_score',
+  'rate_multiplier',
+  'last_used_at',
+  'created_at',
+  'expires_at'
+]
+const LEGACY_DEFAULT_HIDDEN_COLUMNS = [
+  'today_stats',
+  'proxy',
+  'notes',
+  'priority',
+  'scheduler_score',
+  'rate_multiplier'
+]
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
 // One-time migration: hide scheduler score for existing admins too, because showing it opt-ins to heavy backend scoring.
 const HIDDEN_COLUMNS_VERSION_KEY = 'account-hidden-columns-version'
-const HIDDEN_COLUMNS_CURRENT_VERSION = 'scheduler-score-hidden-by-default'
+const SCHEDULER_SCORE_HIDDEN_VERSION = 'scheduler-score-hidden-by-default'
+const HIDDEN_COLUMNS_CURRENT_VERSION = 'today-stats-visible-activity-dates-hidden'
+
+const isSameColumnSet = (left: string[], right: string[]) => {
+  if (left.length !== right.length) return false
+  const leftSet = new Set(left)
+  const rightSet = new Set(right)
+  return leftSet.size === rightSet.size && [...leftSet].every(key => rightSet.has(key))
+}
 
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
@@ -615,6 +643,19 @@ const sortState = reactive<AccountSortState>(loadInitialAccountSortState())
 // Auto refresh settings
 const showAutoRefreshDropdown = ref(false)
 const autoRefreshDropdownRef = ref<HTMLElement | null>(null)
+const autoRefreshMenuRef = ref<HTMLElement | null>(null)
+const autoRefreshTriggerRef = ref<HTMLElement | null>(null)
+const autoRefreshMenuPosition = ref<{ top: number; left: number; maxHeight: number } | null>(null)
+const autoRefreshMenuStyle = computed<CSSProperties>(() => {
+  const position = autoRefreshMenuPosition.value
+  if (!position) return {}
+  return {
+    top: `${position.top}px`,
+    left: `${position.left}px`,
+    maxHeight: `${position.maxHeight}px`,
+    overflowY: 'auto'
+  }
+})
 const AUTO_REFRESH_STORAGE_KEY = 'account-auto-refresh'
 const autoRefreshIntervals = [5, 10, 15, 30] as const
 const autoRefreshEnabled = ref(false)
@@ -735,12 +776,25 @@ const loadSavedColumns = () => {
       parsed.forEach(key => {
         hiddenColumns.add(key)
       })
-      // Older saved column layouts may have scheduler_score visible; migrate them to the new safe default once.
-      if (localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY) !== HIDDEN_COLUMNS_CURRENT_VERSION) {
+      // Migrate only the previous untouched default; preserve custom column layouts.
+      if (isSameColumnSet(parsed, LEGACY_DEFAULT_HIDDEN_COLUMNS)) {
+        hiddenColumns.clear()
+        DEFAULT_HIDDEN_COLUMNS.forEach(key => {
+          hiddenColumns.add(key)
+        })
+        localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+      }
+      // Layouts from before the scheduler-score migration did not record that column as hidden yet.
+      // Preserve layouts that already passed that migration, including an explicit opt-in.
+      const savedColumnsVersion = localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY)
+      if (
+        savedColumnsVersion !== HIDDEN_COLUMNS_CURRENT_VERSION &&
+        savedColumnsVersion !== SCHEDULER_SCORE_HIDDEN_VERSION
+      ) {
         hiddenColumns.add('scheduler_score')
         localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
-        localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
       }
+      localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach(key => {
         hiddenColumns.add(key)
@@ -796,6 +850,46 @@ const saveAutoRefreshToStorage = () => {
 if (typeof window !== 'undefined') {
   loadSavedColumns()
   loadSavedAutoRefresh()
+}
+
+const closeAutoRefreshDropdown = () => {
+  showAutoRefreshDropdown.value = false
+  autoRefreshMenuPosition.value = null
+  autoRefreshTriggerRef.value = null
+}
+
+const adjustAutoRefreshMenuPosition = () => {
+  if (!showAutoRefreshDropdown.value || !autoRefreshTriggerRef.value) return
+
+  nextTick(() => {
+    const triggerRect = autoRefreshTriggerRef.value?.getBoundingClientRect()
+    const menuRect = autoRefreshMenuRef.value?.getBoundingClientRect()
+    if (!triggerRect || !menuRect) return
+
+    const padding = 8
+    let top = triggerRect.bottom + 8
+    if (top + menuRect.height > window.innerHeight - padding) {
+      top = triggerRect.top - menuRect.height - 8
+    }
+    autoRefreshMenuPosition.value = clampFloatingMenuPosition(
+      { top, left: triggerRect.right - menuRect.width },
+      { width: menuRect.width, height: menuRect.height },
+      { width: window.innerWidth, height: window.innerHeight },
+      padding
+    )
+  })
+}
+
+const toggleAutoRefreshDropdown = (event: MouseEvent) => {
+  if (showAutoRefreshDropdown.value) {
+    closeAutoRefreshDropdown()
+    return
+  }
+
+  closeAccountToolsDropdown()
+  autoRefreshTriggerRef.value = event.currentTarget as HTMLElement
+  showAutoRefreshDropdown.value = true
+  adjustAutoRefreshMenuPosition()
 }
 
 const setAutoRefreshEnabled = (enabled: boolean) => {
@@ -1167,7 +1261,7 @@ const toggleAccountToolsDropdown = (event: MouseEvent) => {
   const trigger = event.currentTarget as HTMLElement | null
   if (!trigger) return
 
-  showAutoRefreshDropdown.value = false
+  closeAutoRefreshDropdown()
   accountToolsTriggerRef.value = trigger
   const triggerRect = trigger.getBoundingClientRect()
   const viewport = { width: window.innerWidth, height: window.innerHeight }
@@ -1259,6 +1353,12 @@ function getAccountPlanType(row: any): string | undefined {
     )
   }
   return row.credentials?.plan_type || row.parent_plan_type || undefined
+}
+
+function getOpenAIAuthMode(row: any): string | undefined {
+  if (!row || row.platform !== 'openai' || row.type !== 'oauth') return undefined
+  const authMode = row.credentials?.auth_mode
+  return typeof authMode === 'string' && authMode.trim() ? authMode : undefined
 }
 
 // Antigravity 订阅等级辅助函数
@@ -1793,6 +1893,21 @@ const handleSchedule = async (a: Account) => {
 }
 const closeSchedulePanel = () => { showSchedulePanel.value = false; scheduleAcc.value = null; scheduleModelOptions.value = [] }
 const handleReAuth = (a: Account) => { reAuthAcc.value = a; showReAuth.value = true }
+const duplicatingAccountIDs = new Set<number>()
+const handleDuplicateAccount = async (a: Account) => {
+  if (duplicatingAccountIDs.has(a.id)) return
+  duplicatingAccountIDs.add(a.id)
+  try {
+    const duplicate = await adminAPI.accounts.duplicate(a.id)
+    appStore.showSuccess(t('admin.accounts.duplicateSuccess', { name: duplicate.name }))
+    reload()
+  } catch (error: any) {
+    console.error('Failed to duplicate account:', error)
+    appStore.showError(error?.message || t('admin.accounts.duplicateFailed'))
+  } finally {
+    duplicatingAccountIDs.delete(a.id)
+  }
+}
 const handleRefresh = async (a: Account) => {
   try {
     const updated = await adminAPI.accounts.refreshCredentials(a.id)
@@ -1942,16 +2057,17 @@ const proxyExpiryText = (p: AccountProxy): string => {
 const handleScroll = () => {
   menu.show = false
   adjustAccountToolsMenuPosition()
+  adjustAutoRefreshMenuPosition()
 }
 
 // 点击外部关闭顶部下拉菜单
 const handleClickOutside = (event: MouseEvent) => {
   const target = event.target as HTMLElement
-  if (accountToolsDropdownRef.value && !accountToolsDropdownRef.value.contains(target)) {
-    showAccountToolsDropdown.value = false
+  if (!accountToolsDropdownRef.value?.contains(target) && !accountToolsMenuRef.value?.contains(target)) {
+    closeAccountToolsDropdown()
   }
-  if (autoRefreshDropdownRef.value && !autoRefreshDropdownRef.value.contains(target)) {
-    showAutoRefreshDropdown.value = false
+  if (!autoRefreshDropdownRef.value?.contains(target) && !autoRefreshMenuRef.value?.contains(target)) {
+    closeAutoRefreshDropdown()
   }
 }
 
@@ -1968,6 +2084,7 @@ onMounted(async () => {
   }
   window.addEventListener('scroll', handleScroll, true)
   window.addEventListener('resize', adjustAccountToolsMenuPosition)
+  window.addEventListener('resize', adjustAutoRefreshMenuPosition)
   document.addEventListener('click', handleClickOutside)
 
   if (autoRefreshEnabled.value) {
@@ -1981,6 +2098,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll, true)
   window.removeEventListener('resize', adjustAccountToolsMenuPosition)
+  window.removeEventListener('resize', adjustAutoRefreshMenuPosition)
   document.removeEventListener('click', handleClickOutside)
 })
 </script>

@@ -86,6 +86,7 @@ func TestGrokOAuthServiceBuildAccountCredentialsDefaultsToSubscriptionProxy(t *t
 
 	require.Equal(t, xai.DefaultCLIBaseURL, credentials["base_url"])
 }
+
 func TestGrokOAuthServiceConvertFromSSOExtractsBuildClaims(t *testing.T) {
 	svc := NewGrokOAuthService(nil, &grokOAuthClientStub{
 		ssoResponse: &xai.TokenResponse{

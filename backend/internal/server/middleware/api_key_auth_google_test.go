@@ -388,7 +388,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_InvalidKey(t *testing.T) {
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusUnauthorized, resp.Error.Code)
-	require.Equal(t, "Invalid API key (API Key 无效)", resp.Error.Message)
+	require.Equal(t, "Invalid API key (中文：上游 API Key 无效或已失效)", resp.Error.Message)
 	require.Equal(t, "UNAUTHENTICATED", resp.Error.Status)
 }
 

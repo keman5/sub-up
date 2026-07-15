@@ -1,8 +1,8 @@
 <template>
   <div class="relative" ref="dropdownRef">
     <button
-      @click="showDropdown = !showDropdown"
-      class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300 dark:hover:bg-dark-700"
+      @click="toggleDropdown"
+      class="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300 dark:hover:bg-dark-700"
       :title="t('common.autoRefresh.title')"
     >
       <svg
@@ -20,9 +20,15 @@
       </span>
     </button>
 
+  </div>
+
+  <Teleport to="body">
     <div
       v-if="showDropdown"
-      class="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-dark-600 dark:bg-dark-800"
+      ref="menuRef"
+      class="fixed z-50 max-w-[calc(100vw-1rem)] w-44 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-dark-600 dark:bg-dark-800"
+      :style="menuStyle"
+      @click.stop
     >
       <div class="p-1.5">
         <button
@@ -48,12 +54,13 @@
         </button>
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, nextTick, ref, onMounted, onBeforeUnmount, type CSSProperties } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { clampFloatingMenuPosition } from '@/utils/floatingMenuPosition'
 
 defineProps<{
   enabled: boolean
@@ -70,13 +77,79 @@ defineEmits<{
 const { t } = useI18n()
 const showDropdown = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
+const menuRef = ref<HTMLElement | null>(null)
+const triggerRef = ref<HTMLElement | null>(null)
+const menuPosition = ref<{ top: number; left: number; maxHeight: number } | null>(null)
+
+const menuStyle = computed<CSSProperties>(() => {
+  const position = menuPosition.value
+  if (!position) return {}
+  return {
+    top: `${position.top}px`,
+    left: `${position.left}px`,
+    maxHeight: `${position.maxHeight}px`,
+    overflowY: 'auto'
+  }
+})
+
+function closeDropdown() {
+  showDropdown.value = false
+  menuPosition.value = null
+  triggerRef.value = null
+}
+
+function adjustMenuPosition() {
+  if (!showDropdown.value || !triggerRef.value) return
+
+  nextTick(() => {
+    const triggerRect = triggerRef.value?.getBoundingClientRect()
+    const menuRect = menuRef.value?.getBoundingClientRect()
+    if (!triggerRect || !menuRect) return
+
+    const padding = 8
+    let top = triggerRect.bottom + 4
+    if (top + menuRect.height > window.innerHeight - padding) {
+      top = triggerRect.top - menuRect.height - 4
+    }
+    menuPosition.value = clampFloatingMenuPosition(
+      { top, left: triggerRect.right - menuRect.width },
+      { width: menuRect.width, height: menuRect.height },
+      { width: window.innerWidth, height: window.innerHeight },
+      padding
+    )
+  })
+}
+
+function toggleDropdown(event: MouseEvent) {
+  if (showDropdown.value) {
+    closeDropdown()
+    return
+  }
+
+  triggerRef.value = event.currentTarget as HTMLElement
+  showDropdown.value = true
+  adjustMenuPosition()
+}
 
 function handleClickOutside(event: MouseEvent) {
-  if (dropdownRef.value && !dropdownRef.value.contains(event.target as Node)) {
-    showDropdown.value = false
+  const target = event.target as Node
+  if (!dropdownRef.value?.contains(target) && !menuRef.value?.contains(target)) {
+    closeDropdown()
   }
 }
 
+function handleViewportChange() {
+  adjustMenuPosition()
+}
+
 onMounted(() => document.addEventListener('click', handleClickOutside))
-onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
+onMounted(() => {
+  window.addEventListener('resize', handleViewportChange)
+  window.addEventListener('scroll', handleViewportChange, true)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('resize', handleViewportChange)
+  window.removeEventListener('scroll', handleViewportChange, true)
+})
 </script>

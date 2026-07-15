@@ -439,23 +439,25 @@
       >
         <div>
           <label class="input-label">{{ t('admin.subscriptions.form.user') }}</label>
-          <div class="relative" data-assign-user-search>
-            <input
-              v-model="userSearchKeyword"
-              type="text"
-              class="input pr-8"
-              :placeholder="t('admin.usage.searchUserPlaceholder')"
-              @input="debounceSearchUsers"
-              @focus="showUserDropdown = true"
-            />
-            <button
-              v-if="userSearchKeyword"
-              @click="clearUserSearch"
-              type="button"
-              class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-            >
-              <Icon name="x" size="sm" :stroke-width="2" />
-            </button>
+          <div data-assign-user-search>
+            <div class="relative">
+              <input
+                v-model="userSearchKeyword"
+                type="text"
+                class="input pr-8"
+                :placeholder="t('admin.usage.searchUserPlaceholder')"
+                @input="debounceSearchUsers"
+                @focus="showUserDropdown = true"
+              />
+              <button
+                v-if="userSearchKeyword"
+                @click="clearUserSearch"
+                type="button"
+                class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <Icon name="x" size="sm" :stroke-width="2" />
+              </button>
+            </div>
             <!-- User Dropdown -->
             <div
               v-if="showAssignModal"

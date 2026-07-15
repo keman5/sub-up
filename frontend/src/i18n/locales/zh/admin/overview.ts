@@ -754,6 +754,7 @@ export default {
         "确定要删除订阅分组 '{name}' 吗？此操作会让所有绑定此订阅的用户的 API Key 失效，并删除所有相关的订阅记录。此操作无法撤销。",
       columns: {
         name: '名称',
+        id: 'ID',
         platform: '平台',
         rateMultiplier: '费率倍数',
         rpmOverride: 'RPM 覆盖',
@@ -1030,14 +1031,6 @@ export default {
         selectAccounts: '选择账号',
         noAccounts: '此分组暂无账号',
         loadingAccounts: '加载账号中...',
-      claudeMaxSimulation: {
-        title: 'Claude Max 用量模拟',
-        tooltip:
-          '启用后，对于没有上游缓存写入用量的 Claude 模型，系统会确定性地将 token 映射为少量输入加 1h 缓存创建，同时保持总 token 不变。',
-        enabled: '已启用（模拟 1h 缓存）',
-        disabled: '已禁用',
-        hint: '仅调整用量计费日志中的 token 类别。不会持久化每个请求的映射状态。'
-      },
         removeRule: '删除规则',
         noRules: '暂无路由规则',
         noRulesHint: '添加路由规则以将特定模型请求优先路由到指定账号',
