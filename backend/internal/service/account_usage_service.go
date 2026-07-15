@@ -125,8 +125,8 @@ const (
 	openAIOfficialQuotaTTL    = 1 * time.Minute
 	openAICodexProbeModel     = "gpt-5.3-codex-spark"
 	openAICodexMainProbeModel = "gpt-5.3-codex"
-	grokProbeRetryTTL       = 1 * time.Minute
-	grokFreeQuotaWindow     = 24 * time.Hour
+	grokProbeRetryTTL         = 1 * time.Minute
+	grokFreeQuotaWindow       = 24 * time.Hour
 )
 
 // UsageCache 封装账户使用量相关的缓存
@@ -332,6 +332,7 @@ type AccountUsageService struct {
 	geminiQuotaService        *GeminiQuotaService
 	antigravityQuotaFetcher   *AntigravityQuotaFetcher
 	grokQuotaFetcher          *GrokQuotaFetcher
+	grokQuotaService          *GrokQuotaService
 	openAIQuotaService        *OpenAIQuotaService
 	cache                     *UsageCache
 	identityCache             IdentityCache
@@ -369,7 +370,7 @@ func NewAccountUsageService(
 		identityCache:             identityCache,
 		tlsFPProfileService:       tlsFPProfileService,
 		openAIQuotaUsageRefresher: openAIQuotaService,
-		grokQuotaService:        grokQuotaService,
+		grokQuotaService:          grokQuotaService,
 	}
 }
 
