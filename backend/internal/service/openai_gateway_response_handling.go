@@ -495,6 +495,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				data = string(sanitizedData)
 				line = "data: " + data
 			}
+			if eventType != "response.failed" {
+				s.parseSSEUsageBytes(dataBytes, usage)
+			}
 			if eventUsage, ok := extractOpenAIUsageFromJSONBytes(dataBytes); ok {
 				clientData := rewriteOpenAIUsageForPresentation(dataBytes, ResolveGatewayResponsePresentationMultiplier(
 					c,
@@ -543,7 +546,6 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				firstTokenMs = &ms
 				stopFirstOutputTimer()
 			}
-			s.parseSSEUsageBytes(dataBytes, usage)
 			return
 		}
 
@@ -1054,8 +1056,13 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	if imageOutputTokens == 0 {
 		imageOutputTokens = value.Get("image_output_tokens").Int()
 	}
+	imageInputTokens := firstPositiveGJSONInt(
+		value.Get("input_tokens_details.image_tokens"),
+		value.Get("prompt_tokens_details.image_tokens"),
+	)
 	return OpenAIUsage{
 		InputTokens:              int(inputTokens),
+		ImageInputTokens:         imageInputTokens,
 		OutputTokens:             int(outputTokens),
 		CacheCreationInputTokens: cacheCreationTokens,
 		CacheReadInputTokens:     cacheReadTokens,

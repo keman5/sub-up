@@ -41,7 +41,9 @@ const (
 
 var (
 	oauthEndpointAllowedHosts = []string{"x.ai", "*.x.ai"}
-	baseURLAllowedHosts       = []string{"api.x.ai", "cli-chat-proxy.grok.com"}
+	// *.api.x.ai 覆盖 xAI 区域端点（us-east-1/us-west-2/eu-west-1 等），
+	// 运营方可在端点间手动切换以规避单点不可用。
+	baseURLAllowedHosts = []string{"api.x.ai", "*.api.x.ai", "cli-chat-proxy.grok.com"}
 )
 
 // OAuthSession stores one PKCE OAuth flow.

@@ -133,21 +133,28 @@ func TestSchedulerSnapshotServiceFullRebuildRunsAgainForSequentialRequest(t *tes
 	require.Equal(t, requested, completed)
 }
 
-func TestSchedulerSnapshotServiceInitialFullRebuildFallsBackWhenListBucketsFails(t *testing.T) {
-	cache := &schedulerFullRebuildTestCache{listErr: errors.New("list buckets failed")}
+func TestSchedulerSnapshotServiceInitialFullRebuildFailsClosedWhenListBucketsFails(t *testing.T) {
+	listErr := errors.New("list buckets failed")
+	cache := &schedulerFullRebuildTestCache{listErr: listErr}
 	svc := NewSchedulerSnapshotService(cache, nil, nil, nil, nil)
 
 	svc.runInitialRebuild()
 
 	cache.mu.Lock()
 	listCalls := cache.listCalls
+	captures := cache.captures
 	lockCalls := cache.lockCalls
 	cache.mu.Unlock()
 	require.Equal(t, 1, listCalls)
-	require.Positive(t, lockCalls, "startup should rebuild default buckets after ListBuckets fails")
+	require.Zero(t, captures, "startup must not capture buckets after ListBuckets fails")
+	require.Zero(t, lockCalls, "startup must not lock buckets after ListBuckets fails")
 	requested, completed := schedulerFullRebuildState(svc)
 	require.EqualValues(t, 1, requested)
 	require.Equal(t, requested, completed)
+	svc.fullRebuildStateMu.Lock()
+	lastErr := svc.fullRebuildLastErr
+	svc.fullRebuildStateMu.Unlock()
+	require.ErrorIs(t, lastErr, listErr)
 }
 
 func schedulerFullRebuildState(svc *SchedulerSnapshotService) (requested uint64, completed uint64) {

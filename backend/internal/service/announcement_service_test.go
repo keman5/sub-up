@@ -127,6 +127,9 @@ func (s *announcementUserRepoStub) BatchSetConcurrency(context.Context, []int64,
 func (s *announcementUserRepoStub) BatchAddConcurrency(context.Context, []int64, int) (int, error) {
 	return 0, nil
 }
+func (s *announcementUserRepoStub) BatchUpdateLimits(context.Context, []int64, *int, *int) (int, error) {
+	return 0, nil
+}
 func (s *announcementUserRepoStub) ExistsByEmail(context.Context, string) (bool, error) {
 	return false, nil
 }

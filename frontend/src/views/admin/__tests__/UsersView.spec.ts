@@ -77,13 +77,22 @@ const createAdminUser = (overrides: Partial<AdminUser> = {}): AdminUser => ({
 })
 
 const DataTableStub = {
-  props: ['columns', 'data'],
-  emits: ['sort'],
+  props: ['columns', 'data', 'selectedKeys'],
+  emits: ['sort', 'update:selectedKeys'],
   template: `
     <div>
       <div data-test="columns">{{ columns.map(col => col.key).join(',') }}</div>
       <div data-test="row-order">{{ data.map(row => row.email).join(',') }}</div>
+      <div data-test="selected-keys">{{ (selectedKeys || []).join(',') }}</div>
       <button data-test="sort-last-used" @click="$emit('sort', 'last_used_at', 'desc')">sort</button>
+      <button
+        v-for="row in data"
+        :key="'select-' + row.id"
+        :data-test="'select-' + row.id"
+        @click="$emit('update:selectedKeys', Array.from(new Set([...(selectedKeys || []), row.id])))"
+      >
+        select
+      </button>
       <template v-for="col in columns" :key="col.key">
         <slot :name="'header-' + col.key" :column="col" />
       </template>

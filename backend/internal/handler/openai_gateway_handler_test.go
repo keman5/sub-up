@@ -96,6 +96,19 @@ func TestOpenAIHandleStreamingAwareError_JSONEscaping(t *testing.T) {
 	}
 }
 
+func TestOpenAIForwardSucceededForScheduling(t *testing.T) {
+	require.True(t, openAIForwardSucceededForScheduling(nil))
+	require.True(t, openAIForwardSucceededForScheduling(&service.OpenAIForwardResult{}))
+	require.True(t, openAIForwardSucceededForScheduling(&service.OpenAIForwardResult{
+		OpenAIWSMode:          true,
+		UpstreamTerminalEvent: "response.completed",
+	}))
+	require.False(t, openAIForwardSucceededForScheduling(&service.OpenAIForwardResult{
+		OpenAIWSMode:          true,
+		UpstreamTerminalEvent: "response.failed",
+	}))
+}
+
 func TestResolveOpenAIMessagesMetadataSession_DoesNotDerivePromptCacheKey(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-5","metadata":{"user_id":"claude-code-session"},"messages":[{"role":"user","content":"hello"}]}`)
 
@@ -820,17 +833,12 @@ func TestOpenAIResponsesWebSocket_IngressCapacityRejected(t *testing.T) {
 	defer wsServer.Close()
 
 	dialCtx, cancelDial := context.WithTimeout(context.Background(), 3*time.Second)
-	clientConn, _, err := coderws.Dial(dialCtx, "ws"+strings.TrimPrefix(wsServer.URL, "http")+"/openai/v1/responses", nil)
+	_, response, err := coderws.Dial(dialCtx, "ws"+strings.TrimPrefix(wsServer.URL, "http")+"/openai/v1/responses", nil)
 	cancelDial()
-	require.NoError(t, err)
-	defer func() { _ = clientConn.CloseNow() }()
-
-	readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
-	_, _, err = clientConn.Read(readCtx)
-	cancelRead()
-	var closeErr coderws.CloseError
-	require.ErrorAs(t, err, &closeErr)
-	require.Equal(t, coderws.StatusTryAgainLater, closeErr.Code)
+	require.Error(t, err)
+	require.NotNil(t, response)
+	require.Equal(t, http.StatusTooManyRequests, response.StatusCode)
+	require.Equal(t, "5", response.Header.Get("Retry-After"))
 }
 
 func TestOpenAIResponsesWebSocket_FirstMessageTimeoutUsesConfig(t *testing.T) {

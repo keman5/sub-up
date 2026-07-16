@@ -23,6 +23,7 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
       delete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
@@ -69,6 +70,9 @@ const DataTableStub = {
       <div data-test="columns">{{ columns.map(column => column.key).join(',') }}</div>
       <template v-for="column in columns" :key="column.key">
         <div v-if="column.key === 'usage'" data-test="usage-header">
+          <slot :name="'header-' + column.key" :column="column" />
+        </div>
+        <div v-if="column.key === 'upstream_billing_rate'" data-test="upstream-billing-header">
           <slot :name="'header-' + column.key" :column="column" />
         </div>
       </template>

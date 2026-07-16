@@ -164,10 +164,9 @@ build_backend() {
     return
   fi
   mkdir -p "$(dirname "$OUTPUT")"
-  local ldflags="-s -w"
-  if [[ -n "$VERSION" ]]; then
-    ldflags="$ldflags -X github.com/Wei-Shaw/sub2api/internal/version.Version=$VERSION"
-  fi
+  local commit
+  commit="$(git -C "$ROOT" rev-parse --short HEAD)"
+  local ldflags="-s -w -X main.Version=$VERSION -X main.Commit=$commit -X main.BuildType=release"
   (
     cd "$ROOT/backend"
     run env \
@@ -248,7 +247,7 @@ ensure_tags() {
   sha="$(git -C "$ROOT" rev-parse --short HEAD)"
   ts="$(date +%Y%m%d%H%M%S)"
   if [[ -z "$VERSION" ]]; then
-    VERSION="$sha"
+    VERSION="$(cd "$ROOT/backend" && ./scripts/resolve-version.sh)"
   fi
   if [[ -z "$IMAGE_TAG" ]]; then
     IMAGE_TAG="sub2api:subapi-${sha}-${TAG_SUFFIX}-${ts}"

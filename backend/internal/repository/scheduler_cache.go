@@ -395,6 +395,42 @@ func (c *schedulerCache) SetSnapshot(ctx context.Context, bucket service.Schedul
 	return c.activateSnapshotVersion(ctx, bucket, token, version)
 }
 
+// SetSnapshotAndReturnAccountIDs publishes a complete snapshot and returns
+// the account IDs accepted by the cache in their original order.
+func (c *schedulerCache) SetSnapshotAndReturnAccountIDs(ctx context.Context, bucket service.SchedulerBucket, token service.SchedulerBucketWriteToken, accounts []service.Account) ([]int64, error) {
+	if !token.ValidFor(bucket) {
+		return nil, fmt.Errorf("%w: bucket=%s", service.ErrSchedulerBucketWriteFenced, bucket.String())
+	}
+	version, err := c.allocateSnapshotVersion(ctx, bucket, token)
+	if err != nil {
+		return nil, err
+	}
+	accountIDs, err := c.writeSnapshotVersionAndReturnAccountIDs(ctx, bucket, version, accounts)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.activateSnapshotVersion(ctx, bucket, token, version); err != nil {
+		return nil, err
+	}
+	return accountIDs, nil
+}
+
+// SetSnapshotByAccountIDs publishes a snapshot using members already written
+// by another bucket in the same rebuild batch.
+func (c *schedulerCache) SetSnapshotByAccountIDs(ctx context.Context, bucket service.SchedulerBucket, token service.SchedulerBucketWriteToken, accountIDs []int64) error {
+	if !token.ValidFor(bucket) {
+		return fmt.Errorf("%w: bucket=%s", service.ErrSchedulerBucketWriteFenced, bucket.String())
+	}
+	version, err := c.allocateSnapshotVersion(ctx, bucket, token)
+	if err != nil {
+		return err
+	}
+	if err := c.writeSnapshotAccountIDs(ctx, bucket, version, accountIDs); err != nil {
+		return err
+	}
+	return c.activateSnapshotVersion(ctx, bucket, token, version)
+}
+
 func (c *schedulerCache) allocateSnapshotVersion(ctx context.Context, bucket service.SchedulerBucket, token service.SchedulerBucketWriteToken) (string, error) {
 	result, err := allocateSnapshotVersionScript.Run(ctx, c.rdb, []string{
 		schedulerBucketKey(schedulerEpochPrefix, bucket),
@@ -411,35 +447,65 @@ func (c *schedulerCache) allocateSnapshotVersion(ctx context.Context, bucket ser
 }
 
 func (c *schedulerCache) writeSnapshotVersion(ctx context.Context, bucket service.SchedulerBucket, version string, accounts []service.Account) error {
-	snapshotKey := schedulerSnapshotKey(bucket, version)
 	cacheableAccounts, err := c.writeAccounts(ctx, accounts)
 	if err != nil {
 		return err
 	}
+	return c.writeSnapshotAccounts(ctx, bucket, version, cacheableAccounts)
+}
 
-	if len(cacheableAccounts) > 0 {
-		// 使用序号作为 score，保持数据库返回的排序语义。
-		members := make([]redis.Z, 0, len(cacheableAccounts))
-		for idx, account := range cacheableAccounts {
-			members = append(members, redis.Z{
-				Score:  float64(idx),
-				Member: strconv.FormatInt(account.ID, 10),
-			})
-		}
-		pipe := c.rdb.Pipeline()
-		for start := 0; start < len(members); start += c.writeChunkSize {
-			end := start + c.writeChunkSize
-			if end > len(members) {
-				end = len(members)
-			}
-			pipe.ZAdd(ctx, snapshotKey, members[start:end]...)
-		}
-		if _, err := pipe.Exec(ctx); err != nil {
-			return err
-		}
+func (c *schedulerCache) writeSnapshotVersionAndReturnAccountIDs(ctx context.Context, bucket service.SchedulerBucket, version string, accounts []service.Account) ([]int64, error) {
+	accountIDs, err := c.writeAccountIDs(ctx, accounts)
+	if err != nil {
+		return nil, err
 	}
+	if err := c.writeSnapshotAccountIDs(ctx, bucket, version, accountIDs); err != nil {
+		return nil, err
+	}
+	return accountIDs, nil
+}
 
-	return nil
+func (c *schedulerCache) writeSnapshotAccounts(ctx context.Context, bucket service.SchedulerBucket, version string, accounts []service.Account) error {
+	if len(accounts) == 0 {
+		return nil
+	}
+	members := make([]redis.Z, 0, len(accounts))
+	for idx, account := range accounts {
+		members = append(members, redis.Z{Score: float64(idx), Member: strconv.FormatInt(account.ID, 10)})
+	}
+	return c.writeSnapshotMembers(ctx, bucket, version, members)
+}
+
+func (c *schedulerCache) writeSnapshotAccountIDs(ctx context.Context, bucket service.SchedulerBucket, version string, accountIDs []int64) error {
+	return c.writeSnapshotMembers(ctx, bucket, version, schedulerSnapshotMembers(accountIDs))
+}
+
+func schedulerSnapshotMembers(accountIDs []int64) []redis.Z {
+	if len(accountIDs) == 0 {
+		return nil
+	}
+	members := make([]redis.Z, 0, len(accountIDs))
+	for idx, accountID := range accountIDs {
+		members = append(members, redis.Z{Score: float64(idx), Member: strconv.FormatInt(accountID, 10)})
+	}
+	return members
+}
+
+func (c *schedulerCache) writeSnapshotMembers(ctx context.Context, bucket service.SchedulerBucket, version string, members []redis.Z) error {
+	if len(members) == 0 {
+		return nil
+	}
+	pipe := c.rdb.Pipeline()
+	snapshotKey := schedulerSnapshotKey(bucket, version)
+	for start := 0; start < len(members); start += c.writeChunkSize {
+		end := start + c.writeChunkSize
+		if end > len(members) {
+			end = len(members)
+		}
+		pipe.ZAdd(ctx, snapshotKey, members[start:end]...)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
 func (c *schedulerCache) activateSnapshotVersion(ctx context.Context, bucket service.SchedulerBucket, token service.SchedulerBucketWriteToken, version string) error {
@@ -691,6 +757,18 @@ func (c *schedulerCache) writeAccounts(ctx context.Context, accounts []service.A
 	return cacheableAccounts, nil
 }
 
+func (c *schedulerCache) writeAccountIDs(ctx context.Context, accounts []service.Account) ([]int64, error) {
+	cacheableAccounts, err := c.writeAccounts(ctx, accounts)
+	if err != nil {
+		return nil, err
+	}
+	accountIDs := make([]int64, 0, len(cacheableAccounts))
+	for _, account := range cacheableAccounts {
+		accountIDs = append(accountIDs, account.ID)
+	}
+	return accountIDs, nil
+}
+
 func marshalSchedulerCacheAccount(account service.Account) ([]byte, []byte, error) {
 	fullPayload, err := json.Marshal(account)
 	if err != nil {
@@ -863,15 +941,63 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"auto_pause_5h_disabled",
 		"auto_pause_7d_disabled",
 		"model_rate_limits",
+		service.UpstreamBillingProbeExtraKey,
 	}
 	filtered := make(map[string]any)
 	for _, key := range keys {
 		if value, ok := extra[key]; ok && value != nil {
+			if key == service.UpstreamBillingProbeExtraKey {
+				filteredProbe := filterSchedulerUpstreamBillingProbe(value)
+				if filteredProbe == nil {
+					continue
+				}
+				value = filteredProbe
+			}
 			filtered[key] = value
 		}
 	}
 	if len(filtered) == 0 {
 		return nil
+	}
+	return filtered
+}
+
+func filterSchedulerUpstreamBillingProbe(value any) map[string]any {
+	source, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	status, ok := source["status"].(string)
+	if !ok || status == "" {
+		return nil
+	}
+	filtered := map[string]any{"status": status}
+	for _, key := range []string{"received_at", "fresh_until", "next_probe_at"} {
+		if field, exists := source[key]; exists && field != nil {
+			filtered[key] = field
+		}
+	}
+	data, ok := source["data"].(map[string]any)
+	if !ok {
+		return filtered
+	}
+	filteredData := make(map[string]any)
+	for _, key := range []string{
+		"billing_scope",
+		"resolved_rate_multiplier",
+		"peak_rate_enabled",
+		"peak_start",
+		"peak_end",
+		"peak_rate_multiplier",
+		"timezone",
+	} {
+		if field, exists := data[key]; exists && field != nil {
+			filteredData[key] = field
+		}
+	}
+	if len(filteredData) > 0 {
+		filtered["data"] = filteredData
 	}
 	return filtered
 }

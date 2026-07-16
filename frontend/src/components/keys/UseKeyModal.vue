@@ -34,6 +34,7 @@
             <button
               v-for="tab in clientTabs"
               :key="tab.id"
+              type="button"
               @click="activeClientTab = tab.id"
               :class="[
                 'whitespace-nowrap py-2.5 px-1 border-b-2 font-medium text-sm transition-colors',
@@ -102,11 +103,12 @@
         </div>
 
         <!-- OS/Shell Tabs -->
-        <div v-if="showShellTabs" class="border-b border-gray-200 dark:border-dark-700">
-          <nav class="-mb-px flex space-x-4" aria-label="Tabs">
+        <div v-if="showShellTabs" class="overflow-x-auto border-b border-gray-200 dark:border-dark-700">
+          <nav class="-mb-px flex min-w-max gap-4" aria-label="Tabs">
             <button
               v-for="tab in currentTabs"
               :key="tab.id"
+              type="button"
               @click="activeTab = tab.id"
               :class="[
                 'whitespace-nowrap py-2.5 px-1 border-b-2 font-medium text-sm transition-colors',
@@ -138,10 +140,11 @@
             <div class="bg-gray-900 dark:bg-dark-900 rounded-xl overflow-hidden">
               <!-- Code Header -->
               <div class="flex items-center justify-between px-4 py-2 bg-gray-800 dark:bg-dark-800 border-b border-gray-700 dark:border-dark-700">
-                <span class="text-xs text-gray-400 font-mono">{{ file.path }}</span>
+                <span class="min-w-0 truncate text-xs text-gray-400 font-mono">{{ file.path }}</span>
                 <button
+                  type="button"
                   @click="copyContent(file.content, index)"
-                  class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors"
+                  class="flex flex-shrink-0 items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors"
                   :class="copiedIndex === index
                     ? 'bg-green-500/20 text-green-400'
                     : 'bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white'"
@@ -586,9 +589,10 @@ $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
 
   const vscodeSettingsPath = activeTab.value === 'unix'
     ? '~/.claude/settings.json'
-    : '%userprofile%\\.claude\\settings.json'
+    : '%USERPROFILE%\\.claude\\settings.json'
 
   const vscodeContent = `{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "${apiKey}",
     "ANTHROPIC_BASE_URL": "${baseUrl}",

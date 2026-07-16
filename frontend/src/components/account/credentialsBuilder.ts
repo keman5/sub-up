@@ -219,6 +219,23 @@ export function isCustomGrokBaseUrl(value: unknown): boolean {
   return !GROK_OFFICIAL_BASE_URL_HOSTS.has(parsed.hostname.toLowerCase())
 }
 
+export interface GrokBaseUrlPreset {
+  /** i18n 子键：admin.accounts.grokCustomBaseUrl.presets.<labelKey> */
+  labelKey?: 'cli' | 'official'
+  /** 字面标签（如区域标识 us-east-1），专有名词不参与 i18n */
+  label?: string
+  url: string
+}
+
+/** Grok 快捷端点，仅用于快速填充，输入框仍接受任意转发地址。 */
+export const GROK_BASE_URL_PRESETS: GrokBaseUrlPreset[] = [
+  { labelKey: 'cli', url: 'https://cli-chat-proxy.grok.com/v1' },
+  { labelKey: 'official', url: 'https://api.x.ai/v1' },
+  { label: 'us-east-1', url: 'https://us-east-1.api.x.ai/v1' },
+  { label: 'us-west-2', url: 'https://us-west-2.api.x.ai/v1' },
+  { label: 'eu-west-1', url: 'https://eu-west-1.api.x.ai/v1' }
+]
+
 /**
  * 将请求头覆写写入 credentials。
  * create 模式：关闭时不写入任何字段；edit 模式：关闭时删除字段（全量替换语义）。

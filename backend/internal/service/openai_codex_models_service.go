@@ -219,10 +219,10 @@ func (c *codexModelsManifestCache) set(key string, manifest *CodexModelsManifest
 // FetchCodexModelsManifest fetches the live Codex models manifest from either
 // the ChatGPT backend for OAuth accounts or a custom upstream for API key accounts.
 //
-// The response body is passed through verbatim: the manifest schema evolves
-// with Codex client releases, and interpreting it here would force the gateway
-// to chase upstream changes. Passing it through keeps the gateway
-// schema-agnostic and always reflects the account's real entitlements.
+// After validating the stable top-level envelope, the response body is passed
+// through verbatim. Model entries evolve with Codex client releases, so the
+// gateway deliberately avoids interpreting their fields and reflects the
+// account's real entitlements without chasing upstream schema changes.
 func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, account *Account, clientVersion, ifNoneMatch string) (*CodexModelsManifest, error) {
 	if account == nil {
 		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_ACCOUNT_REQUIRED", "account is required")
