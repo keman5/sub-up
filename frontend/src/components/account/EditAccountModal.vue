@@ -47,6 +47,11 @@
             "
           />
           <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
+          <GrokBaseUrlPresets
+            v-if="account.platform === 'grok'"
+            class="mt-2"
+            @select="editBaseUrl = $event"
+          />
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
@@ -452,7 +457,7 @@
             />
           </button>
         </div>
-        <div v-if="grokOAuthCustomBaseUrlEnabled">
+        <div v-if="grokOAuthCustomBaseUrlEnabled" class="space-y-2">
           <input
             v-model="grokOAuthBaseUrl"
             type="text"
@@ -1914,7 +1919,7 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.openai.compactModelMapping') }}</label>
-          <p class="input-hint mb-3">{{ t('admin.accounts.openai.compactModelMappingDesc') }}</p>
+          <p class="input-hint">{{ t('admin.accounts.openai.compactModelMappingDesc') }}</p>
           <div v-if="openAICompactModelMappings.length > 0" class="mb-3 space-y-2">
             <div
               v-for="(mapping, index) in openAICompactModelMappings"
@@ -2503,7 +2508,6 @@
         :groups="groups"
         :platform="account?.platform"
         :mixed-scheduling="mixedScheduling"
-        :show-select-all="true"
         data-tour="account-form-groups"
       />
 
@@ -2565,8 +2569,8 @@ import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
-import { adminAPI } from '@/api/admin'
 import { useAppDialog } from '@/composables/useAppDialog'
+import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import type {
   Account,

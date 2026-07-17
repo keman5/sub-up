@@ -50,18 +50,24 @@ func normalizedDisplayRateMultiplier(value float64) float64 {
 }
 
 func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) error {
-	groupIn.DisplayRateMultiplier = normalizedDisplayRateMultiplier(groupIn.DisplayRateMultiplier)
-	if groupIn.UsageMultiplier == 0 {
-		groupIn.UsageMultiplier = 1
+	if err := createGroupRecord(ctx, r.client, groupIn); err != nil {
+		return err
 	}
-	builder := r.client.Group.Create().
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
+		logger.LegacyPrintf("repository.group", "[SchedulerOutbox] enqueue group create failed: group=%d err=%v", groupIn.ID, err)
+	}
+	return nil
+}
+
+func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *service.Group) error {
+	if groupIn == nil {
+		return errors.New("group is nil")
+	}
+	builder := client.Group.Create().
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetRateMultiplier(groupIn.RateMultiplier).
-		SetDisplayRateMultiplier(groupIn.DisplayRateMultiplier).
-		SetUsageMultiplierEnabled(groupIn.UsageMultiplierEnabled).
-		SetUsageMultiplier(groupIn.UsageMultiplier).
 		SetSortOrder(groupIn.SortOrder).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).
@@ -69,7 +75,6 @@ func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) er
 		SetNillableDailyLimitUsd(groupIn.DailyLimitUSD).
 		SetNillableWeeklyLimitUsd(groupIn.WeeklyLimitUSD).
 		SetNillableMonthlyLimitUsd(groupIn.MonthlyLimitUSD).
-		SetNillableTotalLimitUsd(groupIn.TotalLimitUSD).
 		SetAllowImageGeneration(groupIn.AllowImageGeneration).
 		SetAllowBatchImageGeneration(groupIn.AllowBatchImageGeneration).
 		SetImageRateIndependent(groupIn.ImageRateIndependent).
@@ -89,7 +94,6 @@ func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) er
 		SetClaudeCodeOnly(groupIn.ClaudeCodeOnly).
 		SetNillableFallbackGroupID(groupIn.FallbackGroupID).
 		SetNillableFallbackGroupIDOnInvalidRequest(groupIn.FallbackGroupIDOnInvalidRequest).
-		SetNillableQuotaFallbackGroupID(groupIn.QuotaFallbackGroupID).
 		SetModelRoutingEnabled(groupIn.ModelRoutingEnabled).
 		SetMcpXMLInject(groupIn.MCPXMLInject).
 		SetAllowMessagesDispatch(groupIn.AllowMessagesDispatch).
@@ -98,8 +102,6 @@ func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) er
 		SetDefaultMappedModel(groupIn.DefaultMappedModel).
 		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig).
 		SetModelsListConfig(groupIn.ModelsListConfig).
-		SetModelPolicyMode(groupIn.ModelPolicyMode).
-		SetModelPolicyModel(groupIn.ModelPolicyModel).
 		SetRpmLimit(groupIn.RPMLimit).
 		SetPeakRateEnabled(groupIn.PeakRateEnabled).
 		SetPeakStart(groupIn.PeakStart).
@@ -117,82 +119,6 @@ func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) er
 	// 设置支持的模型系列（始终设置，空数组表示不限制）
 	builder = builder.SetSupportedModelScopes(groupIn.SupportedModelScopes)
 
-	created, err := builder.Save(ctx)
-	if err != nil {
-		return translatePersistenceError(err, nil, service.ErrGroupExists)
-	}
-	groupIn.ID = created.ID
-	groupIn.CreatedAt = created.CreatedAt
-	groupIn.UpdatedAt = created.UpdatedAt
-	return nil
-}
-
-func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *service.Group) error {
-	if groupIn == nil {
-		return errors.New("group is nil")
-	}
-	groupIn.DisplayRateMultiplier = normalizedDisplayRateMultiplier(groupIn.DisplayRateMultiplier)
-	if groupIn.UsageMultiplier == 0 {
-		groupIn.UsageMultiplier = 1
-	}
-	builder := client.Group.Create().
-		SetName(groupIn.Name).
-		SetDescription(groupIn.Description).
-		SetPlatform(groupIn.Platform).
-		SetRateMultiplier(groupIn.RateMultiplier).
-		SetDisplayRateMultiplier(groupIn.DisplayRateMultiplier).
-		SetUsageMultiplierEnabled(groupIn.UsageMultiplierEnabled).
-		SetUsageMultiplier(groupIn.UsageMultiplier).
-		SetSortOrder(groupIn.SortOrder).
-		SetIsExclusive(groupIn.IsExclusive).
-		SetStatus(groupIn.Status).
-		SetSubscriptionType(groupIn.SubscriptionType).
-		SetNillableDailyLimitUsd(groupIn.DailyLimitUSD).
-		SetNillableWeeklyLimitUsd(groupIn.WeeklyLimitUSD).
-		SetNillableMonthlyLimitUsd(groupIn.MonthlyLimitUSD).
-		SetNillableTotalLimitUsd(groupIn.TotalLimitUSD).
-		SetAllowImageGeneration(groupIn.AllowImageGeneration).
-		SetAllowBatchImageGeneration(groupIn.AllowBatchImageGeneration).
-		SetImageRateIndependent(groupIn.ImageRateIndependent).
-		SetImageRateMultiplier(groupIn.ImageRateMultiplier).
-		SetNillableImagePrice1k(groupIn.ImagePrice1K).
-		SetNillableImagePrice2k(groupIn.ImagePrice2K).
-		SetNillableImagePrice4k(groupIn.ImagePrice4K).
-		SetBatchImageDiscountMultiplier(groupIn.BatchImageDiscountMultiplier).
-		SetBatchImageHoldMultiplier(groupIn.BatchImageHoldMultiplier).
-		SetVideoRateIndependent(groupIn.VideoRateIndependent).
-		SetVideoRateMultiplier(groupIn.VideoRateMultiplier).
-		SetNillableVideoPrice480p(groupIn.VideoPrice480P).
-		SetNillableVideoPrice720p(groupIn.VideoPrice720P).
-		SetNillableVideoPrice1080p(groupIn.VideoPrice1080P).
-		SetNillableWebSearchPricePerCall(groupIn.WebSearchPricePerCall).
-		SetDefaultValidityDays(groupIn.DefaultValidityDays).
-		SetClaudeCodeOnly(groupIn.ClaudeCodeOnly).
-		SetNillableFallbackGroupID(groupIn.FallbackGroupID).
-		SetNillableFallbackGroupIDOnInvalidRequest(groupIn.FallbackGroupIDOnInvalidRequest).
-		SetNillableQuotaFallbackGroupID(groupIn.QuotaFallbackGroupID).
-		SetModelRoutingEnabled(groupIn.ModelRoutingEnabled).
-		SetMcpXMLInject(groupIn.MCPXMLInject).
-		SetAllowMessagesDispatch(groupIn.AllowMessagesDispatch).
-		SetRequireOauthOnly(groupIn.RequireOAuthOnly).
-		SetRequirePrivacySet(groupIn.RequirePrivacySet).
-		SetDefaultMappedModel(groupIn.DefaultMappedModel).
-		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig).
-		SetModelsListConfig(groupIn.ModelsListConfig).
-		SetModelPolicyMode(groupIn.ModelPolicyMode).
-		SetModelPolicyModel(groupIn.ModelPolicyModel).
-		SetRpmLimit(groupIn.RPMLimit).
-		SetPeakRateEnabled(groupIn.PeakRateEnabled).
-		SetPeakStart(groupIn.PeakStart).
-		SetPeakEnd(groupIn.PeakEnd).
-		SetPeakRateMultiplier(groupIn.PeakRateMultiplier)
-	if groupIn.DuplicateOperationID != "" {
-		builder = builder.SetDuplicateOperationID(groupIn.DuplicateOperationID)
-	}
-	if groupIn.ModelRouting != nil {
-		builder = builder.SetModelRouting(groupIn.ModelRouting)
-	}
-	builder = builder.SetSupportedModelScopes(groupIn.SupportedModelScopes)
 	created, err := builder.Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, nil, service.ErrGroupExists)
@@ -304,25 +230,17 @@ func (r *groupRepository) GetByIDLite(ctx context.Context, id int64) (*service.G
 }
 
 func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) error {
-	groupIn.DisplayRateMultiplier = normalizedDisplayRateMultiplier(groupIn.DisplayRateMultiplier)
-	if groupIn.UsageMultiplier == 0 {
-		groupIn.UsageMultiplier = 1
-	}
 	builder := r.client.Group.UpdateOneID(groupIn.ID).
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetRateMultiplier(groupIn.RateMultiplier).
-		SetDisplayRateMultiplier(groupIn.DisplayRateMultiplier).
-		SetUsageMultiplierEnabled(groupIn.UsageMultiplierEnabled).
-		SetUsageMultiplier(groupIn.UsageMultiplier).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).
 		SetSubscriptionType(groupIn.SubscriptionType).
 		SetNillableDailyLimitUsd(groupIn.DailyLimitUSD).
 		SetNillableWeeklyLimitUsd(groupIn.WeeklyLimitUSD).
 		SetNillableMonthlyLimitUsd(groupIn.MonthlyLimitUSD).
-		SetNillableTotalLimitUsd(groupIn.TotalLimitUSD).
 		SetAllowImageGeneration(groupIn.AllowImageGeneration).
 		SetAllowBatchImageGeneration(groupIn.AllowBatchImageGeneration).
 		SetImageRateIndependent(groupIn.ImageRateIndependent).
@@ -347,8 +265,6 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetDefaultMappedModel(groupIn.DefaultMappedModel).
 		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig).
 		SetModelsListConfig(groupIn.ModelsListConfig).
-		SetModelPolicyMode(groupIn.ModelPolicyMode).
-		SetModelPolicyModel(groupIn.ModelPolicyModel).
 		SetRpmLimit(groupIn.RPMLimit).
 		SetPeakRateEnabled(groupIn.PeakRateEnabled).
 		SetPeakStart(groupIn.PeakStart).
@@ -370,11 +286,6 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		builder = builder.SetMonthlyLimitUsd(*groupIn.MonthlyLimitUSD)
 	} else {
 		builder = builder.ClearMonthlyLimitUsd()
-	}
-	if groupIn.TotalLimitUSD != nil {
-		builder = builder.SetTotalLimitUsd(*groupIn.TotalLimitUSD)
-	} else {
-		builder = builder.ClearTotalLimitUsd()
 	}
 	if groupIn.ImagePrice1K != nil {
 		builder = builder.SetImagePrice1k(*groupIn.ImagePrice1K)
@@ -423,11 +334,6 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		builder = builder.SetFallbackGroupIDOnInvalidRequest(*groupIn.FallbackGroupIDOnInvalidRequest)
 	} else {
 		builder = builder.ClearFallbackGroupIDOnInvalidRequest()
-	}
-	if groupIn.QuotaFallbackGroupID != nil {
-		builder = builder.SetQuotaFallbackGroupID(*groupIn.QuotaFallbackGroupID)
-	} else {
-		builder = builder.ClearQuotaFallbackGroupID()
 	}
 
 	// 处理 ModelRouting：nil 时清除，否则设置

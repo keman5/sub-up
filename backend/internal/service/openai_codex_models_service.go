@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -461,7 +463,41 @@ func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstream(ctx context.Cont
 			retryable: isRetryableCodexModelsManifestTransportError(err),
 		}
 	}
+	if err := validateCodexModelsManifestEnvelope(body); err != nil {
+		return nil, &codexModelsManifestUpstreamError{
+			err: infraerrors.Newf(
+				http.StatusBadGateway,
+				"OPENAI_CODEX_MODELS_UPSTREAM_INVALID_MANIFEST",
+				"codex models manifest upstream returned an invalid envelope: %v",
+				err,
+			),
+			retryable: true,
+		}
+	}
 	return &CodexModelsManifest{Body: body, ETag: resp.Header.Get("ETag")}, nil
+}
+
+func validateCodexModelsManifestEnvelope(body []byte) error {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return fmt.Errorf("decode JSON object: %w", err)
+	}
+	if envelope == nil {
+		return errors.New("expected a JSON object")
+	}
+	models, ok := envelope["models"]
+	if !ok {
+		return errors.New("missing top-level models array")
+	}
+	models = bytes.TrimSpace(models)
+	var entries []json.RawMessage
+	if len(models) == 0 || models[0] != '[' {
+		return errors.New("top-level models field is not an array")
+	}
+	if err := json.Unmarshal(models, &entries); err != nil {
+		return fmt.Errorf("decode top-level models array: %w", err)
+	}
+	return nil
 }
 
 func buildCodexModelsManifestCacheKey(request codexModelsManifestRequest) string {

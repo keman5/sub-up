@@ -60,9 +60,9 @@ type schedulerAccountQueryCache struct {
 	snapshotAccountIDs map[schedulerAccountQueryKey][]int64
 }
 
-// schedulerSnapshotAccountIDWriter is an optional batch optimization. After
-// the first snapshot write, later buckets can reuse the accepted account IDs
-// without serializing the same account payloads again.
+// schedulerSnapshotAccountIDWriter 是 SchedulerCache 的可选批次优化能力。
+// 首次完整发布成功后返回实际可编码账号 ID；同一查询结果的后续桶只需发布这些 ID，
+// 避免重复序列化并覆盖全局账号缓存。未实现该接口的缓存继续走原 SetSnapshot 路径。
 type schedulerSnapshotAccountIDWriter interface {
 	SetSnapshotAndReturnAccountIDs(ctx context.Context, bucket SchedulerBucket, token SchedulerBucketWriteToken, accounts []Account) ([]int64, error)
 	SetSnapshotByAccountIDs(ctx context.Context, bucket SchedulerBucket, token SchedulerBucketWriteToken, accountIDs []int64) error
@@ -942,7 +942,7 @@ func (s *SchedulerSnapshotService) rebuildBucketWithTokenPolicyAndQueryCache(
 		logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] rebuild failed: bucket=%s reason=%s err=%v", bucket.String(), reason, err)
 		return err
 	}
-	if err := s.cache.SetSnapshot(rebuildCtx, bucket, task.token, accounts); err != nil {
+	if err := s.setRebuildSnapshot(rebuildCtx, task, accounts, queries); err != nil {
 		if errors.Is(err, ErrSchedulerBucketRetired) || errors.Is(err, ErrSchedulerBucketWriteFenced) {
 			slog.Debug("[Scheduler] rebuild fenced", "bucket", bucket.String(), "reason", reason)
 			if strict {

@@ -239,14 +239,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			requestID = upstreamRequestID
 		}
 	}
-	presentationMultiplier := ResolvePresentationMultiplierWithImageOutput(
-		apiKey.Group,
-		result.Usage.InputTokens,
-		result.Usage.OutputTokens,
-		result.Usage.CacheCreationInputTokens,
-		result.Usage.CacheReadInputTokens,
-		result.Usage.ImageOutputTokens,
-	)
 
 	// 确定 RequestedModel（渠道映射前的原始模型）
 	requestedModel := result.Model
@@ -255,29 +247,29 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 
 	usageLog := &UsageLog{
-		UserID:                 user.ID,
-		APIKeyID:               apiKey.ID,
-		AccountID:              account.ID,
-		RequestID:              requestID,
-		Model:                  result.Model,
-		RequestedModel:         requestedModel,
-		UpstreamModel:          optionalNonEqualStringPtr(result.UpstreamModel, result.Model),
-		ServiceTier:            result.ServiceTier,
-		ReasoningEffort:        result.ReasoningEffort,
-		InboundEndpoint:        optionalTrimmedStringPtr(input.InboundEndpoint),
-		UpstreamEndpoint:       optionalTrimmedStringPtr(input.UpstreamEndpoint),
-		InputTokens:            actualInputTokens,
-		OutputTokens:           result.Usage.OutputTokens,
-		CacheCreationTokens:    result.Usage.CacheCreationInputTokens,
-		CacheReadTokens:        result.Usage.CacheReadInputTokens,
-		ImageOutputTokens:      result.Usage.ImageOutputTokens,
-		ImageCount:             result.ImageCount,
-		ImageSize:              optionalTrimmedStringPtr(result.ImageSize),
-		ImageInputSize:         optionalTrimmedStringPtr(result.ImageInputSize),
-		ImageOutputSize:        optionalTrimmedStringPtr(result.ImageOutputSize),
-		ImageSizeSource:        optionalTrimmedStringPtr(result.ImageSizeSource),
-		ImageSizeBreakdown:     result.ImageSizeBreakdown,
-		PresentationMultiplier: presentationMultiplier,
+		UserID:              user.ID,
+		APIKeyID:            apiKey.ID,
+		AccountID:           account.ID,
+		RequestID:           requestID,
+		Model:               result.Model,
+		RequestedModel:      requestedModel,
+		UpstreamModel:       optionalNonEqualStringPtr(result.UpstreamModel, result.Model),
+		ServiceTier:         result.ServiceTier,
+		ReasoningEffort:     result.ReasoningEffort,
+		InboundEndpoint:     optionalTrimmedStringPtr(input.InboundEndpoint),
+		UpstreamEndpoint:    optionalTrimmedStringPtr(input.UpstreamEndpoint),
+		InputTokens:         actualInputTokens,
+		OutputTokens:        result.Usage.OutputTokens,
+		CacheCreationTokens: result.Usage.CacheCreationInputTokens,
+		CacheReadTokens:     result.Usage.CacheReadInputTokens,
+		ImageInputTokens:    result.Usage.ImageInputTokens,
+		ImageOutputTokens:   result.Usage.ImageOutputTokens,
+		ImageCount:          result.ImageCount,
+		ImageSize:           optionalTrimmedStringPtr(result.ImageSize),
+		ImageInputSize:      optionalTrimmedStringPtr(result.ImageInputSize),
+		ImageOutputSize:     optionalTrimmedStringPtr(result.ImageOutputSize),
+		ImageSizeSource:     optionalTrimmedStringPtr(result.ImageSizeSource),
+		ImageSizeBreakdown:  result.ImageSizeBreakdown,
 	}
 	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
 	if isVideoUsage {
@@ -667,9 +659,7 @@ const (
 
 func openAICodexUsageFamily(modelOrFamily string) string {
 	normalized := strings.ToLower(strings.TrimSpace(modelOrFamily))
-	if normalized == openAICodexUsageFamilySpark ||
-		strings.Contains(normalized, "spark") ||
-		strings.Contains(normalized, "bengalfox") {
+	if normalized == openAICodexUsageFamilySpark || strings.Contains(normalized, "spark") || strings.Contains(normalized, "bengalfox") {
 		return openAICodexUsageFamilySpark
 	}
 	return openAICodexUsageFamilyMain
@@ -858,16 +848,12 @@ func buildCodexUsageExtraUpdatesForFamily(snapshot *OpenAICodexUsageSnapshot, fa
 	if snapshot == nil {
 		return nil
 	}
-	if strings.TrimSpace(modelOrFamily) == "" {
-		return buildCodexUsageExtraUpdates(snapshot, fallbackNow)
-	}
-	if openAICodexUsageFamily(modelOrFamily) == openAICodexUsageFamilySpark {
+	if strings.TrimSpace(modelOrFamily) == "" || openAICodexUsageFamily(modelOrFamily) == openAICodexUsageFamilySpark {
 		return buildCodexUsageExtraUpdates(snapshot, fallbackNow)
 	}
 
 	baseTime := codexSnapshotBaseTime(snapshot, fallbackNow)
-	updates := make(map[string]any)
-	updates["codex_main_usage_updated_at"] = baseTime.Format(time.RFC3339)
+	updates := map[string]any{"codex_main_usage_updated_at": baseTime.Format(time.RFC3339)}
 	if snapshot.PrimaryOverSecondaryPercent != nil {
 		updates["codex_main_primary_over_secondary_percent"] = *snapshot.PrimaryOverSecondaryPercent
 	}

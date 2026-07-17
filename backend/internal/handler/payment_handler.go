@@ -119,11 +119,11 @@ func (h *PaymentHandler) GetCheckoutInfo(c *gin.Context) {
 		planList = append(planList, checkoutPlan{
 			ID: int64(p.ID), GroupID: p.GroupID,
 			GroupPlatform: gi.Platform, GroupName: gi.Name,
-			RateMultiplier: gi.DisplayRateMultiplier, DisplayRateMultiplier: gi.DisplayRateMultiplier,
+			RateMultiplier:  gi.RateMultiplier,
 			PeakRateEnabled: gi.PeakRateEnabled, PeakStart: gi.PeakStart,
 			PeakEnd: gi.PeakEnd, PeakRateMultiplier: gi.PeakRateMultiplier,
 			DailyLimitUSD:  gi.DailyLimitUSD,
-			WeeklyLimitUSD: gi.WeeklyLimitUSD, MonthlyLimitUSD: gi.MonthlyLimitUSD, TotalLimitUSD: gi.TotalLimitUSD,
+			WeeklyLimitUSD: gi.WeeklyLimitUSD, MonthlyLimitUSD: gi.MonthlyLimitUSD,
 			ModelScopes: gi.ModelScopes,
 			Name:        p.Name, Description: p.Description, Price: p.Price, OriginalPrice: p.OriginalPrice,
 			Currency:     p.Currency,
@@ -139,6 +139,7 @@ func (h *PaymentHandler) GetCheckoutInfo(c *gin.Context) {
 		Plans:                     planList,
 		BalanceDisabled:           cfg.BalanceDisabled,
 		BalanceRechargeMultiplier: cfg.BalanceRechargeMultiplier,
+		SubscriptionUSDToCNYRate:  cfg.SubscriptionUSDToCNYRate,
 		RechargeFeeRate:           cfg.RechargeFeeRate,
 		HelpText:                  cfg.HelpText,
 		HelpImageURL:              cfg.HelpImageURL,
@@ -154,6 +155,7 @@ type checkoutInfoResponse struct {
 	Plans                     []checkoutPlan                  `json:"plans"`
 	BalanceDisabled           bool                            `json:"balance_disabled"`
 	BalanceRechargeMultiplier float64                         `json:"balance_recharge_multiplier"`
+	SubscriptionUSDToCNYRate  float64                         `json:"subscription_usd_to_cny_rate"`
 	RechargeFeeRate           float64                         `json:"recharge_fee_rate"`
 	HelpText                  string                          `json:"help_text"`
 	HelpImageURL              string                          `json:"help_image_url"`
@@ -162,30 +164,28 @@ type checkoutInfoResponse struct {
 }
 
 type checkoutPlan struct {
-	ID                    int64    `json:"id"`
-	GroupID               int64    `json:"group_id"`
-	GroupPlatform         string   `json:"group_platform"`
-	GroupName             string   `json:"group_name"`
-	RateMultiplier        float64  `json:"rate_multiplier"`
-	DisplayRateMultiplier float64  `json:"display_rate_multiplier"`
-	PeakRateEnabled       bool     `json:"peak_rate_enabled"`
-	PeakStart             string   `json:"peak_start"`
-	PeakEnd               string   `json:"peak_end"`
-	PeakRateMultiplier    float64  `json:"peak_rate_multiplier"`
-	DailyLimitUSD         *float64 `json:"daily_limit_usd"`
-	WeeklyLimitUSD        *float64 `json:"weekly_limit_usd"`
-	MonthlyLimitUSD       *float64 `json:"monthly_limit_usd"`
-	TotalLimitUSD         *float64 `json:"total_limit_usd"`
-	ModelScopes           []string `json:"supported_model_scopes"`
-	Name                  string   `json:"name"`
-	Description           string   `json:"description"`
-	Price                 float64  `json:"price"`
-	OriginalPrice         *float64 `json:"original_price,omitempty"`
-	ValidityDays          int      `json:"validity_days"`
-	ValidityUnit          string   `json:"validity_unit"`
-	Features              []string `json:"features"`
-	ProductName           string   `json:"product_name"`
-	Currency              string   `json:"currency,omitempty"`
+	ID                 int64    `json:"id"`
+	GroupID            int64    `json:"group_id"`
+	GroupPlatform      string   `json:"group_platform"`
+	GroupName          string   `json:"group_name"`
+	RateMultiplier     float64  `json:"rate_multiplier"`
+	PeakRateEnabled    bool     `json:"peak_rate_enabled"`
+	PeakStart          string   `json:"peak_start"`
+	PeakEnd            string   `json:"peak_end"`
+	PeakRateMultiplier float64  `json:"peak_rate_multiplier"`
+	DailyLimitUSD      *float64 `json:"daily_limit_usd"`
+	WeeklyLimitUSD     *float64 `json:"weekly_limit_usd"`
+	MonthlyLimitUSD    *float64 `json:"monthly_limit_usd"`
+	ModelScopes        []string `json:"supported_model_scopes"`
+	Name               string   `json:"name"`
+	Description        string   `json:"description"`
+	Price              float64  `json:"price"`
+	OriginalPrice      *float64 `json:"original_price,omitempty"`
+	Currency           string   `json:"currency,omitempty"`
+	ValidityDays       int      `json:"validity_days"`
+	ValidityUnit       string   `json:"validity_unit"`
+	Features           []string `json:"features"`
+	ProductName        string   `json:"product_name"`
 }
 
 // parseFeatures splits a newline-separated features string into a string slice.

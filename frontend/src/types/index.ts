@@ -612,6 +612,7 @@ export interface ApiKey {
   expires_at: string | null // Expiration time (null = never expires)
   created_at: string
   updated_at: string
+  current_concurrency: number
   group?: Group
   rate_limit_5h: number
   rate_limit_1d: number
@@ -1096,34 +1097,6 @@ export interface GrokQuotaWindow {
   remaining?: number | null
   reset_unix?: number | null
   reset_at?: string | null
-}
-
-export interface GrokBillingProductUsage {
-  product: string
-  usage_percent?: number | null
-}
-
-export interface GrokBillingSummary {
-  period_type?: string
-  usage_percent?: number | null
-  period_start?: string
-  period_end?: string
-  product_usage?: GrokBillingProductUsage[]
-  monthly_limit_cents?: number | null
-  used_cents?: number | null
-  included_used_cents?: number | null
-  billing_period_start?: string
-  billing_period_end?: string
-  used_percent?: number | null
-  plan?: string
-  status_code?: number
-  source?: string
-  fetched_at?: string
-  updated_at?: string
-  weekly_updated_at?: string
-  monthly_updated_at?: string
-  partial?: boolean
-  failed_windows?: string[]
 }
 
 export interface GrokBillingProductUsage {
@@ -1675,8 +1648,8 @@ export interface DashboardStats {
   today_account_cost: number // 今日账号成本
 
   // 系统运行统计
-  average_duration_ms: number // 平均完整耗时
-  average_first_token_ms?: number // 平均首 Token 延迟
+  average_duration_ms: number // 平均响应时间
+  average_first_token_ms?: number
   uptime: number // 系统运行时间(秒)
 
   // 性能指标
@@ -1845,40 +1818,30 @@ export interface UserSubscription {
 }
 
 export interface SubscriptionProgress {
-  id?: number
-  subscription_id?: number
+  subscription_id: number
   daily: {
     used_usd?: number
-    used?: number
-    limit_usd?: number
-    limit?: number | null
+    used: number
+    limit: number | null
     percentage: number
     window_start?: string
-    resets_at?: string
-    resets_in_seconds?: number
-    reset_in_seconds?: number | null
+    reset_in_seconds: number | null
   } | null
   weekly: {
     used_usd?: number
-    used?: number
-    limit_usd?: number
-    limit?: number | null
+    used: number
+    limit: number | null
     percentage: number
     window_start?: string
-    resets_at?: string
-    resets_in_seconds?: number
-    reset_in_seconds?: number | null
+    reset_in_seconds: number | null
   } | null
   monthly: {
     used_usd?: number
-    used?: number
-    limit_usd?: number
-    limit?: number | null
+    used: number
+    limit: number | null
     percentage: number
     window_start?: string
-    resets_at?: string
-    resets_in_seconds?: number
-    reset_in_seconds?: number | null
+    reset_in_seconds: number | null
   } | null
   total?: {
     used_usd?: number
@@ -1892,7 +1855,6 @@ export interface SubscriptionProgress {
     reset_in_seconds?: number | null
   } | null
   expires_at: string | null
-  expires_in_days?: number
   days_remaining: number | null
 }
 

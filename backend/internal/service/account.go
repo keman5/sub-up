@@ -6,7 +6,6 @@ import (
 	"errors"
 	"hash/fnv"
 	"log/slog"
-	"net/url"
 	"reflect"
 	"sort"
 	"strconv"
@@ -90,6 +89,11 @@ const (
 	OpenAIEndpointCapabilityChatCompletions OpenAIEndpointCapability = "chat_completions"
 	OpenAIEndpointCapabilityEmbeddings      OpenAIEndpointCapability = "embeddings"
 	OpenAIEndpointCapabilityAlphaSearch     OpenAIEndpointCapability = "alpha_search"
+	// OpenAIEndpointCapabilityGrokMediaGeneration keeps image/video generation
+	// away from Grok accounts that are explicitly disabled or whose billing
+	// entitlement probe was forbidden. Video status lookups intentionally do not
+	// require this capability so already-submitted requests remain queryable.
+	OpenAIEndpointCapabilityGrokMediaGeneration OpenAIEndpointCapability = "grok_media_generation"
 	// OpenAIEndpointCapabilityResponses 表示上游确实提供 /v1/responses 端点。
 	// 与其他能力不同：支持状态来自 accounts.extra 的自动探测标记
 	// （openai_responses_supported / openai_responses_mode），而非
@@ -99,6 +103,11 @@ const (
 )
 
 const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
+
+// GrokMediaEligibleExtraKey is an optional per-account override stored in
+// accounts.extra. true forces media routing on, false disables it, and an
+// absent/null value uses provider observations.
+const GrokMediaEligibleExtraKey = "grok_media_eligible"
 
 const (
 	OpenAIAuthModePersonalAccessToken = "personalAccessToken"
@@ -1280,15 +1289,17 @@ func (a *Account) GetGrokBaseURL() string {
 	if !a.IsGrok() {
 		return ""
 	}
-	baseURL := a.GetCredential("base_url")
+	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
 	if a.IsGrokOAuth() {
-		if strings.TrimSpace(baseURL) == "" || isOfficialGrokAPIBaseURL(baseURL) {
+		// Operators switch subscription traffic between the official CLI
+		// gateway, the official/regional API hosts and third-party relays
+		// (individual endpoints go down from time to time), so a stored
+		// value is always honored as-is. Only empty or unparseable values
+		// fall back to the default CLI gateway.
+		if baseURL == "" || !xai.IsParseableBaseURL(baseURL) {
 			return xai.DefaultCLIBaseURL
 		}
-		if _, err := xai.ValidateTrustedBaseURL(baseURL); err == nil {
-			return baseURL
-		}
-		return xai.DefaultCLIBaseURL
+		return baseURL
 	}
 	if baseURL != "" {
 		return baseURL
@@ -1297,58 +1308,20 @@ func (a *Account) GetGrokBaseURL() string {
 }
 
 // GetGrokMediaBaseURL selects the upstream used by Grok Imagine APIs.
-//
-// OAuth text requests need the CLI subscription proxy, but that proxy has a
-// smaller request-body limit than the official Imagine API. Media requests can
-// contain large base64 inputs, so default OAuth accounts must use api.x.ai.
-// API-key accounts and explicit unsafe development overrides retain their
-// configured base URL.
+// The subscription CLI gateway enforces a small request-body limit that
+// rejects large Base64 media payloads, so OAuth media leaves for api.x.ai
+// whenever text traffic resolves to the CLI gateway. Every other manually
+// selected endpoint (official/regional API hosts or custom relays) serves
+// media as-is.
 func (a *Account) GetGrokMediaBaseURL() string {
 	if !a.IsGrok() {
 		return ""
 	}
-	if !a.IsGrokOAuth() {
-		return a.GetGrokBaseURL()
-	}
-
-	baseURL := a.GetCredential("base_url")
-	if strings.TrimSpace(baseURL) == "" || isOfficialGrokAPIBaseURL(baseURL) || isOfficialGrokCLIBaseURL(baseURL) {
+	baseURL := a.GetGrokBaseURL()
+	if a.IsGrokOAuth() && isGrokCLIProxyTarget(baseURL) {
 		return xai.DefaultBaseURL
 	}
-	if _, err := xai.ValidateTrustedBaseURL(baseURL); err == nil {
-		return baseURL
-	}
-	return xai.DefaultBaseURL
-}
-
-func isOfficialGrokAPIBaseURL(raw string) bool {
-	return isOfficialGrokBaseURL(raw, xai.DefaultBaseURL)
-}
-
-func isOfficialGrokCLIBaseURL(raw string) bool {
-	return isOfficialGrokBaseURL(raw, xai.DefaultCLIBaseURL)
-}
-
-func isOfficialGrokBaseURL(raw, expected string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed == nil || parsed.Opaque != "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return false
-	}
-	defaultURL, err := url.Parse(expected)
-	if err != nil {
-		return false
-	}
-	if !strings.EqualFold(parsed.Scheme, defaultURL.Scheme) || !strings.EqualFold(parsed.Hostname(), defaultURL.Hostname()) {
-		return false
-	}
-	if port := parsed.Port(); port != "" {
-		portNumber, err := strconv.Atoi(port)
-		if err != nil || portNumber != 443 {
-			return false
-		}
-	}
-	path := strings.TrimRight(parsed.Path, "/")
-	return path == "" || path == strings.TrimRight(defaultURL.Path, "/")
+	return baseURL
 }
 
 func (a *Account) GetGrokAccessToken() string {
@@ -1446,7 +1419,15 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		return false
 	}
 	if a.IsGrok() {
-		return capability == OpenAIEndpointCapabilityChatCompletions
+		switch capability {
+		case OpenAIEndpointCapabilityChatCompletions:
+			return true
+		case OpenAIEndpointCapabilityGrokMediaGeneration:
+			eligible, _ := a.GrokMediaGenerationEligibility()
+			return eligible
+		default:
+			return false
+		}
 	}
 	switch capability {
 	case OpenAIEndpointCapabilityChatCompletions:
@@ -1462,10 +1443,11 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		// 配置集校验。
 		capability = OpenAIEndpointCapabilityChatCompletions
 	case OpenAIEndpointCapabilityAlphaSearch:
-		// Codex alpha/search 是 ChatGPT/Codex 后端工具端点，必须使用
-		// OAuth/PAT/AgentIdentity 这类 ChatGPT 账号凭据；API key 被发往
-		// chatgpt.com/backend-api/codex/alpha/search 会稳定 401。
-		if a.Type != AccountTypeOAuth {
+		// alpha/search 的转发按账号类型分流：OAuth/PAT 走
+		// chatgpt.com/backend-api/codex/alpha/search，API key 走
+		// {base_url}/v1/alpha/search（见 openAIAlphaSearchURL），两类账号
+		// 都可承接独立搜索请求。上游不支持该端点时由转发层 failover 兜底。
+		if a.Type != AccountTypeOAuth && a.Type != AccountTypeAPIKey {
 			return false
 		}
 	case OpenAIEndpointCapabilityEmbeddings:
@@ -1484,6 +1466,46 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		return true
 	}
 	return configured[string(capability)]
+}
+
+// GrokMediaGenerationEligibility reports whether a Grok account may receive
+// new image/video generation requests. Missing observations preserve legacy
+// routing; operators can fail closed for known-bad accounts with the explicit
+// override. A successful override takes precedence over stale probe data.
+func (a *Account) GrokMediaGenerationEligibility() (bool, string) {
+	if a == nil || !a.IsGrok() {
+		return false, "not_grok"
+	}
+	if override, ok := grokMediaEligibilityOverride(a.Extra); ok {
+		if override {
+			return true, "override_enabled"
+		}
+		return false, "override_disabled"
+	}
+	if a.Type != AccountTypeOAuth {
+		return true, "non_oauth"
+	}
+
+	billing, err := grokBillingSnapshotFromExtra(a.Extra)
+	if err != nil || billing == nil {
+		return true, "billing_unobserved"
+	}
+	if billing.StatusCode == 403 || billing.WeeklyStatusCode == 403 || billing.MonthlyStatusCode == 403 {
+		return false, "billing_forbidden"
+	}
+	return true, "eligible"
+}
+
+func grokMediaEligibilityOverride(extra map[string]any) (bool, bool) {
+	if extra == nil {
+		return false, false
+	}
+	raw, exists := extra[GrokMediaEligibleExtraKey]
+	if !exists || raw == nil {
+		return false, false
+	}
+	value, ok := raw.(bool)
+	return value, ok
 }
 
 func (a *Account) openAIEndpointCapabilitySet() (map[string]bool, bool) {

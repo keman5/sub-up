@@ -9,6 +9,7 @@
             :groups="groups"
             @update:filters="(newFilters) => Object.assign(params, newFilters)"
             @change="debouncedReload"
+            @update:searchQuery="debouncedReload"
           />
           <AccountTableActions
             :loading="loading"
@@ -19,7 +20,10 @@
               <!-- Auto Refresh Dropdown -->
               <div class="relative" ref="autoRefreshDropdownRef">
                 <button
-                  @click="toggleAutoRefreshDropdown"
+                  @click="
+                    showAutoRefreshDropdown = !showAutoRefreshDropdown;
+                    showAccountToolsDropdown = false
+                  "
                   class="btn btn-secondary px-2 md:px-3"
                   :title="t('admin.accounts.autoRefresh')"
                 >
@@ -32,14 +36,10 @@
                     }}
                   </span>
                 </button>
-                <Teleport to="body">
-                  <div
-                    v-if="showAutoRefreshDropdown"
-                    ref="autoRefreshMenuRef"
-                    class="fixed z-50 max-w-[calc(100vw-1rem)] w-56 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800"
-                    :style="autoRefreshMenuStyle"
-                    @click.stop
-                  >
+                <div
+                  v-if="showAutoRefreshDropdown"
+                  class="absolute right-0 z-50 mt-2 w-56 origin-top-right rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800"
+                >
                   <div class="p-2">
                     <button
                       @click="setAutoRefreshEnabled(!autoRefreshEnabled)"
@@ -59,14 +59,16 @@
                       <Icon v-if="autoRefreshIntervalSeconds === sec" name="check" size="sm" class="text-primary-500" />
                     </button>
                   </div>
-                  </div>
-                </Teleport>
+                </div>
               </div>
 
               <!-- More Tools Dropdown -->
               <div class="relative" ref="accountToolsDropdownRef">
                 <button
-                  @click="toggleAccountToolsDropdown"
+                  @click="
+                    showAccountToolsDropdown = !showAccountToolsDropdown;
+                    showAutoRefreshDropdown = false
+                  "
                   class="btn btn-secondary px-2 md:px-3"
                   :title="t('admin.accounts.moreActions')"
                 >
@@ -76,9 +78,7 @@
                 </button>
                 <div
                   v-if="showAccountToolsDropdown"
-                  ref="accountToolsMenuRef"
-                  class="fixed z-50 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800"
-                  :style="accountToolsMenuStyle"
+                  class="absolute right-0 z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] origin-top-right overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800"
                 >
                   <div class="max-h-[70vh] overflow-y-auto p-2">
                     <div class="px-2 py-2">
@@ -252,7 +252,24 @@
           </template>
           <template #cell-name="{ row, value }">
             <div class="flex flex-col">
-              <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+              <HelpTooltip
+                v-if="accountHomepageUrl(row)"
+                :content="accountHomepageUrl(row)"
+                width-class="w-max max-w-sm break-all"
+                class="-ml-1 self-start"
+              >
+                <template #trigger>
+                  <a
+                    :href="accountHomepageUrl(row)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="border-b border-dotted border-gray-300 font-medium text-gray-900 dark:border-gray-600 dark:text-white"
+                  >
+                    {{ value }}
+                  </a>
+                </template>
+              </HelpTooltip>
+              <span v-else class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
               <span
                 v-if="accountDisplayEmail(row)"
                 class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"
@@ -329,7 +346,6 @@
               :today-stats="todayStatsByAccountId[String(row.id)] ?? null"
               :today-stats-loading="todayStatsLoading"
               :manual-refresh-token="usageManualRefreshToken"
-              @runtime-state-updated="handleAccountRuntimeStateUpdated"
             />
           </template>
           <template #cell-proxy="{ row }">
@@ -481,7 +497,7 @@
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, ref, reactive, computed, nextTick, onMounted, onUnmounted, toRaw, watch, type CSSProperties } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted, toRaw, watch } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -491,8 +507,8 @@ import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
 import { useAppDialog } from '@/composables/useAppDialog'
-import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
+import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -500,11 +516,16 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
+import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
+import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
+import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
+import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
+import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
+import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
@@ -514,25 +535,14 @@ import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
+import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
+import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
-import { clampFloatingMenuPosition, getActionMenuPosition } from '@/utils/floatingMenuPosition'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import { sanitizeUrl } from '@/utils/url'
 import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSettings, UpstreamBillingProbeSnapshot } from '@/types'
-
-const CreateAccountModal = defineAsyncComponent(() => import('@/components/account/CreateAccountModal.vue'))
-const EditAccountModal = defineAsyncComponent(() => import('@/components/account/EditAccountModal.vue'))
-const BulkEditAccountModal = defineAsyncComponent(() => import('@/components/account/BulkEditAccountModal.vue'))
-const SyncFromCrsModal = defineAsyncComponent(() => import('@/components/account/SyncFromCrsModal.vue'))
-const TempUnschedStatusModal = defineAsyncComponent(() => import('@/components/account/TempUnschedStatusModal.vue'))
-const ImportDataModal = defineAsyncComponent(() => import('@/components/admin/account/ImportDataModal.vue'))
-const ReAuthAccountModal = defineAsyncComponent(() => import('@/components/admin/account/ReAuthAccountModal.vue'))
-const AccountTestModal = defineAsyncComponent(() => import('@/components/admin/account/AccountTestModal.vue'))
-const AccountStatsModal = defineAsyncComponent(() => import('@/components/admin/account/AccountStatsModal.vue'))
-const ScheduledTestsPanel = defineAsyncComponent(() => import('@/components/admin/account/ScheduledTestsPanel.vue'))
-const ErrorPassthroughRulesModal = defineAsyncComponent(() => import('@/components/admin/ErrorPassthroughRulesModal.vue'))
-const TLSFingerprintProfilesModal = defineAsyncComponent(() => import('@/components/admin/TLSFingerprintProfilesModal.vue'))
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -624,20 +634,6 @@ useIntervalFn(() => { upstreamBillingNow.value = Date.now() }, 60_000)
 // Account tools dropdown
 const showAccountToolsDropdown = ref(false)
 const accountToolsDropdownRef = ref<HTMLElement | null>(null)
-const accountToolsMenuRef = ref<HTMLElement | null>(null)
-const accountToolsTriggerRef = ref<HTMLElement | null>(null)
-const accountToolsMenuPosition = ref<{ top: number; left: number; maxHeight: number } | null>(null)
-const accountToolsMenuStyle = computed<CSSProperties>(() => {
-  const position = accountToolsMenuPosition.value
-  if (!position) return {}
-
-  return {
-    top: `${position.top}px`,
-    left: `${position.left}px`,
-    maxHeight: `${position.maxHeight}px`,
-    overflowY: 'auto'
-  }
-})
 const hiddenColumns = reactive<Set<string>>(new Set())
 const DEFAULT_HIDDEN_COLUMNS = [
   'proxy',
@@ -709,19 +705,6 @@ const sortState = reactive<AccountSortState>(loadInitialAccountSortState())
 // Auto refresh settings
 const showAutoRefreshDropdown = ref(false)
 const autoRefreshDropdownRef = ref<HTMLElement | null>(null)
-const autoRefreshMenuRef = ref<HTMLElement | null>(null)
-const autoRefreshTriggerRef = ref<HTMLElement | null>(null)
-const autoRefreshMenuPosition = ref<{ top: number; left: number; maxHeight: number } | null>(null)
-const autoRefreshMenuStyle = computed<CSSProperties>(() => {
-  const position = autoRefreshMenuPosition.value
-  if (!position) return {}
-  return {
-    top: `${position.top}px`,
-    left: `${position.left}px`,
-    maxHeight: `${position.maxHeight}px`,
-    overflowY: 'auto'
-  }
-})
 const AUTO_REFRESH_STORAGE_KEY = 'account-auto-refresh'
 const autoRefreshIntervals = [5, 10, 15, 30] as const
 const autoRefreshEnabled = ref(false)
@@ -842,7 +825,7 @@ const loadSavedColumns = () => {
       parsed.forEach(key => {
         hiddenColumns.add(key)
       })
-      // Migrate only the previous untouched default; preserve custom column layouts.
+      // Only migrate the previous untouched default; custom layouts remain unchanged.
       if (isSameColumnSet(parsed, LEGACY_DEFAULT_HIDDEN_COLUMNS)) {
         hiddenColumns.clear()
         DEFAULT_HIDDEN_COLUMNS.forEach(key => {
@@ -850,8 +833,6 @@ const loadSavedColumns = () => {
         })
         localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
       }
-      // Layouts from before the scheduler-score migration did not record that column as hidden yet.
-      // Preserve layouts that already passed that migration, including an explicit opt-in.
       const savedColumnsVersion = localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY)
       if (
         savedColumnsVersion !== HIDDEN_COLUMNS_CURRENT_VERSION &&
@@ -916,46 +897,6 @@ const saveAutoRefreshToStorage = () => {
 if (typeof window !== 'undefined') {
   loadSavedColumns()
   loadSavedAutoRefresh()
-}
-
-const closeAutoRefreshDropdown = () => {
-  showAutoRefreshDropdown.value = false
-  autoRefreshMenuPosition.value = null
-  autoRefreshTriggerRef.value = null
-}
-
-const adjustAutoRefreshMenuPosition = () => {
-  if (!showAutoRefreshDropdown.value || !autoRefreshTriggerRef.value) return
-
-  nextTick(() => {
-    const triggerRect = autoRefreshTriggerRef.value?.getBoundingClientRect()
-    const menuRect = autoRefreshMenuRef.value?.getBoundingClientRect()
-    if (!triggerRect || !menuRect) return
-
-    const padding = 8
-    let top = triggerRect.bottom + 8
-    if (top + menuRect.height > window.innerHeight - padding) {
-      top = triggerRect.top - menuRect.height - 8
-    }
-    autoRefreshMenuPosition.value = clampFloatingMenuPosition(
-      { top, left: triggerRect.right - menuRect.width },
-      { width: menuRect.width, height: menuRect.height },
-      { width: window.innerWidth, height: window.innerHeight },
-      padding
-    )
-  })
-}
-
-const toggleAutoRefreshDropdown = (event: MouseEvent) => {
-  if (showAutoRefreshDropdown.value) {
-    closeAutoRefreshDropdown()
-    return
-  }
-
-  closeAccountToolsDropdown()
-  autoRefreshTriggerRef.value = event.currentTarget as HTMLElement
-  showAutoRefreshDropdown.value = true
-  adjustAutoRefreshMenuPosition()
 }
 
 const setAutoRefreshEnabled = (enabled: boolean) => {
@@ -1033,17 +974,6 @@ const {
   }
 })
 
-const accountRouteQuerySync = useRouteQuerySync({
-  fields: [
-    { queryKey: 'search', get: () => params.search, set: (value) => { params.search = value }, defaultValue: '' },
-    { queryKey: 'platform', get: () => params.platform, set: (value) => { params.platform = value }, defaultValue: '', defaultQueryValue: 'all' },
-    { queryKey: 'type', get: () => params.type, set: (value) => { params.type = value }, defaultValue: '', defaultQueryValue: 'all' },
-    { queryKey: 'status', get: () => params.status, set: (value) => { params.status = value }, defaultValue: 'active', defaultQueryValue: 'active', emptyQueryValue: 'all' },
-    { queryKey: 'privacy_mode', get: () => params.privacy_mode, set: (value) => { params.privacy_mode = value }, defaultValue: '', defaultQueryValue: 'all' },
-    { queryKey: 'group', get: () => params.group, set: (value) => { params.group = value }, defaultValue: '', defaultQueryValue: 'all' },
-  ],
-})
-
 const {
   selectedIds: selIds,
   allVisibleSelected,
@@ -1113,7 +1043,6 @@ const debouncedReload = () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
-  void accountRouteQuerySync.syncToRoute()
   baseDebouncedReload()
 }
 
@@ -1277,11 +1206,6 @@ const refreshAccountsIncrementally = async () => {
   }
 }
 
-const handleAccountRuntimeStateUpdated = async () => {
-  resetAutoRefreshCache()
-  await refreshAccountsIncrementally()
-}
-
 const handleManualRefresh = async () => {
   await load()
   // Force usage cells to refetch /usage on explicit user refresh.
@@ -1290,55 +1214,6 @@ const handleManualRefresh = async () => {
 
 const closeAccountToolsDropdown = () => {
   showAccountToolsDropdown.value = false
-  accountToolsMenuPosition.value = null
-  accountToolsTriggerRef.value = null
-}
-
-const adjustAccountToolsMenuPosition = () => {
-  if (!showAccountToolsDropdown.value || !accountToolsTriggerRef.value) return
-
-  nextTick(() => {
-    const triggerRect = accountToolsTriggerRef.value?.getBoundingClientRect()
-    const menuRect = accountToolsMenuRef.value?.getBoundingClientRect()
-    if (!triggerRect || !menuRect) return
-
-    const viewport = { width: window.innerWidth, height: window.innerHeight }
-    const padding = 8
-    let top = triggerRect.bottom + 8
-    if (top + menuRect.height > viewport.height - padding) {
-      top = triggerRect.top - menuRect.height - 8
-    }
-
-    accountToolsMenuPosition.value = clampFloatingMenuPosition(
-      { top, left: triggerRect.right - menuRect.width },
-      { width: menuRect.width, height: menuRect.height },
-      viewport,
-      padding
-    )
-  })
-}
-
-const toggleAccountToolsDropdown = (event: MouseEvent) => {
-  if (showAccountToolsDropdown.value) {
-    closeAccountToolsDropdown()
-    return
-  }
-
-  const trigger = event.currentTarget as HTMLElement | null
-  if (!trigger) return
-
-  closeAutoRefreshDropdown()
-  accountToolsTriggerRef.value = trigger
-  const triggerRect = trigger.getBoundingClientRect()
-  const viewport = { width: window.innerWidth, height: window.innerHeight }
-  const estimatedWidth = Math.min(320, Math.max(0, viewport.width - 16))
-  accountToolsMenuPosition.value = clampFloatingMenuPosition(
-    { top: triggerRect.bottom + 8, left: triggerRect.right - estimatedWidth },
-    { width: estimatedWidth, height: 0 },
-    viewport
-  )
-  showAccountToolsDropdown.value = true
-  adjustAccountToolsMenuPosition()
 }
 
 const openSyncFromCrs = () => {
@@ -1482,6 +1357,12 @@ function accountDisplayEmail(row: any): string {
   return row.extra?.email_address || row.extra?.email || row.credentials?.email || row.parent_email || ''
 }
 
+function accountHomepageUrl(row: Account): string {
+  if (row.type !== 'apikey' || typeof row.credentials?.base_url !== 'string') return ''
+  const baseUrl = sanitizeUrl(row.credentials.base_url)
+  return baseUrl ? new URL(baseUrl).origin : ''
+}
+
 type OpenAICompactBadgeState = 'active' | 'blocked' | 'auto'
 
 function getOpenAICompactState(row: any): OpenAICompactBadgeState | null {
@@ -1543,8 +1424,8 @@ function getAntigravityTierClass(row: any): string {
 const allColumns = computed(() => {
   const c = [
     { key: 'select', label: '', sortable: false },
-    { key: 'id', label: t('admin.accounts.columns.id'), sortable: false },
     { key: 'name', label: t('admin.accounts.columns.name'), sortable: true },
+    { key: 'id', label: t('admin.accounts.columns.id'), sortable: true },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
@@ -1572,13 +1453,13 @@ const allColumns = computed(() => {
 
 // Columns that can be toggled (exclude select, name, and actions)
 const toggleableColumns = computed(() =>
-  allColumns.value.filter(col => col.key !== 'select' && col.key !== 'id' && col.key !== 'name' && col.key !== 'actions')
+  allColumns.value.filter(col => col.key !== 'select' && col.key !== 'name' && col.key !== 'actions')
 )
 
 // Filtered columns based on visibility
 const cols = computed(() =>
   allColumns.value.filter(col =>
-    col.key === 'select' || col.key === 'id' || col.key === 'name' || col.key === 'actions' || !hiddenColumns.has(col.key)
+    col.key === 'select' || col.key === 'name' || col.key === 'actions' || !hiddenColumns.has(col.key)
   )
 )
 
@@ -1589,24 +1470,47 @@ const openMenu = (a: Account, e: MouseEvent) => {
   const target = e.currentTarget as HTMLElement
   if (target) {
     const rect = target.getBoundingClientRect()
-    const position = getActionMenuPosition({
-      triggerRect: rect,
-      pointerX: e.clientX,
-      pointerY: e.clientY,
-      menuSize: { width: 208, height: 240 },
-      viewport: { width: window.innerWidth, height: window.innerHeight }
-    })
+    const menuWidth = 200
+    const menuHeight = 240
+    const padding = 8
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
 
-    menu.pos = { top: position.top, left: position.left }
+    let left: number
+    let top: number
+
+    if (viewportWidth < 768) {
+      // 居中显示,水平位置
+      left = Math.max(padding, Math.min(
+        rect.left + rect.width / 2 - menuWidth / 2,
+        viewportWidth - menuWidth - padding
+      ))
+
+      // 优先显示在按钮下方
+      top = rect.bottom + 4
+
+      // 如果下方空间不够,显示在上方
+      if (top + menuHeight > viewportHeight - padding) {
+        top = rect.top - menuHeight - 4
+        // 如果上方也不够,就贴在视口顶部
+        if (top < padding) {
+          top = padding
+        }
+      }
+    } else {
+      left = Math.max(padding, Math.min(
+        e.clientX - menuWidth,
+        viewportWidth - menuWidth - padding
+      ))
+      top = e.clientY
+      if (top + menuHeight > viewportHeight - padding) {
+        top = viewportHeight - menuHeight - padding
+      }
+    }
+
+    menu.pos = { top, left }
   } else {
-    const position = getActionMenuPosition({
-      triggerRect: { top: e.clientY, right: e.clientX, bottom: e.clientY, left: e.clientX, width: 0 },
-      pointerX: e.clientX,
-      pointerY: e.clientY,
-      menuSize: { width: 208, height: 240 },
-      viewport: { width: window.innerWidth, height: window.innerHeight }
-    })
-    menu.pos = { top: position.top, left: position.left }
+    menu.pos = { top: e.clientY, left: e.clientX - 200 }
   }
 
   menu.show = true
@@ -2209,24 +2113,20 @@ const proxyExpiryText = (p: AccountProxy): string => {
 // 滚动时关闭操作菜单（不关闭列设置下拉菜单）
 const handleScroll = () => {
   menu.show = false
-  adjustAccountToolsMenuPosition()
-  adjustAutoRefreshMenuPosition()
 }
 
 // 点击外部关闭顶部下拉菜单
 const handleClickOutside = (event: MouseEvent) => {
   const target = event.target as HTMLElement
-  if (!accountToolsDropdownRef.value?.contains(target) && !accountToolsMenuRef.value?.contains(target)) {
-    closeAccountToolsDropdown()
+  if (accountToolsDropdownRef.value && !accountToolsDropdownRef.value.contains(target)) {
+    showAccountToolsDropdown.value = false
   }
-  if (!autoRefreshDropdownRef.value?.contains(target) && !autoRefreshMenuRef.value?.contains(target)) {
-    closeAutoRefreshDropdown()
+  if (autoRefreshDropdownRef.value && !autoRefreshDropdownRef.value.contains(target)) {
+    showAutoRefreshDropdown.value = false
   }
 }
 
 onMounted(async () => {
-  accountRouteQuerySync.restoreFromRoute()
-  void accountRouteQuerySync.syncToRoute()
   load()
   loadUpstreamBillingProbeSettings()
   try {
@@ -2237,8 +2137,6 @@ onMounted(async () => {
     console.error('Failed to load proxies/groups:', error)
   }
   window.addEventListener('scroll', handleScroll, true)
-  window.addEventListener('resize', adjustAccountToolsMenuPosition)
-  window.addEventListener('resize', adjustAutoRefreshMenuPosition)
   document.addEventListener('click', handleClickOutside)
 
   if (autoRefreshEnabled.value) {
@@ -2251,8 +2149,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll, true)
-  window.removeEventListener('resize', adjustAccountToolsMenuPosition)
-  window.removeEventListener('resize', adjustAutoRefreshMenuPosition)
   document.removeEventListener('click', handleClickOutside)
 })
 </script>

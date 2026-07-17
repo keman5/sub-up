@@ -722,6 +722,13 @@ func (r *proxyRepository) sweepOneExpiredProxyOnExec(ctx context.Context, exec s
 		return nil, err
 	}
 	if !change {
+		accountIDs, err := invalidateProxyProbeSnapshots(ctx, exec, proxyID)
+		if err != nil {
+			return nil, err
+		}
+		if err := enqueueProxyProbeAccountChanges(ctx, exec, accountIDs); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	}
 	var (
@@ -730,12 +737,24 @@ func (r *proxyRepository) sweepOneExpiredProxyOnExec(ctx context.Context, exec s
 	)
 	if target == nil {
 		rows, err = exec.QueryContext(ctx, `
-			UPDATE accounts SET proxy_id=NULL, proxy_fallback_origin_id=$1, updated_at=NOW()
+			UPDATE accounts SET proxy_id=NULL, proxy_fallback_origin_id=$1,
+				extra=CASE
+					WHEN platform='openai' AND type='apikey' AND extra ? 'upstream_billing_probe'
+					THEN extra - 'upstream_billing_probe'
+					ELSE extra
+				END,
+				updated_at=NOW()
 			WHERE proxy_id=$1 AND proxy_fallback_origin_id IS NULL AND deleted_at IS NULL
 			RETURNING id`, proxyID)
 	} else {
 		rows, err = exec.QueryContext(ctx, `
-			UPDATE accounts SET proxy_id=$2, proxy_fallback_origin_id=$1, updated_at=NOW()
+			UPDATE accounts SET proxy_id=$2, proxy_fallback_origin_id=$1,
+				extra=CASE
+					WHEN platform='openai' AND type='apikey' AND extra ? 'upstream_billing_probe'
+					THEN extra - 'upstream_billing_probe'
+					ELSE extra
+				END,
+				updated_at=NOW()
 			WHERE proxy_id=$1 AND proxy_fallback_origin_id IS NULL AND deleted_at IS NULL
 			RETURNING id`, proxyID, *target)
 	}

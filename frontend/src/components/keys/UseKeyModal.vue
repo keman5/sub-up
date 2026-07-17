@@ -29,8 +29,8 @@
         </p>
 
         <!-- Client Tabs -->
-        <div v-if="clientTabs.length" class="border-b border-gray-200 dark:border-dark-700">
-          <nav class="-mb-px flex flex-wrap gap-x-6 gap-y-2" aria-label="Client">
+        <div v-if="clientTabs.length" class="overflow-x-auto border-b border-gray-200 dark:border-dark-700">
+          <nav class="-mb-px flex min-w-max gap-4 sm:gap-6" aria-label="Client">
             <button
               v-for="tab in clientTabs"
               :key="tab.id"
@@ -99,6 +99,14 @@
             >
               {{ t('keys.useKeyModal.openai.authModeApiKey') }}
             </button>
+          </div>
+          <div
+            v-if="codexAuthMode === 'api-key'"
+            data-testid="codex-api-key-restart-notice"
+            class="mt-3 flex items-start gap-2 border-l-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-500 dark:bg-amber-950/30 dark:text-amber-200"
+          >
+            <Icon name="exclamationCircle" size="sm" class="mt-0.5 flex-shrink-0" />
+            <p>{{ t('keys.useKeyModal.openai.authModeApiKeyRestartNotice') }}</p>
           </div>
         </div>
 
@@ -356,6 +364,8 @@ const clientTabs = computed((): TabConfig[] => {
     case 'grok':
       return [
         { id: 'grok', label: t('keys.useKeyModal.cliTabs.grokCli'), icon: TerminalIcon },
+        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
+        { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
     default:
@@ -406,6 +416,12 @@ const platformDescription = computed(() => {
     case 'antigravity':
       return t('keys.useKeyModal.antigravity.description')
     case 'grok':
+      if (activeClientTab.value === 'claude') {
+        return t('keys.useKeyModal.grok.claudeDescription')
+      }
+      if (activeClientTab.value === 'codex') {
+        return t('keys.useKeyModal.grok.codexDescription')
+      }
       return t('keys.useKeyModal.grok.description')
     default:
       return t('keys.useKeyModal.description')
@@ -428,6 +444,14 @@ const platformNote = computed(() => {
         ? t('keys.useKeyModal.antigravity.claudeNote')
         : t('keys.useKeyModal.antigravity.geminiNote')
     case 'grok':
+      if (activeClientTab.value === 'claude') {
+        return t('keys.useKeyModal.grok.claudeNote')
+      }
+      if (activeClientTab.value === 'codex') {
+        return activeTab.value === 'windows'
+          ? t('keys.useKeyModal.grok.codexNoteWindows')
+          : t('keys.useKeyModal.grok.codexNote')
+      }
       return activeTab.value === 'windows'
         ? t('keys.useKeyModal.grok.noteWindows')
         : t('keys.useKeyModal.grok.note')
@@ -455,31 +479,11 @@ const string = (value: string) => wrapToken('text-amber-200', value)
 const comment = (value: string) => wrapToken('text-slate-500', value)
 
 // Syntax highlighting helpers
-function buildAnthropicBaseUrl(baseUrl: string): string {
-  const normalized = baseUrl.trim().replace(/\/+$/, '')
-  if (!normalized) return '/51Token'
-
-  try {
-    const parsed = new URL(normalized)
-    const withoutV1 = parsed.pathname.replace(/\/v1$/i, '').replace(/\/+$/, '')
-    parsed.pathname = withoutV1 || '/51Token'
-    parsed.search = ''
-    parsed.hash = ''
-    return parsed.toString().replace(/\/+$/, '')
-  } catch {
-    const withoutV1 = normalized.replace(/\/v1$/i, '')
-    return withoutV1 === normalized && !/\/51Token$/i.test(withoutV1)
-      ? `${withoutV1}/51Token`
-      : withoutV1
-  }
-}
-
 // Generate file configs based on platform and active tab
 const currentFiles = computed((): FileConfig[] => {
   const baseUrl = props.baseUrl || window.location.origin
   const apiKey = props.apiKey
   const baseRoot = baseUrl.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
-  const anthropicBase = buildAnthropicBaseUrl(baseUrl)
   const ensureV1 = (value: string) => {
     const trimmed = value.replace(/\/+$/, '')
     return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`
@@ -518,7 +522,7 @@ const currentFiles = computed((): FileConfig[] => {
   switch (props.platform) {
     case 'openai':
       if (activeClientTab.value === 'claude') {
-        return generateAnthropicFiles(anthropicBase, apiKey)
+        return generateAnthropicFiles(baseUrl, apiKey)
       }
       if (activeClientTab.value === 'codex-ws') {
         return generateOpenAIWsFiles(baseUrl, apiKey)
@@ -532,9 +536,15 @@ const currentFiles = computed((): FileConfig[] => {
       }
       return generateAnthropicFiles(`${baseUrl}/antigravity`, apiKey)
     case 'grok':
+      if (activeClientTab.value === 'claude') {
+        return generateGrokClaudeFiles(baseRoot, apiKey)
+      }
+      if (activeClientTab.value === 'codex') {
+        return generateGrokCodexFiles(apiBase, apiKey)
+      }
       return generateGrokFiles(apiBase, apiKey)
     default:
-      return generateAnthropicFiles(anthropicBase, apiKey)
+      return generateAnthropicFiles(baseUrl, apiKey)
   }
 })
 
@@ -545,42 +555,24 @@ function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
   switch (activeTab.value) {
     case 'unix':
       path = 'Terminal'
-      content = `# Claude Code 的 ANTHROPIC_BASE_URL 需要包含 /51Token，但这里不带 /v1。
-export ANTHROPIC_BASE_URL="${baseUrl}"
+      content = `export ANTHROPIC_BASE_URL="${baseUrl}"
 export ANTHROPIC_AUTH_TOKEN="${apiKey}"
-export ANTHROPIC_MODEL="gpt-5.5"
-export ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5"
-export ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.5"
-export ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.5"
-export ANTHROPIC_REASONING_MODEL="gpt-5.5"
-export CLAUDE_CODE_ATTRIBUTION_HEADER=0
-export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+export CLAUDE_CODE_ATTRIBUTION_HEADER=0`
       break
     case 'cmd':
       path = 'Command Prompt'
-      content = `REM Claude Code 的 ANTHROPIC_BASE_URL 需要包含 /51Token，但这里不带 /v1。
-set ANTHROPIC_BASE_URL=${baseUrl}
+      content = `set ANTHROPIC_BASE_URL=${baseUrl}
 set ANTHROPIC_AUTH_TOKEN=${apiKey}
-set ANTHROPIC_MODEL=gpt-5.5
-set ANTHROPIC_DEFAULT_SONNET_MODEL=gpt-5.5
-set ANTHROPIC_DEFAULT_HAIKU_MODEL=gpt-5.5
-set ANTHROPIC_DEFAULT_OPUS_MODEL=gpt-5.5
-set ANTHROPIC_REASONING_MODEL=gpt-5.5
-set CLAUDE_CODE_ATTRIBUTION_HEADER=0
-set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
+set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+set CLAUDE_CODE_ATTRIBUTION_HEADER=0`
       break
     case 'powershell':
       path = 'PowerShell'
-      content = `# Claude Code 的 ANTHROPIC_BASE_URL 需要包含 /51Token，但这里不带 /v1。
-$env:ANTHROPIC_BASE_URL="${baseUrl}"
+      content = `$env:ANTHROPIC_BASE_URL="${baseUrl}"
 $env:ANTHROPIC_AUTH_TOKEN="${apiKey}"
-$env:ANTHROPIC_MODEL="gpt-5.5"
-$env:ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.5"
-$env:ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.5"
-$env:ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.5"
-$env:ANTHROPIC_REASONING_MODEL="gpt-5.5"
-$env:CLAUDE_CODE_ATTRIBUTION_HEADER="0"
-$env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
+$env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+$env:CLAUDE_CODE_ATTRIBUTION_HEADER=0`
       break
     default:
       path = 'Terminal'
@@ -594,13 +586,8 @@ $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
   const vscodeContent = `{
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
-    "ANTHROPIC_AUTH_TOKEN": "${apiKey}",
     "ANTHROPIC_BASE_URL": "${baseUrl}",
-    "ANTHROPIC_MODEL": "gpt-5.5",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.5",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.5",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.5",
-    "ANTHROPIC_REASONING_MODEL": "gpt-5.5",
+    "ANTHROPIC_AUTH_TOKEN": "${apiKey}",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
   }
@@ -608,7 +595,68 @@ $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
 
   return [
     { path, content },
-    { path: vscodeSettingsPath, content: vscodeContent, hint: 'VSCode Claude Code（ANTHROPIC_BASE_URL 这里没有 /v1）' }
+    {
+      path: vscodeSettingsPath,
+      content: vscodeContent,
+      hint: t('keys.useKeyModal.claudeSettingsHint')
+    }
+  ]
+}
+
+function generateGrokClaudeFiles(baseUrl: string, apiKey: string): FileConfig[] {
+  const environment = {
+    ANTHROPIC_BASE_URL: baseUrl,
+    ANTHROPIC_AUTH_TOKEN: apiKey,
+    ANTHROPIC_MODEL: 'grok-4.5',
+    ANTHROPIC_DEFAULT_OPUS_MODEL: 'grok-4.5',
+    ANTHROPIC_DEFAULT_SONNET_MODEL: 'grok-4.5',
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: 'grok-4.5',
+    ANTHROPIC_DEFAULT_FABLE_MODEL: 'grok-4.5',
+    CLAUDE_CODE_SUBAGENT_MODEL: 'grok-4.5',
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+    CLAUDE_CODE_ATTRIBUTION_HEADER: '0'
+  }
+  let path: string
+  let content: string
+
+  switch (activeTab.value) {
+    case 'unix':
+      path = 'Terminal'
+      content = Object.entries(environment)
+        .map(([name, value]) => `export ${name}="${value}"`)
+        .join('\n')
+      break
+    case 'cmd':
+      path = 'Command Prompt'
+      content = Object.entries(environment)
+        .map(([name, value]) => `set ${name}=${value}`)
+        .join('\n')
+      break
+    case 'powershell':
+      path = 'PowerShell'
+      content = Object.entries(environment)
+        .map(([name, value]) => `$env:${name}="${value}"`)
+        .join('\n')
+      break
+    default:
+      path = 'Terminal'
+      content = ''
+  }
+
+  const settingsPath = activeTab.value === 'unix'
+    ? '~/.claude/settings.json'
+    : '%USERPROFILE%\\.claude\\settings.json'
+
+  return [
+    { path, content },
+    {
+      path: settingsPath,
+      content: JSON.stringify({
+        $schema: 'https://json.schemastore.org/claude-code-settings.json',
+        env: environment
+      }, null, 2),
+      hint: t('keys.useKeyModal.claudeSettingsHint')
+    }
   ]
 }
 
@@ -673,7 +721,6 @@ windows_wsl_setup_acknowledged = true
 [model_providers.OpenAI]
 name = "OpenAI"
 base_url = "${baseUrl}"
-sandbox_mode = "workspace-write" # 或 "danger-full-access"
 wire_api = "responses"
 ${generateCodexProviderAuthConfig()}
 
@@ -711,14 +758,13 @@ function generateGrokFiles(baseUrl: string, apiKey: string): FileConfig[] {
   const isWindows = activeTab.value === 'windows'
   const configDir = isWindows ? '%userprofile%\\.grok' : '~/.grok'
   const configContent = `[models]
-default = "sub2api-grok"
-web_search = "sub2api-grok"
+default = "grok"
+web_search = "grok"
 
-[model."sub2api-grok"]
+[model."grok"]
 model = "grok-4.5"
 base_url = "${baseUrl}"
-name = "Grok 4.5 via Sub2API"
-description = "Grok 4.5 through a Sub2API Grok group"
+name = "Grok 4.5"
 api_key = "${apiKey}"
 api_backend = "responses"
 context_window = 1000000
@@ -729,6 +775,43 @@ supports_backend_search = true`
     content: configContent,
     hint: t('keys.useKeyModal.grok.configTomlHint')
   }]
+}
+
+function generateGrokCodexFiles(baseUrl: string, apiKey: string): FileConfig[] {
+  const isWindows = activeTab.value === 'windows'
+  const configPath = isWindows
+    ? '%USERPROFILE%\\.codex\\config.toml'
+    : '~/.codex/config.toml'
+  const configContent = `model_provider = "sub2api_grok"
+model = "grok-4.5"
+review_model = "grok-4.5"
+model_reasoning_effort = "xhigh"
+model_context_window = 1000000
+
+[model_providers.sub2api_grok]
+name = "Sub2API Grok"
+base_url = "${baseUrl}"
+env_key = "SUB2API_API_KEY"
+wire_api = "responses"
+supports_websockets = true
+
+[features]
+responses_websockets_v2 = true`
+  const environmentContent = isWindows
+    ? `$env:SUB2API_API_KEY="${apiKey}"`
+    : `export SUB2API_API_KEY="${apiKey}"`
+
+  return [
+    {
+      path: configPath,
+      content: configContent,
+      hint: t('keys.useKeyModal.grok.codexConfigTomlHint')
+    },
+    {
+      path: isWindows ? 'PowerShell' : 'Terminal',
+      content: environmentContent
+    }
+  ]
 }
 
 function generateOpenAIWsFiles(baseUrl: string, apiKey: string): FileConfig[] {
@@ -747,7 +830,6 @@ windows_wsl_setup_acknowledged = true
 [model_providers.OpenAI]
 name = "OpenAI"
 base_url = "${baseUrl}"
-sandbox_mode = "workspace-write" # 或 "danger-full-access"
 wire_api = "responses"
 supports_websockets = true
 ${generateCodexProviderAuthConfig()}
@@ -1272,7 +1354,7 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     provider[platform].models = openaiModels
   } else if (platform === 'grok') {
     provider[platform].npm = '@ai-sdk/openai'
-    provider[platform].name = 'Grok via Sub2API'
+    provider[platform].name = 'Grok'
     provider[platform].models = grokModels
   }
 

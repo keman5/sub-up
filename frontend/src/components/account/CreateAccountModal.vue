@@ -1117,6 +1117,11 @@
             "
           />
           <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
+          <GrokBaseUrlPresets
+            v-if="form.platform === 'grok'"
+            class="mt-2"
+            @select="apiKeyBaseUrl = $event"
+          />
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
@@ -1933,7 +1938,7 @@
             />
           </button>
         </div>
-        <div v-if="grokOAuthCustomBaseUrlEnabled">
+        <div v-if="grokOAuthCustomBaseUrlEnabled" class="space-y-2">
           <input
             v-model="grokOAuthBaseUrl"
             type="text"
@@ -1941,6 +1946,7 @@
             data-testid="grok-custom-base-url-input"
             :placeholder="t('admin.accounts.grokCustomBaseUrl.placeholder')"
           />
+          <GrokBaseUrlPresets @select="grokOAuthBaseUrl = $event" />
         </div>
       </div>
 
@@ -2953,7 +2959,7 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.openai.compactModelMapping') }}</label>
-          <p class="input-hint mb-3">{{ t('admin.accounts.openai.compactModelMappingDesc') }}</p>
+          <p class="input-hint">{{ t('admin.accounts.openai.compactModelMappingDesc') }}</p>
           <div v-if="openAICompactModelMappings.length > 0" class="mb-3 space-y-2">
             <div
               v-for="(mapping, index) in openAICompactModelMappings"
@@ -3117,7 +3123,6 @@
           :groups="groups"
           :platform="form.platform"
           :mixed-scheduling="mixedScheduling"
-          :show-select-all="true"
           data-tour="account-form-groups"
         />
       </div>
@@ -3247,8 +3252,8 @@
   <BaseDialog
     :show="showGeminiHelpDialog"
     :title="t('admin.accounts.gemini.helpDialog.title')"
-    width="wide"
     @close="showGeminiHelpDialog = false"
+    max-width="max-w-3xl"
   >
     <div class="space-y-6">
       <!-- Setup Guide Section -->
@@ -3521,6 +3526,7 @@ import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
+import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import {
   applyAntigravityProjectID,
@@ -5285,7 +5291,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
         successCount++
       } catch (error: any) {
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || t('common.unknownError')
+        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
@@ -5734,7 +5740,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         successCount++
       } catch (error: any) {
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || t('common.unknownError')
+        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
@@ -5832,7 +5838,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
         successCount++
       } catch (error: any) {
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || t('common.unknownError')
+        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }

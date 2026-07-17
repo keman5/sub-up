@@ -6,7 +6,6 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
-	"regexp"
 	"testing"
 	"time"
 
@@ -68,7 +67,6 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			log.TotalCost,
 			log.ActualCost,
 			log.RateMultiplier,
-			float64(1),
 			log.AccountRateMultiplier,
 			log.BillingType,
 			int16(service.RequestTypeWSV2),
@@ -110,597 +108,6 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 	require.Equal(t, service.RequestTypeWSV2, log.RequestType)
 	require.True(t, log.Stream)
 	require.True(t, log.OpenAIWSMode)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsagePresentationOutputTokensSQLUsesImageOutputFallback(t *testing.T) {
-	require.Equal(t,
-		"GREATEST(output_tokens, image_output_tokens)",
-		usagePresentationOutputTokensSQL("", "1"),
-	)
-	require.Equal(t,
-		"FLOOR(GREATEST(ul.output_tokens, ul.image_output_tokens) * COALESCE(NULLIF(ul.presentation_multiplier, 0), 1))::BIGINT",
-		usagePresentationOutputTokensSQL("ul.", "COALESCE(NULLIF(ul.presentation_multiplier, 0), 1)"),
-	)
-}
-
-func TestUsagePresentationTotalTokensSQLUsesImageOutputFallback(t *testing.T) {
-	got := usagePresentationTotalTokensSQL("", "1")
-
-	require.Contains(t, got, "GREATEST(output_tokens, image_output_tokens)")
-	require.NotContains(t, got, "output_tokens + image_output_tokens")
-}
-
-func TestUsageLogRepositoryGetAccountWindowStatsForViewUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-	startTime := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
-
-	mock.ExpectQuery("presentation_multiplier").
-		WithArgs(int64(7), startTime).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"requests",
-			"tokens",
-			"cost",
-			"standard_cost",
-			"user_cost",
-		}).AddRow(int64(2), int64(3000), 9.0, 6.0, 3.0))
-
-	got, err := repo.GetAccountWindowStatsForView(context.Background(), 7, startTime, true)
-
-	require.NoError(t, err)
-	require.Equal(t, int64(2), got.Requests)
-	require.Equal(t, int64(3000), got.Tokens)
-	require.Equal(t, 9.0, got.Cost)
-	require.Equal(t, 6.0, got.StandardCost)
-	require.Equal(t, 3.0, got.UserCost)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetAccountWindowStatsBatchForViewUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-	startTime := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
-
-	mock.ExpectQuery("presentation_multiplier").
-		WithArgs(sqlmock.AnyArg(), startTime).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"account_id",
-			"requests",
-			"tokens",
-			"cost",
-			"standard_cost",
-			"user_cost",
-		}).AddRow(int64(7), int64(2), int64(3000), 9.0, 6.0, 3.0))
-
-	got, err := repo.GetAccountWindowStatsBatchForView(context.Background(), []int64{7}, startTime, true)
-
-	require.NoError(t, err)
-	require.Equal(t, int64(2), got[7].Requests)
-	require.Equal(t, int64(3000), got[7].Tokens)
-	require.Equal(t, 9.0, got[7].Cost)
-	require.Equal(t, 6.0, got[7].StandardCost)
-	require.Equal(t, 3.0, got[7].UserCost)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetAllGroupUsageSummaryForViewUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-	todayStart := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
-
-	mock.ExpectQuery("ul\\.actual_cost \\* COALESCE\\(NULLIF\\(ul\\.presentation_multiplier, 0\\), 1\\)").
-		WithArgs(todayStart).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"group_id",
-			"total_cost",
-			"today_cost",
-		}).AddRow(int64(3), 9.0, 2.5))
-
-	got, err := repo.GetAllGroupUsageSummaryForView(context.Background(), todayStart, true)
-
-	require.NoError(t, err)
-	require.Equal(t, []usagestats.GroupUsageSummary{{GroupID: 3, TotalCost: 9.0, TodayCost: 2.5}}, got)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetBatchAPIKeyUsageStatsForViewUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-	startTime := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
-	endTime := startTime.Add(24 * time.Hour)
-
-	mock.ExpectQuery("actual_cost \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)").
-		WithArgs(sqlmock.AnyArg(), startTime, endTime, sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"api_key_id",
-			"total_cost",
-			"today_cost",
-		}).AddRow(int64(7), 0.8, 0.2))
-
-	got, err := repo.GetBatchAPIKeyUsageStatsForView(context.Background(), []int64{7}, startTime, endTime, true)
-
-	require.NoError(t, err)
-	require.InDelta(t, 0.8, got[7].TotalActualCost, 1e-12)
-	require.InDelta(t, 0.2, got[7].TodayActualCost, 1e-12)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetBatchUserUsageStatsForViewUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-	startTime := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
-	endTime := startTime.Add(24 * time.Hour)
-
-	mock.ExpectQuery("ul\\.actual_cost \\* COALESCE\\(NULLIF\\(ul\\.presentation_multiplier, 0\\), 1\\)").
-		WithArgs(sqlmock.AnyArg(), startTime, endTime, sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"user_id",
-			"platform",
-			"total_cost",
-			"today_cost",
-		}).AddRow(int64(9), "openai", 1.5, 0.5))
-
-	got, err := repo.GetBatchUserUsageStatsForView(context.Background(), []int64{9}, startTime, endTime, true)
-
-	require.NoError(t, err)
-	require.InDelta(t, 1.5, got[9].TotalActualCost, 1e-12)
-	require.InDelta(t, 0.5, got[9].TodayActualCost, 1e-12)
-	require.Equal(t, []usagestats.PlatformUsage{{
-		Platform:        "openai",
-		TotalActualCost: 1.5,
-		TodayActualCost: 0.5,
-	}}, got[9].ByPlatform)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetDashboardStatsForViewUsesPresentationMultiplierForTPM(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-
-	mock.ExpectQuery("FROM users").
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"total_users", "today_new_users"}).
-			AddRow(int64(1), int64(0)))
-	mock.ExpectQuery("FROM api_keys").
-		WithArgs(service.StatusActive).
-		WillReturnRows(sqlmock.NewRows([]string{"total_api_keys", "active_api_keys"}).
-			AddRow(int64(2), int64(1)))
-	mock.ExpectQuery("FROM accounts").
-		WithArgs(service.StatusActive, service.StatusError, sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"total_accounts",
-			"normal_accounts",
-			"error_accounts",
-			"ratelimit_accounts",
-			"overload_accounts",
-		}).AddRow(int64(3), int64(2), int64(1), int64(0), int64(0)))
-	mock.ExpectQuery("WITH scoped AS \\(").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"total_requests",
-			"total_input_tokens",
-			"total_output_tokens",
-			"total_cache_creation_tokens",
-			"total_cache_read_tokens",
-			"total_cost",
-			"total_actual_cost",
-			"total_account_cost",
-			"total_duration_ms",
-			"today_requests",
-			"today_input_tokens",
-			"today_output_tokens",
-			"today_cache_creation_tokens",
-			"today_cache_read_tokens",
-			"today_cost",
-			"today_actual_cost",
-			"today_account_cost",
-		}).AddRow(
-			int64(1),
-			int64(400),
-			int64(200),
-			int64(0),
-			int64(0),
-			0.6,
-			0.5,
-			0.4,
-			int64(20),
-			int64(1),
-			int64(400),
-			int64(200),
-			int64(0),
-			int64(0),
-			0.6,
-			0.5,
-			0.4,
-		))
-	mock.ExpectQuery("COUNT\\(DISTINCT CASE WHEN created_at").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"active_users", "hourly_active_users"}).
-			AddRow(int64(1), int64(1)))
-	mock.ExpectQuery("SUM\\(FLOOR\\(input_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT \\+ FLOOR\\(GREATEST\\(output_tokens, image_output_tokens\\) \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT\\)").
-		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"request_count", "token_count"}).
-			AddRow(int64(5), int64(3000)))
-
-	stats, err := repo.GetDashboardStatsForView(context.Background(), true)
-	require.NoError(t, err)
-	require.Equal(t, int64(600), stats.Tpm)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetUserDashboardStatsUsesPresentationMultiplierForTPM(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-
-	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM api_keys").
-		WithArgs(int64(9)).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(2)))
-	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM api_keys").
-		WithArgs(int64(9), service.StatusActive).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(1)))
-	mock.ExpectQuery("FROM usage_logs\\s+WHERE user_id = \\$1\\s*$").
-		WithArgs(int64(9)).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"total_requests",
-			"total_input_tokens",
-			"total_output_tokens",
-			"total_cache_creation_tokens",
-			"total_cache_read_tokens",
-			"total_cost",
-			"total_actual_cost",
-			"avg_duration_ms",
-		}).AddRow(int64(1), int64(400), int64(200), int64(0), int64(0), 0.6, 0.5, 20.0))
-	mock.ExpectQuery("FROM usage_logs\\s+WHERE user_id = \\$1 AND created_at >= \\$2").
-		WithArgs(int64(9), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"today_requests",
-			"today_input_tokens",
-			"today_output_tokens",
-			"today_cache_creation_tokens",
-			"today_cache_read_tokens",
-			"today_cost",
-			"today_actual_cost",
-		}).AddRow(int64(1), int64(400), int64(200), int64(0), int64(0), 0.6, 0.5))
-	mock.ExpectQuery("SUM\\(FLOOR\\(input_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT \\+ FLOOR\\(GREATEST\\(output_tokens, image_output_tokens\\) \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT\\)").
-		WithArgs(sqlmock.AnyArg(), int64(9)).
-		WillReturnRows(sqlmock.NewRows([]string{"request_count", "token_count"}).
-			AddRow(int64(5), int64(3000)))
-	mock.ExpectQuery("SELECT\\s+COALESCE\\(NULLIF\\(g\\.platform").
-		WithArgs(int64(9), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"platform",
-			"total_requests",
-			"total_tokens",
-			"total_actual_cost",
-			"today_requests",
-			"today_tokens",
-			"today_actual_cost",
-		}))
-
-	stats, err := repo.GetUserDashboardStats(context.Background(), 9)
-	require.NoError(t, err)
-	require.Equal(t, int64(600), stats.Tpm)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetAPIKeyDashboardStatsUsesPresentationMultiplierForTPM(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-
-	mock.ExpectQuery("FROM usage_logs\\s+WHERE api_key_id = \\$1\\s*$").
-		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"total_requests",
-			"total_input_tokens",
-			"total_output_tokens",
-			"total_cache_creation_tokens",
-			"total_cache_read_tokens",
-			"total_cost",
-			"total_actual_cost",
-			"avg_duration_ms",
-		}).AddRow(int64(1), int64(400), int64(200), int64(0), int64(0), 0.6, 0.5, 20.0))
-	mock.ExpectQuery("FROM usage_logs\\s+WHERE api_key_id = \\$1 AND created_at >= \\$2").
-		WithArgs(int64(7), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"today_requests",
-			"today_input_tokens",
-			"today_output_tokens",
-			"today_cache_creation_tokens",
-			"today_cache_read_tokens",
-			"today_cost",
-			"today_actual_cost",
-		}).AddRow(int64(1), int64(400), int64(200), int64(0), int64(0), 0.6, 0.5))
-	mock.ExpectQuery("SUM\\(FLOOR\\(input_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT \\+ FLOOR\\(GREATEST\\(output_tokens, image_output_tokens\\) \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT \\+ FLOOR\\(cache_creation_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT \\+ FLOOR\\(cache_read_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT\\)").
-		WithArgs(sqlmock.AnyArg(), int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"request_count", "token_count"}).
-			AddRow(int64(5), int64(3000)))
-
-	stats, err := repo.GetAPIKeyDashboardStats(context.Background(), 7)
-	require.NoError(t, err)
-	require.Equal(t, int64(600), stats.Tpm)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetUserUsageTrendByUserIDUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-	startTime := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
-	endTime := startTime.Add(24 * time.Hour)
-
-	mock.ExpectQuery("SUM\\(FLOOR\\(input_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT").
-		WithArgs(int64(9), startTime, endTime).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"date",
-			"requests",
-			"input_tokens",
-			"output_tokens",
-			"cache_creation_tokens",
-			"cache_read_tokens",
-			"total_tokens",
-			"cost",
-			"actual_cost",
-		}).AddRow("2026-06-22", int64(1), int64(400), int64(200), int64(0), int64(0), int64(600), 0.6, 0.5))
-
-	got, err := repo.GetUserUsageTrendByUserID(context.Background(), 9, startTime, endTime, "day")
-
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	require.Equal(t, int64(600), got[0].TotalTokens)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetUserModelStatsUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-	startTime := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
-	endTime := startTime.Add(24 * time.Hour)
-
-	mock.ExpectQuery("SUM\\(FLOOR\\(input_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT").
-		WithArgs(startTime, endTime, int64(9)).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"model",
-			"requests",
-			"input_tokens",
-			"output_tokens",
-			"cache_creation_tokens",
-			"cache_read_tokens",
-			"total_tokens",
-			"cost",
-			"actual_cost",
-			"account_cost",
-		}).AddRow("gpt-5.5", int64(1), int64(400), int64(200), int64(0), int64(0), int64(600), 0.6, 0.5, 0.4))
-
-	got, err := repo.GetUserModelStats(context.Background(), 9, startTime, endTime)
-
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	require.Equal(t, int64(600), got[0].TotalTokens)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetAPIKeyUsageTrendForViewUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-	startTime := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
-	endTime := startTime.Add(24 * time.Hour)
-
-	mock.ExpectQuery("u\\.input_tokens \\* COALESCE\\(NULLIF\\(u\\.presentation_multiplier, 0\\), 1\\)").
-		WithArgs(startTime, endTime, 5, startTime, endTime).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"date",
-			"api_key_id",
-			"key_name",
-			"requests",
-			"tokens",
-		}).AddRow("2026-06-22", int64(7), "key-a", int64(3), int64(600)))
-
-	got, err := repo.GetAPIKeyUsageTrendForView(context.Background(), startTime, endTime, "day", 5, true)
-
-	require.NoError(t, err)
-	require.Equal(t, []usagestats.APIKeyUsageTrendPoint{{
-		Date:     "2026-06-22",
-		APIKeyID: 7,
-		KeyName:  "key-a",
-		Requests: 3,
-		Tokens:   600,
-	}}, got)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetUserUsageTrendForViewUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-	startTime := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
-	endTime := startTime.Add(24 * time.Hour)
-
-	mock.ExpectQuery("u\\.actual_cost \\* COALESCE\\(NULLIF\\(u\\.presentation_multiplier, 0\\), 1\\)").
-		WithArgs(startTime, endTime, 5, startTime, endTime).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"date",
-			"user_id",
-			"email",
-			"username",
-			"requests",
-			"tokens",
-			"cost",
-			"actual_cost",
-		}).AddRow("2026-06-22", int64(9), "user@example.com", "user-a", int64(3), int64(600), 3.5, 2.5))
-
-	got, err := repo.GetUserUsageTrendForView(context.Background(), startTime, endTime, "day", 5, true)
-
-	require.NoError(t, err)
-	require.Equal(t, []usagestats.UserUsageTrendPoint{{
-		Date:       "2026-06-22",
-		UserID:     9,
-		Email:      "user@example.com",
-		Username:   "user-a",
-		Requests:   3,
-		Tokens:     600,
-		Cost:       3.5,
-		ActualCost: 2.5,
-	}}, got)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetModelStatsWithFiltersBySourceForViewUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-	startTime := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
-	endTime := startTime.Add(24 * time.Hour)
-
-	mock.ExpectQuery("actual_cost \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)").
-		WithArgs(startTime, endTime).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"model",
-			"requests",
-			"input_tokens",
-			"output_tokens",
-			"cache_creation_tokens",
-			"cache_read_tokens",
-			"total_tokens",
-			"cost",
-			"actual_cost",
-			"account_cost",
-		}).AddRow("gpt-5.5", int64(3), int64(300), int64(200), int64(50), int64(50), int64(600), 3.5, 2.5, 1.5))
-
-	got, err := repo.GetModelStatsWithFiltersBySourceForView(context.Background(), startTime, endTime, 0, 0, 0, 0, nil, nil, nil, usagestats.ModelSourceRequested, true)
-
-	require.NoError(t, err)
-	require.Equal(t, []usagestats.ModelStat{{
-		Model:               "gpt-5.5",
-		Requests:            3,
-		InputTokens:         300,
-		OutputTokens:        200,
-		CacheCreationTokens: 50,
-		CacheReadTokens:     50,
-		TotalTokens:         600,
-		Cost:                3.5,
-		ActualCost:          2.5,
-		AccountCost:         1.5,
-	}}, got)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetGroupStatsWithFiltersForViewUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-	startTime := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
-	endTime := startTime.Add(24 * time.Hour)
-
-	mock.ExpectQuery("ul\\.actual_cost \\* COALESCE\\(NULLIF\\(ul\\.presentation_multiplier, 0\\), 1\\)").
-		WithArgs(startTime, endTime).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"group_id",
-			"group_name",
-			"requests",
-			"total_tokens",
-			"cost",
-			"actual_cost",
-			"account_cost",
-		}).AddRow(int64(3), "group-a", int64(2), int64(600), 3.5, 2.5, 1.5))
-
-	got, err := repo.GetGroupStatsWithFiltersForView(context.Background(), startTime, endTime, 0, 0, 0, 0, nil, nil, nil, true)
-
-	require.NoError(t, err)
-	require.Equal(t, []usagestats.GroupStat{{
-		GroupID:     3,
-		GroupName:   "group-a",
-		Requests:    2,
-		TotalTokens: 600,
-		Cost:        3.5,
-		ActualCost:  2.5,
-		AccountCost: 1.5,
-	}}, got)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetUserSpendingRankingForViewUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-	startTime := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
-	endTime := startTime.Add(24 * time.Hour)
-
-	mock.ExpectQuery("u\\.actual_cost \\* COALESCE\\(NULLIF\\(u\\.presentation_multiplier, 0\\), 1\\)").
-		WithArgs(startTime, endTime, 12).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"user_id",
-			"email",
-			"actual_cost",
-			"requests",
-			"tokens",
-			"total_actual_cost",
-			"total_requests",
-			"total_tokens",
-		}).AddRow(int64(9), "rank@example.com", 2.5, int64(3), int64(600), 9.0, int64(10), int64(2400)))
-
-	got, err := repo.GetUserSpendingRankingForView(context.Background(), startTime, endTime, 12, true)
-
-	require.NoError(t, err)
-	require.Equal(t, []usagestats.UserSpendingRankingItem{{
-		UserID:     9,
-		Email:      "rank@example.com",
-		ActualCost: 2.5,
-		Requests:   3,
-		Tokens:     600,
-	}}, got.Ranking)
-	require.InDelta(t, 9.0, got.TotalActualCost, 1e-12)
-	require.Equal(t, int64(10), got.TotalRequests)
-	require.Equal(t, int64(2400), got.TotalTokens)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetUserBreakdownStatsForViewUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-	startTime := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
-	endTime := startTime.Add(24 * time.Hour)
-
-	presentationFactor := usagePresentationFactorSQL("ul.", true)
-	tokenExpressions := []string{
-		usagePresentationTokenSQL("ul.input_tokens", presentationFactor),
-		usagePresentationOutputTokensSQL("ul.", presentationFactor),
-		usagePresentationTokenSQL("ul.cache_creation_tokens", presentationFactor),
-		usagePresentationTokenSQL("ul.cache_read_tokens", presentationFactor),
-		usagePresentationTotalTokensSQL("ul.", presentationFactor),
-	}
-	queryPattern := `(?s)` + regexp.QuoteMeta("COALESCE(u.notes, '') as notes") + `.*`
-	for _, expression := range tokenExpressions {
-		queryPattern += regexp.QuoteMeta(expression) + ".*"
-	}
-
-	mock.ExpectQuery(queryPattern).
-		WithArgs(startTime, endTime).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"user_id",
-			"email",
-			"notes",
-			"requests",
-			"input_tokens",
-			"output_tokens",
-			"cache_tokens",
-			"total_tokens",
-			"cost",
-			"actual_cost",
-			"account_cost",
-		}).AddRow(int64(9), "breakdown@example.com", "priority customer", int64(3), int64(300), int64(200), int64(100), int64(600), 3.5, 2.5, 1.5))
-
-	got, err := repo.GetUserBreakdownStatsForView(context.Background(), startTime, endTime, usagestats.UserBreakdownDimension{}, 10, true)
-
-	require.NoError(t, err)
-	require.Equal(t, []usagestats.UserBreakdownItem{{
-		UserID:       9,
-		Email:        "breakdown@example.com",
-		Notes:        "priority customer",
-		Requests:     3,
-		InputTokens:  300,
-		OutputTokens: 200,
-		CacheTokens:  100,
-		TotalTokens:  600,
-		Cost:         3.5,
-		ActualCost:   2.5,
-		AccountCost:  1.5,
-	}}, got)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -749,7 +156,6 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			log.TotalCost,
 			log.ActualCost,
 			log.RateMultiplier,
-			float64(1),
 			log.AccountRateMultiplier,
 			log.BillingType,
 			int16(service.RequestTypeSync),
@@ -832,18 +238,16 @@ func TestExecUsageLogInsertNoResult_PersistsRequestedModel(t *testing.T) {
 
 func TestPrepareUsageLogInsert_ArgCountMatchesTypes(t *testing.T) {
 	prepared := prepareUsageLogInsert(&service.UsageLog{
-		UserID:                 1,
-		APIKeyID:               2,
-		AccountID:              3,
-		RequestID:              "req-arg-count",
-		Model:                  "gpt-5",
-		RequestedModel:         "gpt-5",
-		PresentationMultiplier: 2,
-		CreatedAt:              time.Date(2025, 1, 5, 12, 0, 0, 0, time.UTC),
+		UserID:         1,
+		APIKeyID:       2,
+		AccountID:      3,
+		RequestID:      "req-arg-count",
+		Model:          "gpt-5",
+		RequestedModel: "gpt-5",
+		CreatedAt:      time.Date(2025, 1, 5, 12, 0, 0, 0, time.UTC),
 	})
 
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
-	require.Equal(t, float64(2), prepared.args[26])
 }
 
 func TestPrepareUsageLogInsert_PersistsImageSizeMetadata(t *testing.T) {
@@ -867,11 +271,11 @@ func TestPrepareUsageLogInsert_PersistsImageSizeMetadata(t *testing.T) {
 		CreatedAt:          time.Date(2025, 1, 6, 12, 0, 0, 0, time.UTC),
 	})
 
-	require.Equal(t, sql.NullString{String: imageSize, Valid: true}, prepared.args[37])
-	require.Equal(t, sql.NullString{String: inputSize, Valid: true}, prepared.args[38])
-	require.Equal(t, sql.NullString{String: outputSize, Valid: true}, prepared.args[39])
-	require.Equal(t, sql.NullString{String: source, Valid: true}, prepared.args[40])
-	breakdownJSON, ok := prepared.args[41].(string)
+	require.Equal(t, sql.NullString{String: imageSize, Valid: true}, prepared.args[36])
+	require.Equal(t, sql.NullString{String: inputSize, Valid: true}, prepared.args[37])
+	require.Equal(t, sql.NullString{String: outputSize, Valid: true}, prepared.args[38])
+	require.Equal(t, sql.NullString{String: source, Valid: true}, prepared.args[39])
+	breakdownJSON, ok := prepared.args[40].(string)
 	require.True(t, ok)
 	require.JSONEq(t, `{"1K":1,"4K":1}`, breakdownJSON)
 }
@@ -1134,7 +538,7 @@ func TestUsageLogRepositoryGetStatsWithFiltersRequestTypePriority(t *testing.T) 
 			"total_account_cost",
 			"avg_duration_ms",
 			"avg_first_token_ms",
-		}).AddRow(int64(1), int64(2), int64(3), int64(4), int64(1), int64(3), 1.2, 1.0, 1.2, 20.0, 12.0))
+		}).AddRow(int64(1), int64(2), int64(3), int64(4), int64(1), int64(3), 1.2, 1.0, 1.2, 20.0, 5.0))
 	mock.ExpectQuery("SELECT COALESCE\\(NULLIF\\(TRIM\\(inbound_endpoint\\), ''\\), 'unknown'\\) AS endpoint").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), requestType).
 		WillReturnRows(sqlmock.NewRows([]string{"endpoint", "requests", "total_tokens", "cost", "actual_cost"}))
@@ -1151,97 +555,6 @@ func TestUsageLogRepositoryGetStatsWithFiltersRequestTypePriority(t *testing.T) 
 	require.Equal(t, int64(9), stats.TotalTokens)
 	require.NotNil(t, stats.TotalAccountCost, "TotalAccountCost should always be returned")
 	require.Equal(t, 1.2, *stats.TotalAccountCost)
-	require.Equal(t, 12.0, stats.AverageFirstTokenMs)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetStatsWithFiltersUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-
-	filters := usagestats.UsageLogFilters{UsePresentationMultiplier: true}
-
-	mock.ExpectQuery("SUM\\(COALESCE\\(account_stats_cost, total_cost\\) \\* COALESCE\\(account_rate_multiplier, 1\\) \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"total_requests",
-			"total_input_tokens",
-			"total_output_tokens",
-			"total_cache_tokens",
-			"total_cache_creation_tokens",
-			"total_cache_read_tokens",
-			"total_cost",
-			"total_actual_cost",
-			"total_account_cost",
-			"avg_duration_ms",
-			"avg_first_token_ms",
-		}).AddRow(int64(1), int64(1200), int64(1000), int64(0), int64(0), int64(0), 0.04, 0.08, 0.04, 20.0, 12.0))
-	mock.ExpectQuery("SUM\\(FLOOR\\(input_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT \\+ FLOOR\\(GREATEST\\(output_tokens, image_output_tokens\\) \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT \\+ FLOOR\\(cache_creation_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT \\+ FLOOR\\(cache_read_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"endpoint", "requests", "total_tokens", "cost", "actual_cost"}))
-	mock.ExpectQuery("SUM\\(FLOOR\\(input_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT \\+ FLOOR\\(GREATEST\\(output_tokens, image_output_tokens\\) \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT \\+ FLOOR\\(cache_creation_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT \\+ FLOOR\\(cache_read_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"endpoint", "requests", "total_tokens", "cost", "actual_cost"}))
-	mock.ExpectQuery("SUM\\(FLOOR\\(input_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT \\+ FLOOR\\(GREATEST\\(output_tokens, image_output_tokens\\) \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT \\+ FLOOR\\(cache_creation_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT \\+ FLOOR\\(cache_read_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"endpoint", "requests", "total_tokens", "cost", "actual_cost"}))
-
-	stats, err := repo.GetStatsWithFilters(context.Background(), filters)
-	require.NoError(t, err)
-	require.Equal(t, int64(2200), stats.TotalTokens)
-	require.Equal(t, int64(1200), stats.TotalInputTokens)
-	require.Equal(t, int64(1000), stats.TotalOutputTokens)
-	require.Equal(t, 0.08, stats.TotalActualCost)
-	require.NotNil(t, stats.TotalAccountCost)
-	require.Equal(t, 0.04, *stats.TotalAccountCost)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestUsageLogRepositoryGetAccountUsageStatsForViewUsesPresentationMultiplier(t *testing.T) {
-	db, mock := newSQLMock(t)
-	repo := &usageLogRepository{sql: db}
-
-	startTime := time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC)
-	endTime := startTime.Add(24 * time.Hour)
-
-	mock.ExpectQuery("SUM\\(FLOOR\\(input_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT").
-		WithArgs(int64(9), startTime, endTime).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"date",
-			"requests",
-			"tokens",
-			"cost",
-			"actual_cost",
-			"user_cost",
-		}).AddRow("2026-06-22", int64(1), int64(600), 0.6, 0.5, 0.4))
-	mock.ExpectQuery("SELECT COALESCE\\(AVG\\(duration_ms\\), 0\\) as avg_duration_ms FROM usage_logs").
-		WithArgs(int64(9), startTime, endTime).
-		WillReturnRows(sqlmock.NewRows([]string{"avg_duration_ms"}).AddRow(123.0))
-	mock.ExpectQuery("SUM\\(FLOOR\\(input_tokens \\* COALESCE\\(NULLIF\\(presentation_multiplier, 0\\), 1\\)\\)::BIGINT").
-		WithArgs(startTime, endTime, int64(9)).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"model",
-			"requests",
-			"input_tokens",
-			"output_tokens",
-			"cache_creation_tokens",
-			"cache_read_tokens",
-			"total_tokens",
-			"cost",
-			"actual_cost",
-			"account_cost",
-		}).AddRow("gpt-5.5", int64(1), int64(400), int64(200), int64(0), int64(0), int64(600), 0.6, 0.5, 0.5))
-	mock.ExpectQuery("SELECT COALESCE\\(NULLIF\\(TRIM\\(inbound_endpoint\\), ''\\), 'unknown'\\) AS endpoint").
-		WithArgs(startTime, endTime, int64(9)).
-		WillReturnRows(sqlmock.NewRows([]string{"endpoint", "requests", "total_tokens", "cost", "actual_cost"}).
-			AddRow("/v1/responses", int64(1), int64(600), 0.6, 0.5))
-	mock.ExpectQuery("SELECT COALESCE\\(NULLIF\\(TRIM\\(upstream_endpoint\\), ''\\), 'unknown'\\) AS endpoint").
-		WithArgs(startTime, endTime, int64(9)).
-		WillReturnRows(sqlmock.NewRows([]string{"endpoint", "requests", "total_tokens", "cost", "actual_cost"}).
-			AddRow("https://upstream.example/v1/responses", int64(1), int64(600), 0.6, 0.5))
-
-	resp, err := repo.GetAccountUsageStatsForView(context.Background(), 9, startTime, endTime, true)
-	require.NoError(t, err)
-	require.Equal(t, int64(600), resp.Summary.TotalTokens)
-	require.Equal(t, int64(600), resp.Models[0].TotalTokens)
-	require.Equal(t, int64(600), resp.Endpoints[0].TotalTokens)
-	require.Equal(t, int64(600), resp.UpstreamEndpoints[0].TotalTokens)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -1373,7 +686,6 @@ func TestUsageLogRepositoryGetStatsWithFiltersAlwaysReturnsAccountCost(t *testin
 	require.NoError(t, err)
 	require.NotNil(t, stats.TotalAccountCost, "TotalAccountCost must always be returned, even without AccountID filter")
 	require.Equal(t, 11.0, *stats.TotalAccountCost)
-	require.Equal(t, 25.0, stats.AverageFirstTokenMs)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -1487,7 +799,6 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0, 0.0, // image_input_tokens, image_input_cost
 			0.0, 0.0, 0.0, 0.0, 0.8, 0.8,
 			1.0,
-			2.0,
 			sql.NullFloat64{},
 			int16(service.BillingTypeBalance),
 			int16(service.RequestTypeSync),
@@ -1520,7 +831,6 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			now,
 		}})
 		require.NoError(t, err)
-		require.Equal(t, 2.0, log.PresentationMultiplier)
 		require.Equal(t, 2, log.ImageCount)
 		require.NotNil(t, log.ImageSize)
 		require.Equal(t, "4K", *log.ImageSize)
@@ -1563,7 +873,6 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			1.0,               // total_cost
 			0.9,               // actual_cost
 			1.0,               // rate_multiplier
-			1.0,               // presentation_multiplier
 			sql.NullFloat64{}, // account_rate_multiplier
 			int16(service.BillingTypeBalance),
 			int16(service.RequestTypeWSV2),
@@ -1621,7 +930,6 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0, 0.0, // image_input_tokens, image_input_cost
 			0.1, 0.2, 0.3, 0.4, 1.0, 0.9,
 			1.0,
-			1.0,
 			sql.NullFloat64{},
 			int16(service.BillingTypeBalance),
 			int16(service.RequestTypeUnknown),
@@ -1678,7 +986,6 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0, 0.0, // image_output_tokens, image_output_cost
 			0, 0.0, // image_input_tokens, image_input_cost
 			0.1, 0.2, 0.3, 0.4, 1.0, 0.9,
-			1.0,
 			1.0,
 			sql.NullFloat64{},
 			int16(service.BillingTypeBalance),

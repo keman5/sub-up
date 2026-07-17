@@ -273,13 +273,6 @@ func ProvideAccountExpiryService(accountRepo AccountRepository) *AccountExpirySe
 	return svc
 }
 
-// ProvideOpenAIQuotaRefreshService creates and starts OpenAIQuotaRefreshService.
-func ProvideOpenAIQuotaRefreshService(accountRepo AccountRepository, accountUsageService *AccountUsageService) *OpenAIQuotaRefreshService {
-	svc := NewOpenAIQuotaRefreshService(accountRepo, accountUsageService, openAIQuotaRefreshInterval)
-	svc.Start()
-	return svc
-}
-
 // ProvideProxyExpiryService creates and starts ProxyExpiryService.
 func ProvideProxyExpiryService(proxyRepo ProxyRepository) *ProxyExpiryService {
 	svc := NewProxyExpiryService(proxyRepo, time.Minute)
@@ -293,13 +286,6 @@ func ProvideSubscriptionExpiryService(userSubRepo UserSubscriptionRepository, se
 	svc.SetSettingRepository(settingRepo)
 	svc.SetNotificationEmailService(notificationEmailService)
 	svc.SetLeaderLock(lockCache, db)
-	svc.Start()
-	return svc
-}
-
-// ProvideAccountPoolHealthNotifyService creates and starts AccountPoolHealthNotifyService.
-func ProvideAccountPoolHealthNotifyService(accountRepo AccountRepository, settingRepo SettingRepository, notificationEmailService *NotificationEmailService) *AccountPoolHealthNotifyService {
-	svc := NewAccountPoolHealthNotifyService(accountRepo, settingRepo, notificationEmailService, time.Minute)
 	svc.Start()
 	return svc
 }
@@ -654,66 +640,6 @@ func ProvideAPIKeyService(
 	return svc
 }
 
-func ProvideAnnouncementService(
-	announcementRepo AnnouncementRepository,
-	readRepo AnnouncementReadRepository,
-	userRepo UserRepository,
-	userSubRepo UserSubscriptionRepository,
-	notificationEmailService *NotificationEmailService,
-) *AnnouncementService {
-	svc := NewAnnouncementService(announcementRepo, readRepo, userRepo, userSubRepo)
-	svc.SetNotificationEmailService(notificationEmailService)
-	return svc
-}
-
-// ProvideAdminService gives Wire a concrete admin-group repository dependency
-// while keeping NewAdminService's optional duplicate-repository argument for
-// lightweight callers and existing test doubles.
-func ProvideAdminService(
-	userRepo UserRepository,
-	groupRepo AdminGroupRepository,
-	accountRepo AdminAccountRepository,
-	proxyRepo ProxyRepository,
-	apiKeyRepo APIKeyRepository,
-	redeemCodeRepo RedeemCodeRepository,
-	userGroupRateRepo UserGroupRateRepository,
-	userRPMCache UserRPMCache,
-	billingCacheService *BillingCacheService,
-	proxyProber ProxyExitInfoProber,
-	proxyLatencyCache ProxyLatencyCache,
-	authCacheInvalidator APIKeyAuthCacheInvalidator,
-	entClient *dbent.Client,
-	settingService *SettingService,
-	defaultSubAssigner DefaultSubscriptionAssigner,
-	userSubRepo UserSubscriptionRepository,
-	privacyClientFactory PrivacyClientFactory,
-	runtimeBlocker AccountRuntimeBlocker,
-	affiliateService *AffiliateService,
-) AdminService {
-	return NewAdminService(
-		userRepo,
-		groupRepo,
-		accountRepo,
-		proxyRepo,
-		apiKeyRepo,
-		redeemCodeRepo,
-		userGroupRateRepo,
-		userRPMCache,
-		billingCacheService,
-		proxyProber,
-		proxyLatencyCache,
-		authCacheInvalidator,
-		entClient,
-		settingService,
-		defaultSubAssigner,
-		userSubRepo,
-		privacyClientFactory,
-		runtimeBlocker,
-		affiliateService,
-		groupRepo,
-	)
-}
-
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
 	// Core services
@@ -731,8 +657,8 @@ var ProviderSet = wire.NewSet(
 	ProvidePricingService,
 	NewBillingService,
 	ProvideBillingCacheService,
-	ProvideAnnouncementService,
-	ProvideAdminService,
+	NewAnnouncementService,
+	NewAdminService,
 	NewGatewayService,
 	NewOpenAIGatewayService,
 	ProvideImageTaskService,
@@ -758,9 +684,7 @@ var ProviderSet = wire.NewSet(
 	ProvideGrokTokenProvider,
 	ProvideOpenAITokenProvider,
 	ProvideOpenAIQuotaService,
-	wire.Bind(new(openAIQuotaUsageRefresher), new(*OpenAIQuotaService)),
 	ProvideGrokQuotaService,
-	ProvideUpstreamBillingProbeService,
 	ProvideClaudeTokenProvider,
 	NewOpenAITroubleshootingAIClient,
 	wire.Bind(new(TroubleshootingAIClient), new(*OpenAITroubleshootingAIClient)),
@@ -773,6 +697,7 @@ var ProviderSet = wire.NewSet(
 	ProvideRateLimitService,
 	ProvideAccountUsageService,
 	ProvideAccountTestService,
+	ProvideUpstreamBillingProbeService,
 	ProvideSettingService,
 	NewDataManagementService,
 	ProvideBackupService,
@@ -800,10 +725,8 @@ var ProviderSet = wire.NewSet(
 	ProvideTokenRefreshService,
 	wire.Bind(new(GrokOAuthReconciler), new(*TokenRefreshService)),
 	ProvideAccountExpiryService,
-	ProvideOpenAIQuotaRefreshService,
 	ProvideProxyExpiryService,
 	ProvideSubscriptionExpiryService,
-	ProvideAccountPoolHealthNotifyService,
 	ProvideTimingWheelService,
 	ProvideDashboardAggregationService,
 	ProvideUsageCleanupService,

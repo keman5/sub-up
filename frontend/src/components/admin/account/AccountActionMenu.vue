@@ -4,9 +4,8 @@
       <!-- Backdrop: click anywhere outside to close -->
       <div class="fixed inset-0 z-[9998]" @click="emit('close')"></div>
       <div
-        ref="menuContentRef"
         class="action-menu-content fixed z-[9999] w-52 overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-black/5 dark:bg-dark-800"
-        :style="menuStyle"
+        :style="{ top: position.top + 'px', left: position.left + 'px' }"
         @click.stop
       >
         <div class="py-1">
@@ -63,29 +62,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch, type CSSProperties } from 'vue'
+import { computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
 import type { Account } from '@/types'
-import { clampFloatingMenuPosition } from '@/utils/floatingMenuPosition'
 
 const props = defineProps<{ show: boolean; account: Account | null; position: { top: number; left: number } | null }>()
 const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow'])
 const { t } = useI18n()
-const menuContentRef = ref<HTMLElement | null>(null)
-const adjustedPosition = ref<({ top: number; left: number; maxHeight: number }) | null>(null)
-
-const menuStyle = computed<CSSProperties>(() => {
-  const position = adjustedPosition.value ?? props.position
-  if (!position) return {}
-
-  return {
-    top: `${position.top}px`,
-    left: `${position.left}px`,
-    maxHeight: `${adjustedPosition.value?.maxHeight ?? window.innerHeight - 16}px`,
-    overflowY: 'auto'
-  }
-})
 const canDuplicate = computed(() => {
   if (!props.account || props.account.parent_account_id != null) return false
   return ['apikey', 'upstream', 'bedrock', 'service_account'].includes(props.account.type)
@@ -127,44 +111,19 @@ const handleKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Escape') emit('close')
 }
 
-const adjustMenuPosition = () => {
-  if (!props.show || !props.position) return
-
-  nextTick(() => {
-    if (!menuContentRef.value || !props.position) return
-
-    const rect = menuContentRef.value.getBoundingClientRect()
-    adjustedPosition.value = clampFloatingMenuPosition(
-      props.position,
-      { width: rect.width, height: rect.height },
-      { width: window.innerWidth, height: window.innerHeight }
-    )
-  })
-}
-
 watch(
   () => props.show,
   (visible) => {
     if (visible) {
       window.addEventListener('keydown', handleKeydown)
-      window.addEventListener('resize', adjustMenuPosition)
-      adjustMenuPosition()
     } else {
       window.removeEventListener('keydown', handleKeydown)
-      window.removeEventListener('resize', adjustMenuPosition)
-      adjustedPosition.value = null
     }
   },
   { immediate: true }
 )
 
-watch(
-  () => [props.position?.top, props.position?.left, props.account?.id],
-  () => adjustMenuPosition()
-)
-
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
-  window.removeEventListener('resize', adjustMenuPosition)
 })
 </script>

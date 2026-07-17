@@ -187,13 +187,12 @@ const handleSubmit = async () => {
     )
   }
 
-  const confirmed = await appDialog.confirm({
-    message: t('admin.users.bulkLimits.confirm', {
+  const confirmed = await appDialog.confirm(
+    t('admin.users.bulkLimits.confirm', {
       count: props.selectedIds.length,
       fields: fields.join(', ')
-    }),
-    danger: true
-  })
+    })
+  )
   if (!confirmed) return
 
   submitting.value = true

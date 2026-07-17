@@ -74,7 +74,7 @@ func (c *outboxCleanupCache) UnlockBucket(ctx context.Context, bucket SchedulerB
 
 func (c *outboxCleanupCache) ListBuckets(ctx context.Context) ([]SchedulerBucket, error) {
 	c.listBucketCalls++
-	return nil, nil
+	return c.listBuckets, c.listBucketErr
 }
 
 func (c *outboxCleanupCache) GetOutboxWatermark(ctx context.Context) (int64, error) {

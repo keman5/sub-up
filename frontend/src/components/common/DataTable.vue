@@ -213,7 +213,10 @@
             :data-index="item.index"
             :ref="item.measure ? measureElement : undefined"
             class="hover:bg-gray-50 dark:hover:bg-dark-800"
-            :class="{ 'cursor-pointer': clickableRows }"
+            :class="{
+              'cursor-pointer': clickableRows,
+              'bg-primary-50/40 dark:bg-primary-900/10': selectable && isRowSelected(item.row, item.index)
+            }"
             @click="clickableRows && emit('rowClick', item.row)"
           >
             <td v-if="selectable" class="w-11 min-w-11 px-3 py-4 text-center">

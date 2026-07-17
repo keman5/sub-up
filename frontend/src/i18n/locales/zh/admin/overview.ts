@@ -44,7 +44,7 @@ export default {
       metricTokens: '按 Token',
       metricActualCost: '按实际消费',
       tokenUsageTrend: 'Token 使用趋势',
-      userUsageTrend: '用户用量趋势（前 12 名）',
+      userUsageTrend: '用户使用趋势（Top 12）',
       noDataAvailable: '暂无数据',
       model: '模型',
       group: '分组',
@@ -840,8 +840,6 @@ export default {
       },
       exclusive: '专属',
       exclusiveHint: '专属分组，可以手动指定给特定用户',
-      usageMultiplierHint: '开启后，仅新请求且真实输入/输出/cache 合计达到 1000 token 时，用户和普通管理员看到的用量按该倍率展示；真实计费数据不变。',
-      displayRateMultiplierHint: '仅用户端展示使用，默认 1 倍，不影响实际扣费。',
       exclusiveTooltip: {
         title: '什么是专属分组？',
         description:
@@ -851,6 +849,8 @@ export default {
           '公开分组费率 0.8，您可以创建一个费率 0.7 的专属分组，手动分配给 VIP 用户，让他们享受更优惠的价格。'
       },
       rateMultiplierHint: '1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
+      usageMultiplierHint: '开启后，仅新请求且真实输入/输出/cache 合计达到 1000 token 时，用户和普通管理员看到的用量按该倍率展示；真实计费数据不变。',
+      displayRateMultiplierHint: '仅用户端展示使用，默认 1 倍，不影响实际扣费。',
       platforms: {
         all: '全部平台',
         anthropic: 'Anthropic',
@@ -1068,10 +1068,10 @@ export default {
       },
       claudeMaxSimulation: {
         title: 'Claude Max 用量模拟',
-        tooltip: '启用后，对于上游未返回缓存写入用量的 Claude 模型，系统会在保持总 Token 不变的前提下，按确定规则映射为少量输入 Token 与 1 小时缓存创建用量。',
-        enabled: '已启用（模拟 1 小时缓存）',
+        tooltip: '启用后，对于没有上游缓存写入用量的 Claude 模型，系统会确定性地将 token 映射为少量输入加 1h 缓存创建，同时保持总 token 不变。',
+        enabled: '已启用（模拟 1h 缓存）',
         disabled: '已禁用',
-        hint: '仅调整用量计费日志中的 Token 分类，不会持久化单次请求的映射状态。'
+        hint: '仅调整用量计费日志中的 token 类别。不会持久化每个请求的映射状态。'
       },
       supportedScopes: {
         title: '支持的模型系列',

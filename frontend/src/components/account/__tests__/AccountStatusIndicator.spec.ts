@@ -51,24 +51,6 @@ function makeAccount(overrides: Partial<Account>): Account {
 }
 
 describe('AccountStatusIndicator', () => {
-  it('将旧版 disabled 账号状态按 inactive 文案显示', () => {
-    const wrapper = mount(AccountStatusIndicator, {
-      props: {
-        account: makeAccount({
-          status: 'disabled' as Account['status']
-        })
-      },
-      global: {
-        stubs: {
-          Icon: true
-        }
-      }
-    })
-
-    expect(wrapper.text()).toContain('admin.accounts.status.inactive')
-    expect(wrapper.text()).not.toContain('admin.accounts.status.disabled')
-  })
-
   it('Grok 账号额度限流时显示自动恢复时间而非临时不可调度', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {

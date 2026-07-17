@@ -1143,7 +1143,6 @@
           <GroupSelector
             v-model="groupIds"
             :groups="groups"
-            :show-select-all="true"
             aria-labelledby="bulk-edit-groups-label"
           />
         </div>
@@ -1214,7 +1213,6 @@ import Select from '@/components/common/Select.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
-import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import Icon from '@/components/icons/Icon.vue'
 import {
   buildModelMappingObject as buildModelMappingPayload,
@@ -1229,6 +1227,7 @@ import {
   HEADER_OVERRIDES_CREDENTIAL_KEY,
   type HeaderOverrideRow
 } from '@/components/account/credentialsBuilder'
+import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,

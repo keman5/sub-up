@@ -3,11 +3,11 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import BulkEditUserModal from '../BulkEditUserModal.vue'
 
-const { batchUpdateLimits, showSuccess, showError, confirmDialog } = vi.hoisted(() => ({
+const { batchUpdateLimits, showSuccess, showError, appDialogConfirm } = vi.hoisted(() => ({
   batchUpdateLimits: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
-  confirmDialog: vi.fn()
+  appDialogConfirm: vi.fn(),
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -26,7 +26,9 @@ vi.mock('@/stores/app', () => ({
 }))
 
 vi.mock('@/composables/useAppDialog', () => ({
-  useAppDialog: () => ({ confirm: confirmDialog })
+  useAppDialog: () => ({
+    confirm: appDialogConfirm,
+  }),
 }))
 
 vi.mock('vue-i18n', () => ({
@@ -57,8 +59,8 @@ describe('BulkEditUserModal', () => {
     batchUpdateLimits.mockReset()
     showSuccess.mockReset()
     showError.mockReset()
-    confirmDialog.mockReset()
-    confirmDialog.mockResolvedValue(true)
+    appDialogConfirm.mockReset()
+    appDialogConfirm.mockResolvedValue(true)
     batchUpdateLimits.mockResolvedValue({ affected: 2 })
   })
 
@@ -102,10 +104,9 @@ describe('BulkEditUserModal', () => {
       all: false,
       rpm_limit: 0
     })
-    expect(confirmDialog).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining('admin.users.bulkLimits.rpmUnlimitedValue'),
-      danger: true
-    }))
+    expect(appDialogConfirm).toHaveBeenCalledWith(
+      expect.stringContaining('admin.users.bulkLimits.rpmUnlimitedValue')
+    )
     expect(wrapper.emitted('success')).toEqual([[2]])
   })
 
@@ -125,7 +126,7 @@ describe('BulkEditUserModal', () => {
   })
 
   it('does not call the API when overwrite confirmation is cancelled', async () => {
-    confirmDialog.mockResolvedValue(false)
+    appDialogConfirm.mockResolvedValue(false)
     const wrapper = mountModal()
 
     await wrapper.get('[data-test="enable-concurrency"]').trigger('click')

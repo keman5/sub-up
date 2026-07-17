@@ -237,9 +237,6 @@ func (s *OpenAIQuotaService) queryResetCreditDetails(ctx context.Context, client
 	if details.AvailableCount == nil && !details.CreditListPresent {
 		return nil
 	}
-	if details.AvailableCount == nil && !details.CreditListPresent {
-		return nil
-	}
 	return &details
 }
 
@@ -253,17 +250,13 @@ func (s *OpenAIQuotaService) clearLocalRateLimitIfQuotaRecovered(ctx context.Con
 }
 
 func openAIQuotaRecovered(usage *OpenAIQuotaUsage) bool {
-	if usage == nil || usage.RateLimit == nil {
-		return false
-	}
-	return !usage.RateLimit.LimitReached
+	return usage != nil && usage.RateLimit != nil && !usage.RateLimit.LimitReached
 }
 
 func (s *OpenAIQuotaService) syncQuotaUsageSnapshot(ctx context.Context, accountID int64, usage *OpenAIQuotaUsage, now time.Time) {
 	if s == nil || s.accountRepo == nil || usage == nil {
 		return
 	}
-
 	updates := make(map[string]any)
 	if snapshot := codexSnapshotFromOpenAIRateLimit(usage.RateLimit, now); snapshot != nil {
 		for k, v := range buildCodexUsageExtraUpdatesForFamily(snapshot, now, openAICodexUsageFamilyMain) {
@@ -329,9 +322,7 @@ func applyOpenAIQuotaWindowToCodexSnapshot(snapshot *OpenAICodexUsageSnapshot, w
 
 func isOpenAISparkAdditionalRateLimit(limit OpenAIAdditionalRateLimit) bool {
 	text := strings.ToLower(strings.TrimSpace(limit.LimitName + " " + limit.MeteredFeature))
-	return strings.Contains(text, "spark") ||
-		strings.Contains(text, "bengalfox") ||
-		strings.Contains(text, "gpt-5.3-codex-spark")
+	return strings.Contains(text, "spark") || strings.Contains(text, "bengalfox") || strings.Contains(text, "gpt-5.3-codex-spark")
 }
 
 // ResetCredit consumes one rate_limit_reset_credit for the given OpenAI account.

@@ -48,9 +48,7 @@ export default {
       dataImportErrors: '失败详情',
       dataImportSuccess: '导入完成：账号 {account_created}，失败 {account_failed}',
       dataImportCompletedWithErrors: '导入完成但有错误：账号失败 {account_failed}，代理失败 {proxy_failed}',
-      messages: {
-        accountCreated: '账号创建成功'
-      },
+      messages: { accountCreated: '账号创建成功' },
       syncFromCrsTitle: '从 CRS 同步账号',
       syncFromCrsDesc:
         '将 claude-relay-service（CRS）中的账号同步到当前系统（不会在浏览器侧直接请求 CRS）。',
@@ -98,8 +96,6 @@ export default {
       allGroups: '全部分组',
       ungroupedGroup: '未分配分组',
       oauthType: 'OAuth',
-      fromModel: '请求模型，例如 gpt-5.4',
-      toModel: '上游模型，例如 gpt-5.4-compact',
       // Schedulable toggle
       schedulable: '参与调度',
       schedulableHint: '开启后账号参与API请求调度',
@@ -249,6 +245,8 @@ export default {
       rateLimitCleared: '速率限制已清除',
       setupToken: 'Setup Token',
       apiKey: 'API Key',
+      fromModel: '请求模型，例如 gpt-5.4',
+      toModel: '上游模型，例如 gpt-5.4-compact',
       deleteConfirm: "确定要删除账号 '{name}' 吗？此操作无法撤销。",
       failedToClearRateLimit: '清除速率限制失败',
       platforms: {
@@ -364,10 +362,10 @@ export default {
         grokLastStatus: '状态 {status}',
         grokLastProbe: '探测 {time}',
         grokLastHeadersSeen: '响应头 {time}',
-        openaiCodexSparkShow: 'Spark 使用量',
-        openaiCodexSparkHide: 'Spark 使用量',
         passiveSampled: '被动采样',
-        activeQuery: '查询'
+        activeQuery: '查询',
+        openaiCodexSparkShow: 'Spark 使用量',
+        openaiCodexSparkHide: 'Spark 使用量'
       },
       openaiQuotaReset: {
         count: '次数',
@@ -730,7 +728,11 @@ export default {
         hint: '开启后账号流量（对话/媒体/探测）改发指定地址；OAuth 授权与令牌刷新不受影响，仍走官方端点。',
         placeholder: 'https://relay.example.com/v1',
         required: '开启自定义上游地址后必须填写地址',
-        invalid: '上游地址格式不正确（需为 http(s):// 开头的完整地址）'
+        invalid: '上游地址格式不正确（需为 http(s):// 开头的完整地址）',
+        presets: {
+          cli: 'Grok Build CLI',
+          official: '官方 API'
+        }
       },
       autoPauseOnExpired: '过期自动暂停调度',
       autoPauseOnExpiredDesc: '启用后，账号过期将自动暂停调度',
@@ -960,8 +962,6 @@ export default {
           failedToValidateRT: '验证 Refresh Token 失败',
           missingExchangeParams: '缺少授权码、会话 ID 或 state',
           missingRefreshToken: '缺少 Refresh Token',
-          mobileRefreshTokenAuth: '手动输入 Mobile RT',
-          accessTokenAuth: '手动输入 Access Token',
           errors: {
             OPENAI_OAUTH_PROXY_REQUIRED:
               '未设置代理，当前服务器无法直连 OpenAI，导致 OpenAI OAuth 请求失败。请先选择可访问 OpenAI 的代理后重试；如果授权码已失效，请重新生成授权链接。'
@@ -970,6 +970,8 @@ export default {
           refreshTokenAuth: '手动输入 RT',
           refreshTokenDesc: '输入您已有的 OpenAI Refresh Token，支持批量输入（每行一个），系统将自动验证并创建账号。',
           refreshTokenPlaceholder: '粘贴您的 OpenAI Refresh Token...\n支持多个，每行一个',
+          mobileRefreshTokenAuth: '手动输入 Mobile RT',
+          accessTokenAuth: '手动输入 AT',
           codexSessionAuth: 'Codex OAuth auth.json / AT 导入',
           codexSessionDesc: '粘贴 Codex OAuth auth.json 或 accessToken，按第一步配置创建账号。',
           codexSessionInputLabel: 'Codex OAuth auth.json 或 accessToken',

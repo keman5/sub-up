@@ -11,7 +11,6 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,7 +28,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -208,11 +206,6 @@ type AccountSchedulerGroupScore struct {
 }
 
 const accountListGroupUngroupedQueryValue = "ungrouped"
-
-func usageViewModeFromContext(c *gin.Context) service.UsageViewMode {
-	role, _ := middleware.GetUserRoleFromContext(c)
-	return service.UsageViewModeForRole(role)
-}
 
 func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, account *service.Account, viewMode service.UsageViewMode) AccountWithConcurrency {
 	item := AccountWithConcurrency{
@@ -619,7 +612,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 				stats, err := h.accountUsageService.GetAccountWindowStatsForView(gctx, accCopy.ID, startTime, viewMode)
 				if err == nil && stats != nil {
 					mu.Lock()
-					windowCosts[accCopy.ID] = stats.StandardCost // 使用当前视图费用
+					windowCosts[accCopy.ID] = stats.StandardCost // 使用标准费用
 					mu.Unlock()
 				}
 				return nil // 不返回错误，允许部分失败
@@ -1458,8 +1451,7 @@ func (h *AccountHandler) GetStats(c *gin.Context) {
 	endTime := timezone.StartOfDay(now.AddDate(0, 0, 1))
 	startTime := timezone.StartOfDay(now.AddDate(0, 0, -days+1))
 
-	role, _ := middleware.GetUserRoleFromContext(c)
-	viewMode := service.UsageViewModeForRole(role)
+	viewMode := usageViewModeFromContext(c)
 	stats, err := h.accountUsageService.GetAccountUsageStatsForView(c.Request.Context(), accountID, startTime, endTime, viewMode)
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -2176,7 +2168,6 @@ func (h *AccountHandler) GetUsage(c *gin.Context) {
 
 	source := c.DefaultQuery("source", "active")
 	force := c.Query("force") == "true"
-	debugUsage := c.Query("debug_usage") == "1" || os.Getenv("SUB2API_DEBUG_OPENAI_USAGE") == "1"
 
 	var usage *service.UsageInfo
 	if source == "passive" {
@@ -2187,20 +2178,6 @@ func (h *AccountHandler) GetUsage(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
-	}
-
-	if debugUsage {
-		if usageBytes, marshalErr := json.Marshal(usage); marshalErr == nil {
-			slog.Info(
-				"[usage] openai account usage response",
-				"account_id", accountID,
-				"source", source,
-				"force", force,
-				"payload", string(usageBytes),
-			)
-		} else {
-			slog.Warn("[usage] failed to marshal openai usage response for debug", "account_id", accountID, "error", marshalErr)
-		}
 	}
 
 	response.Success(c, usage)
@@ -2305,8 +2282,7 @@ func (h *AccountHandler) GetTodayStats(c *gin.Context) {
 		return
 	}
 
-	role, _ := middleware.GetUserRoleFromContext(c)
-	viewMode := service.UsageViewModeForRole(role)
+	viewMode := usageViewModeFromContext(c)
 	stats, err := h.accountUsageService.GetTodayStatsForView(c.Request.Context(), accountID, viewMode)
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -2336,8 +2312,7 @@ func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
 		return
 	}
 
-	role, _ := middleware.GetUserRoleFromContext(c)
-	viewMode := service.UsageViewModeForRole(role)
+	viewMode := usageViewModeFromContext(c)
 	cacheKey := buildAccountTodayStatsBatchCacheKey(accountIDs, viewMode)
 	if cached, ok := accountTodayStatsBatchCache.Get(cacheKey); ok {
 		if cached.ETag != "" {

@@ -495,24 +495,6 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				data = string(sanitizedData)
 				line = "data: " + data
 			}
-			if eventType != "response.failed" {
-				s.parseSSEUsageBytes(dataBytes, usage)
-			}
-			if eventUsage, ok := extractOpenAIUsageFromJSONBytes(dataBytes); ok {
-				clientData := rewriteOpenAIUsageForPresentation(dataBytes, ResolveGatewayResponsePresentationMultiplier(
-					c,
-					eventUsage.InputTokens,
-					eventUsage.OutputTokens,
-					eventUsage.CacheCreationInputTokens,
-					eventUsage.CacheReadInputTokens,
-					eventUsage.ImageOutputTokens,
-				))
-				if !bytes.Equal(clientData, dataBytes) {
-					dataBytes = clientData
-					data = string(clientData)
-					line = "data: " + data
-				}
-			}
 			// Replace model in response if needed.
 			// Fast path: most events do not contain model field values.
 			if needModelReplace && mappedModel != "" && strings.Contains(line, mappedModel) {
@@ -546,6 +528,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				firstTokenMs = &ms
 				stopFirstOutputTimer()
 			}
+			s.parseSSEUsageBytes(dataBytes, usage)
 			return
 		}
 
@@ -583,27 +566,6 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						clientOutputStarted = true
 						lastDownstreamWriteAt = time.Now()
 					}
-				}
-			}
-
-			return
-		}
-
-		// Forward non-data lines as-is
-		if !clientDisconnected {
-			if _, err := bufferedWriter.WriteString(line); err != nil {
-				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
-			} else if _, err := bufferedWriter.WriteString("\n"); err != nil {
-				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
-			} else if queueDrained && clientOutputStarted {
-				if err := flushBuffered(); err != nil {
-					clientDisconnected = true
-					logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming flush, continuing to drain upstream for billing")
-				} else {
-					clientOutputStarted = true
-					lastDownstreamWriteAt = time.Now()
 				}
 			}
 		}
@@ -1053,9 +1015,9 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	if imageOutputTokens == 0 {
 		imageOutputTokens = value.Get("completion_tokens_details.image_tokens").Int()
 	}
-	if imageOutputTokens == 0 {
-		imageOutputTokens = value.Get("image_output_tokens").Int()
-	}
+	// 图片输入 token（如 gpt-image-2 的 /v1/images/edits 带图请求），
+	// 上游在 input_tokens_details.image_tokens 单独回传，用于图/文输入分价计费。
+	// 普通文本请求该字段为 0，走原路径行为不变。
 	imageInputTokens := firstPositiveGJSONInt(
 		value.Get("input_tokens_details.image_tokens"),
 		value.Get("prompt_tokens_details.image_tokens"),
@@ -1153,14 +1115,6 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	if err != nil {
 		return nil, fmt.Errorf("restore OpenAI namespace response: %w", err)
 	}
-	clientBody := rewriteOpenAIUsageForPresentation(body, ResolveGatewayResponsePresentationMultiplier(
-		c,
-		usage.InputTokens,
-		usage.OutputTokens,
-		usage.CacheCreationInputTokens,
-		usage.CacheReadInputTokens,
-		usage.ImageOutputTokens,
-	))
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 
 	contentType := "application/json"
@@ -1170,8 +1124,8 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		}
 	}
 
-	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, clientBody) {
-		c.Data(resp.StatusCode, contentType, clientBody)
+	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
+		c.Data(resp.StatusCode, contentType, body)
 	}
 
 	return &openaiNonStreamingResult{
@@ -1250,14 +1204,6 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		}
 		body = []byte(bodyText)
 	}
-	clientBody := rewriteOpenAIUsageForPresentation(body, ResolveGatewayResponsePresentationMultiplier(
-		c,
-		usage.InputTokens,
-		usage.OutputTokens,
-		usage.CacheCreationInputTokens,
-		usage.CacheReadInputTokens,
-		usage.ImageOutputTokens,
-	))
 
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 
@@ -1268,8 +1214,8 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 			contentType = "text/event-stream"
 		}
 	}
-	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, clientBody) {
-		c.Data(resp.StatusCode, contentType, clientBody)
+	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
+		c.Data(resp.StatusCode, contentType, body)
 	}
 
 	return &openaiNonStreamingResult{

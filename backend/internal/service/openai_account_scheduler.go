@@ -411,19 +411,21 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
-	selection, escapedSticky, err := s.selectBySessionHash(ctx, req)
-	if err != nil {
-		return nil, decision, err
-	}
-	if selection != nil && selection.Account != nil {
-		decision.Layer = openAIAccountScheduleLayerSessionSticky
-		decision.StickySessionHit = true
-		decision.SelectedAccountID = selection.Account.ID
-		decision.SelectedAccountType = selection.Account.Type
-		return selection, decision, nil
-	}
-	if escapedSticky {
-		req.PreserveStickyBinding = true
+	if !req.StickyWeighted {
+		selection, escapedSticky, err := s.selectBySessionHash(ctx, req)
+		if err != nil {
+			return nil, decision, err
+		}
+		if selection != nil && selection.Account != nil {
+			decision.Layer = openAIAccountScheduleLayerSessionSticky
+			decision.StickySessionHit = true
+			decision.SelectedAccountID = selection.Account.ID
+			decision.SelectedAccountType = selection.Account.Type
+			return selection, decision, nil
+		}
+		if escapedSticky {
+			req.PreserveStickyBinding = true
+		}
 	}
 
 	selection, candidateCount, topK, loadSkew, err := s.selectByLoadBalance(ctx, req)
@@ -437,6 +439,14 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	if selection != nil && selection.Account != nil {
 		decision.SelectedAccountID = selection.Account.ID
 		decision.SelectedAccountType = selection.Account.Type
+		if req.StickyWeighted {
+			if req.StickyPreviousAccountID > 0 && selection.Account.ID == req.StickyPreviousAccountID {
+				decision.StickyPreviousHit = true
+			}
+			if req.StickyAccountID > 0 && selection.Account.ID == req.StickyAccountID {
+				decision.StickySessionHit = true
+			}
+		}
 	}
 	return selection, decision, nil
 }
@@ -1010,6 +1020,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		if !plan.includeOverflowFallback || groupTopK >= len(pool) {
 			return primary
 		}
+
 		selected := make(map[int64]struct{}, len(primary))
 		for _, candidate := range primary {
 			selected[candidate.account.ID] = struct{}{}
@@ -1187,6 +1198,78 @@ func (s *defaultOpenAIAccountScheduler) consumeOpenAISelectionDBRecheck(budget *
 	return budget.recordRecheck()
 }
 
+func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
+	ctx context.Context,
+	req OpenAIAccountScheduleRequest,
+) (*AccountSelectionResult, error) {
+	if !req.StickyWeighted {
+		return nil, nil
+	}
+	for _, accountID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
+		if accountID <= 0 {
+			continue
+		}
+		if req.ExcludedIDs != nil {
+			if _, excluded := req.ExcludedIDs[accountID]; excluded {
+				continue
+			}
+		}
+		account, err := s.service.getSchedulableAccount(ctx, accountID)
+		if err != nil || account == nil {
+			continue
+		}
+		if !s.isAccountRequestCompatible(ctx, account, req) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
+			continue
+		}
+		account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.GroupID, req.Platform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
+		if account == nil {
+			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
+				_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
+			}
+			continue
+		}
+		if !s.service.openAIAccountMatchesSchedulingGroup(account, req.GroupID) {
+			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
+				_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
+			}
+			continue
+		}
+		if !s.isAccountRequestCompatible(ctx, account, req) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
+			continue
+		}
+		if req.RequireCompact && openAICompactSupportTier(account) == 0 {
+			continue
+		}
+		result, acquireErr := s.service.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+		if acquireErr != nil {
+			return nil, acquireErr
+		}
+		if result != nil && result.Acquired {
+			if req.SessionHash != "" && !req.PreserveStickyBinding {
+				_ = s.service.BindStickySession(ctx, req.GroupID, req.SessionHash, account.ID)
+			}
+			return &AccountSelectionResult{
+				Account:     account,
+				Acquired:    true,
+				ReleaseFunc: result.ReleaseFunc,
+			}, nil
+		}
+		if s.service.concurrencyService != nil {
+			cfg := s.service.schedulingConfig()
+			return &AccountSelectionResult{
+				Account: account,
+				WaitPlan: &AccountWaitPlan{
+					AccountID:      account.ID,
+					MaxConcurrency: account.Concurrency,
+					Timeout:        cfg.StickySessionWaitTimeout,
+					MaxWaiting:     cfg.StickySessionMaxWaiting,
+				},
+			}, nil
+		}
+	}
+	return nil, nil
+}
+
 func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
@@ -1255,7 +1338,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		subscriptionAccounts, regularAccounts := partitionOpenAIChatGPTSubscriptionAccounts(filtered)
 		if len(subscriptionAccounts) > 0 {
 			attempt := s.trySelectByLoadBalancePool(ctx, req, subscriptionAccounts, loadMap, budget)
-			if attempt.err != nil && (!attempt.noCompactCandidates || len(regularAccounts) == 0) {
+			if attempt.err != nil && (!attempt.noCompactCandidates || len(regularAccounts) <= 0) {
 				return nil, attempt.candidateCount, attempt.topK, attempt.loadSkew, attempt.err
 			}
 			if attempt.result != nil {
@@ -1269,10 +1352,18 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 				if regularAttempt.result != nil {
 					return regularAttempt.result, regularAttempt.candidateCount, regularAttempt.topK, regularAttempt.loadSkew, nil
 				}
-				result, candidateCount, topK, loadSkew, fallbackErr := s.finishLoadBalanceSelectionFallback(ctx, req, regularAttempt, budget)
-				if fallbackErr == nil && result != nil {
-					return result, candidateCount, topK, loadSkew, nil
+				var result *AccountSelectionResult
+				candidateCount, topK, loadSkew := regularAttempt.candidateCount, regularAttempt.topK, regularAttempt.loadSkew
+				fallbackErr := regularAttempt.err
+				if regularAttempt.err == nil {
+					result, candidateCount, topK, loadSkew, fallbackErr = s.finishLoadBalanceSelectionFallback(ctx, req, regularAttempt, budget)
+					if fallbackErr == nil && result != nil {
+						return result, candidateCount, topK, loadSkew, nil
+					}
 				}
+				// 常规池既无法获取也无法排队（含仅剩不支持 compact 的候选）时，
+				// 回退到订阅池的等待计划：busy-but-waitable 的订阅账号不应因常规池存在
+				// 而被丢弃，否则开启订阅优先反而让本可排队成功的请求硬失败。
 				subResult, subCandidateCount, subTopK, subLoadSkew, subErr := s.finishLoadBalanceSelectionFallback(ctx, req, attempt, budget)
 				if subErr == nil && subResult != nil {
 					return subResult, subCandidateCount, subTopK, subLoadSkew, nil
@@ -1299,14 +1390,20 @@ func partitionOpenAIChatGPTSubscriptionAccounts(accounts []*Account) ([]*Account
 	for _, account := range accounts {
 		if account != nil && account.IsOpenAIChatGPTSubscription() {
 			subscriptionAccounts = append(subscriptionAccounts, account)
-		} else {
-			regularAccounts = append(regularAccounts, account)
+			continue
 		}
+		regularAccounts = append(regularAccounts, account)
 	}
 	return subscriptionAccounts, regularAccounts
 }
 
-func (s *defaultOpenAIAccountScheduler) trySelectByLoadBalancePool(ctx context.Context, req OpenAIAccountScheduleRequest, filtered []*Account, loadMap map[int64]*AccountLoadInfo, budget *openAISelectionProbeBudget) openAIAccountLoadSelectionAttempt {
+func (s *defaultOpenAIAccountScheduler) trySelectByLoadBalancePool(
+	ctx context.Context,
+	req OpenAIAccountScheduleRequest,
+	filtered []*Account,
+	loadMap map[int64]*AccountLoadInfo,
+	budget *openAISelectionProbeBudget,
+) openAIAccountLoadSelectionAttempt {
 	plan := s.buildOpenAIAccountLoadPlan(ctx, req, filtered, loadMap)
 	if openAICostOverflowExpanded(req, plan) {
 		budget.enableLimit()
@@ -1331,6 +1428,7 @@ func (s *defaultOpenAIAccountScheduler) trySelectByLoadBalancePool(ctx context.C
 		attempt.compactBlocked = req.RequireCompact && len(plan.allCandidates) > 0
 		return attempt
 	}
+
 	result, compactBlocked, acquireErr := s.tryAcquireOpenAISelectionOrderWithBudget(ctx, req, attempt.selectionOrder, budget)
 	attempt.compactBlocked = compactBlocked
 	if acquireErr != nil {
@@ -1341,6 +1439,7 @@ func (s *defaultOpenAIAccountScheduler) trySelectByLoadBalancePool(ctx context.C
 		attempt.result = result
 		return attempt
 	}
+
 	if s.service.concurrencyService != nil && !budget.acquireExhausted() {
 		loadReq := buildOpenAIAccountLoadRequest(filtered)
 		if freshLoadMap, loadErr := s.service.concurrencyService.GetAccountsLoadBatchFresh(ctx, loadReq); loadErr == nil {
@@ -1370,6 +1469,7 @@ func (s *defaultOpenAIAccountScheduler) trySelectByLoadBalancePool(ctx context.C
 			}
 		}
 	}
+
 	return attempt
 }
 
@@ -1398,60 +1498,12 @@ func buildOpenAIAccountLoadRequest(accounts []*Account) []AccountWithConcurrency
 		if account == nil {
 			continue
 		}
-		loadReq = append(loadReq, AccountWithConcurrency{ID: account.ID, MaxConcurrency: account.EffectiveLoadFactor()})
+		loadReq = append(loadReq, AccountWithConcurrency{
+			ID:             account.ID,
+			MaxConcurrency: account.EffectiveLoadFactor(),
+		})
 	}
 	return loadReq
-}
-
-func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(ctx context.Context, req OpenAIAccountScheduleRequest) (*AccountSelectionResult, error) {
-	if !req.StickyWeighted {
-		return nil, nil
-	}
-	for _, accountID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
-		if accountID <= 0 {
-			continue
-		}
-		if req.ExcludedIDs != nil {
-			if _, excluded := req.ExcludedIDs[accountID]; excluded {
-				continue
-			}
-		}
-		account, err := s.service.getSchedulableAccount(ctx, accountID)
-		if err != nil || account == nil || !s.isAccountRequestCompatible(ctx, account, req) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
-			continue
-		}
-		account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.GroupID, req.Platform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
-		if account == nil {
-			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
-				_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
-			}
-			continue
-		}
-		if !s.service.openAIAccountMatchesSchedulingGroup(account, req.GroupID) || !s.isAccountRequestCompatible(ctx, account, req) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
-			continue
-		}
-		if req.RequireCompact && openAICompactSupportTier(account) == 0 {
-			continue
-		}
-		result, acquireErr := s.service.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
-		if acquireErr != nil {
-			return nil, acquireErr
-		}
-		if result != nil && result.Acquired {
-			if req.SessionHash != "" && !req.PreserveStickyBinding {
-				_ = s.service.BindStickySession(ctx, req.GroupID, req.SessionHash, account.ID)
-			}
-			return &AccountSelectionResult{Account: account, Acquired: true, ReleaseFunc: result.ReleaseFunc}, nil
-		}
-		if s.service.concurrencyService != nil {
-			cfg := s.service.schedulingConfig()
-			return &AccountSelectionResult{Account: account, WaitPlan: &AccountWaitPlan{
-				AccountID: account.ID, MaxConcurrency: account.Concurrency,
-				Timeout: cfg.StickySessionWaitTimeout, MaxWaiting: cfg.StickySessionMaxWaiting,
-			}}, nil
-		}
-	}
-	return nil, nil
 }
 
 func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
@@ -1460,17 +1512,23 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 	attempt openAIAccountLoadSelectionAttempt,
 	budget *openAISelectionProbeBudget,
 ) (*AccountSelectionResult, int, int, float64, error) {
+	candidateCount := attempt.candidateCount
+	topK := attempt.topK
+	loadSkew := attempt.loadSkew
+
 	if len(attempt.selectionOrder) == 0 {
-		return nil, attempt.candidateCount, attempt.topK, attempt.loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, attempt.compactBlocked)
+		return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, attempt.compactBlocked)
 	}
+
 	if stickyFallback, stickyErr := s.tryFallbackToWeightedSticky(ctx, req); stickyErr != nil {
-		return nil, attempt.candidateCount, attempt.topK, attempt.loadSkew, stickyErr
+		return nil, candidateCount, topK, loadSkew, stickyErr
 	} else if stickyFallback != nil {
-		return stickyFallback, attempt.candidateCount, attempt.topK, attempt.loadSkew, nil
+		return stickyFallback, candidateCount, topK, loadSkew, nil
 	}
 
 	cfg := s.service.schedulingConfig()
 	compactBlocked := attempt.compactBlocked
+	// WaitPlan.MaxConcurrency 使用 Concurrency（非 EffectiveLoadFactor），因为 WaitPlan 控制的是 Redis 实际并发槽位等待。
 	passes := 1
 	if budget != nil && budget.limited {
 		passes = 4
@@ -1483,7 +1541,8 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 				continue
 			}
 			if budget != nil && budget.limited {
-				knownFull := candidate.loadKnown && candidate.account.Concurrency > 0 && candidate.loadInfo.CurrentConcurrency >= candidate.account.Concurrency
+				knownFull := candidate.loadKnown && candidate.account.Concurrency > 0 &&
+					candidate.loadInfo.CurrentConcurrency >= candidate.account.Concurrency
 				if budget.wasAttempted(candidate.account.ID) != wantAttempted || knownFull != wantKnownFull {
 					continue
 				}
@@ -1493,7 +1552,7 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 				continue
 			}
 			if !s.consumeOpenAISelectionDBRecheck(budget) {
-				return nil, attempt.candidateCount, attempt.topK, attempt.loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, compactBlocked)
+				return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, compactBlocked)
 			}
 			fresh = s.service.recheckSelectedOpenAIAccountFromDB(ctx, fresh, req.GroupID, req.Platform, req.RequestedModel, false, req.RequiredCapability)
 			if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) || !s.isAccountRequestCompatible(ctx, fresh, req) {
@@ -1503,13 +1562,19 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 				compactBlocked = true
 				continue
 			}
-			return &AccountSelectionResult{Account: fresh, WaitPlan: &AccountWaitPlan{
-				AccountID: fresh.ID, MaxConcurrency: fresh.Concurrency,
-				Timeout: cfg.FallbackWaitTimeout, MaxWaiting: cfg.FallbackMaxWaiting,
-			}}, attempt.candidateCount, attempt.topK, attempt.loadSkew, nil
+			return &AccountSelectionResult{
+				Account: fresh,
+				WaitPlan: &AccountWaitPlan{
+					AccountID:      fresh.ID,
+					MaxConcurrency: fresh.Concurrency,
+					Timeout:        cfg.FallbackWaitTimeout,
+					MaxWaiting:     cfg.FallbackMaxWaiting,
+				},
+			}, candidateCount, topK, loadSkew, nil
 		}
 	}
-	return nil, attempt.candidateCount, attempt.topK, attempt.loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, compactBlocked)
+
+	return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, compactBlocked)
 }
 
 func (s *defaultOpenAIAccountScheduler) isAccountTransportCompatible(account *Account, requiredTransport OpenAIUpstreamTransport) bool {
@@ -1550,10 +1615,6 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatible(ctx context.C
 	// rechecks won't reach healthy accounts that fell outside TopK — manifesting as
 	// "no available accounts" even though healthy ones exist.
 	if paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
-		return false
-	}
-	opts := s.service.buildOpenAIAccountRequestOptions(ctx, req.RequireCompact, req.RequiredCapability)
-	if !isOpenAIAccountEligibleForRequestWithOptions(ctx, account, req.RequestedModel, opts) {
 		return false
 	}
 	// 母账号健康联动：影子账号的凭据来自母账号，母账号不可调度时影子也不应被选中。
@@ -1676,6 +1737,8 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 				lbTopKOverride = parsePositiveIntOverride(values[SettingKeyOpenAIAdvancedSchedulerLBTopK])
 				weightOverrides = parseOpenAIAdvancedSchedulerWeightOverrides(values)
 			} else {
+				// 批量读取失败时逐键降级，覆盖全部键（含 TopK/权重），避免只加载布尔开关
+				// 而静默丢弃管理员配置的覆盖值；降级状态会被缓存一个 TTL，必须留痕。
 				slog.Warn("openai_advanced_scheduler_settings_batch_load_failed", "error", err)
 				fallbackValues := make(map[string]string)
 				for _, key := range openAIAdvancedSchedulerRuntimeSettingKeys() {
@@ -1852,7 +1915,8 @@ func (s *OpenAIGatewayService) SelectAccountWithScheduler(
 }
 
 // SelectAccountWithSchedulerForCapability 按能力要求调度账号。
-// previousResponseCanMove 表示首包 input 可自行重建工具续链，previous_response_id 允许跨账号迁移。
+// previousResponseCanMove 表示首包 input 可自行重建工具续链，previous_response_id 允许跨账号迁移
+// （粘性加权模式下改为加权偏好而非硬粘连）。
 func (s *OpenAIGatewayService) SelectAccountWithSchedulerForCapability(
 	ctx context.Context,
 	groupID *int64,
@@ -2047,21 +2111,7 @@ func (s *OpenAIGatewayService) isOpenAIAccountTransportCompatible(account *Accou
 	return s.getOpenAIWSProtocolResolver().Resolve(account).Transport == requiredTransport
 }
 
-func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(accountID int64, args ...any) {
-	model := ""
-	success := false
-	var firstTokenMs *int
-	switch len(args) {
-	case 2:
-		success, _ = args[0].(bool)
-		firstTokenMs, _ = args[1].(*int)
-	case 3:
-		model, _ = args[0].(string)
-		success, _ = args[1].(bool)
-		firstTokenMs, _ = args[2].(*int)
-	default:
-		return
-	}
+func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(accountID int64, model string, success bool, firstTokenMs *int) {
 	if success {
 		s.clearOpenAIAccountModelTransientState(accountID, normalizeOpenAIAccountModelTransientModel(model))
 	}
@@ -2105,6 +2155,8 @@ func (s *OpenAIGatewayService) openAIWSLBTopK() int {
 func (s *OpenAIGatewayService) openAIWSLBTopKForRequest(ctx context.Context) int {
 	base := s.openAIWSLBTopK()
 	settings := s.openAIAdvancedSchedulerRuntimeSettings(ctx)
+	// DB 覆盖值与 stickyWeighted/subscriptionPriority 一样受总开关门控：
+	// 关闭高级调度器后所有调用方（含管理页分数快照）都应回到配置/默认行为。
 	if !settings.enabled {
 		return base
 	}
@@ -2177,6 +2229,7 @@ func (s *OpenAIGatewayService) openAIWSSchedulerWeights() GatewayOpenAIWSSchedul
 func (s *OpenAIGatewayService) openAIWSSchedulerWeightsForRequest(ctx context.Context) GatewayOpenAIWSSchedulerScoreWeightsView {
 	weights := s.openAIWSSchedulerWeights()
 	settings := s.openAIAdvancedSchedulerRuntimeSettings(ctx)
+	// 同 openAIWSLBTopKForRequest：总开关关闭时不应用 DB 覆盖值。
 	if !settings.enabled {
 		return weights
 	}
@@ -2187,9 +2240,12 @@ func (s *OpenAIGatewayService) openAIWSSchedulerWeightsForRequest(ctx context.Co
 	return overridden
 }
 
-func applyOpenAIAdvancedSchedulerWeightOverrides(weights GatewayOpenAIWSSchedulerScoreWeightsView, overrides map[string]float64) GatewayOpenAIWSSchedulerScoreWeightsView {
-	for name, value := range overrides {
-		switch name {
+func applyOpenAIAdvancedSchedulerWeightOverrides(
+	weights GatewayOpenAIWSSchedulerScoreWeightsView,
+	overrides map[string]float64,
+) GatewayOpenAIWSSchedulerScoreWeightsView {
+	for key, value := range overrides {
+		switch key {
 		case "priority":
 			weights.Priority = value
 		case "load":
@@ -2287,7 +2343,6 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 	if len(accounts) == 0 {
 		return nil
 	}
-
 	candidates := make([]openAIAccountCandidateScore, 0, len(accounts))
 	for _, account := range accounts {
 		if account == nil {
@@ -2298,8 +2353,11 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 			loadInfo = &AccountLoadInfo{AccountID: account.ID}
 		}
 		candidates = append(candidates, openAIAccountCandidateScore{
-			account:  account,
-			loadInfo: loadInfo,
+			account:   account,
+			loadInfo:  loadInfo,
+			errorRate: 0,
+			ttft:      0,
+			hasTTFT:   false,
 		})
 	}
 	if len(candidates) == 0 {

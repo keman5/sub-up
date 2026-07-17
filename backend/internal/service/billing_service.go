@@ -153,8 +153,8 @@ type UsageTokens struct {
 
 // CostBreakdown 费用明细
 type CostBreakdown struct {
-	InputCost                 float64
-	ImageInputCost            float64 // 图片输入费用（与文本输入分开记录）
+	InputCost                 float64 // 文本输入费用（不含图片输入，图片输入单独记入 ImageInputCost）
+	ImageInputCost            float64 // 图片输入 token 费用（如 gpt-image-2 图片编辑）
 	OutputCost                float64
 	ImageOutputCost           float64
 	CacheCreationCost         float64
@@ -1283,6 +1283,7 @@ func (s *BillingService) CalculateCostWithLongContext(model string, tokens Usage
 	// 合并成本
 	return &CostBreakdown{
 		InputCost:                 inRangeCost.InputCost + outRangeCost.InputCost,
+		ImageInputCost:            inRangeCost.ImageInputCost + outRangeCost.ImageInputCost,
 		OutputCost:                inRangeCost.OutputCost,
 		ImageOutputCost:           inRangeCost.ImageOutputCost,
 		CacheCreationCost:         inRangeCost.CacheCreationCost,

@@ -256,7 +256,7 @@ func TestBuildGrokResponsesRequestUsesAccountBaseURLAndBearerToken(t *testing.T)
 		},
 	}
 
-	req, err := buildGrokResponsesRequest(context.Background(), nil, account, []byte(`{"model":"grok-4.3"}`), "access-token", "isolated-cache-id")
+	req, err := buildGrokResponsesRequest(context.Background(), nil, account, []byte(`{"model":"grok-4.3"}`), "access-token", "isolated-cache-id", nil)
 	require.NoError(t, err)
 	require.Equal(t, http.MethodPost, req.Method)
 	require.Equal(t, "https://xai.test/v1/responses", req.URL.String())
@@ -280,26 +280,80 @@ func TestBuildGrokResponsesRequestAllowsPublicAPIKeyBaseURLByDefault(t *testing.
 		},
 	}
 
-	req, err := buildGrokResponsesRequest(context.Background(), nil, account, []byte(`{"model":"grok-4.3"}`), "api-key", "")
+	req, err := buildGrokResponsesRequest(context.Background(), nil, account, []byte(`{"model":"grok-4.3"}`), "api-key", "", nil)
 	require.NoError(t, err)
 	require.Equal(t, "https://grok.example.test/v1/responses", req.URL.String())
 	require.Equal(t, "Bearer api-key", req.Header.Get("Authorization"))
+	require.Empty(t, req.Header.Get("X-Grok-Client-Version"))
+	require.NotEqual(t, grokUpstreamUserAgent, req.Header.Get("User-Agent"))
 }
 
-func TestBuildGrokResponsesRequestPinsOAuthCustomBaseURLByDefault(t *testing.T) {
+func TestBuildGrokResponsesRequestHonorsOAuthOfficialEndpointSwitch(t *testing.T) {
 	t.Parallel()
 
 	account := &Account{
 		Platform: PlatformGrok,
 		Type:     AccountTypeOAuth,
 		Credentials: map[string]any{
-			"base_url": "HTTPS://API.X.AI:443/",
+			"base_url": xai.DefaultBaseURL,
 		},
 	}
 
-	req, err := buildGrokResponsesRequest(context.Background(), nil, account, []byte(`{"model":"grok-4.3"}`), "access-token", "")
+	req, err := buildGrokResponsesRequest(context.Background(), nil, account, []byte(`{"model":"grok-4.3"}`), "access-token", "", nil)
 	require.NoError(t, err)
-	require.Equal(t, xai.DefaultCLIBaseURL+"/responses", req.URL.String())
+	require.Equal(t, xai.DefaultBaseURL+"/responses", req.URL.String())
+}
+
+func TestBuildGrokResponsesRequestAppliesHeaderOverridesLast(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformGrok,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"base_url":                "https://relay.example.test/v1",
+			"header_override_enabled": true,
+			"header_overrides": map[string]any{
+				"User-Agent":            "relay-client/2.0",
+				"X-Grok-Client-Version": "9.9.9",
+				"X-Relay-Token":         "relay-secret",
+			},
+		},
+	}
+
+	req, err := buildGrokResponsesRequest(context.Background(), nil, account, []byte(`{"model":"grok-4.3"}`), "access-token", "conv-1", nil)
+	require.NoError(t, err)
+	require.Equal(t, "https://relay.example.test/v1/responses", req.URL.String())
+	// 覆写值优先于内置 CLI 身份头。名字不在 wire casing 映射中的覆写头
+	// 以小写键直写（HTTP/2 线上语义），需按写入形态断言。
+	require.Equal(t, "relay-client/2.0", req.Header.Get("User-Agent"))
+	require.Equal(t, []string{"9.9.9"}, req.Header["x-grok-client-version"])
+	require.Empty(t, req.Header.Get("X-Grok-Client-Version"))
+	require.Equal(t, []string{"relay-secret"}, req.Header["x-relay-token"])
+	// 会话路由头与认证头不受覆写影响。
+	require.Equal(t, "conv-1", req.Header.Get(grokConversationIDHeader))
+	require.Equal(t, "Bearer access-token", req.Header.Get("Authorization"))
+}
+
+func TestBuildGrokResponsesRequestIgnoresBlockedHeaderOverrides(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformGrok,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"header_override_enabled": true,
+			"header_overrides": map[string]any{
+				"Authorization":  "Bearer stolen",
+				"x-grok-conv-id": "pinned-conversation",
+			},
+		},
+	}
+
+	req, err := buildGrokResponsesRequest(context.Background(), nil, account, []byte(`{"model":"grok-4.3"}`), "api-key", "conv-2", nil)
+	require.NoError(t, err)
+	require.Equal(t, "Bearer api-key", req.Header.Get("Authorization"))
+	require.Equal(t, "conv-2", req.Header.Get(grokConversationIDHeader))
 }
 
 func TestGrokMediaGenerationGateCoversImagesAndVideo(t *testing.T) {
@@ -364,6 +418,88 @@ func TestParseGrokMediaVideoRequestResolution(t *testing.T) {
 	require.Equal(t, "720p", info.Resolution)
 }
 
+func TestParseGrokMediaRequestAcceptsOfficialImageURLFields(t *testing.T) {
+	body := []byte(`{
+		"model":"grok-imagine-video-1.5",
+		"image":{"url":"https://example.com/source.png"},
+		"reference_images":[{"url":"https://example.com/reference.png"}]
+	}`)
+
+	info := ParseGrokMediaRequest("application/json", body)
+
+	require.Equal(t, []string{
+		"https://example.com/source.png",
+		"https://example.com/reference.png",
+	}, info.InputImageURLs)
+	require.True(t, info.HasInputImage())
+}
+
+func TestNormalizeGrokMediaForwardBodyCanonicalizesImageURLAlias(t *testing.T) {
+	body := []byte(`{
+		"model":"grok-imagine-video-1.5",
+		"prompt":"animate",
+		"image":{"image_url":"https://example.com/source.png"},
+		"duration":8
+	}`)
+
+	out, contentType, err := normalizeGrokMediaForwardBody(GrokMediaEndpointVideosGenerations, body, "application/json")
+
+	require.NoError(t, err)
+	require.Equal(t, "application/json", contentType)
+	require.Equal(t, "grok-imagine-video-1.5", gjson.GetBytes(out, "model").String())
+	require.Equal(t, "https://example.com/source.png", gjson.GetBytes(out, "image.url").String())
+	require.False(t, gjson.GetBytes(out, "image.image_url").Exists())
+}
+
+func TestNormalizeGrokMediaForwardBodyPreservesImageToVideoModelForOfficialURL(t *testing.T) {
+	body := []byte(`{
+		"model":"grok-imagine-video-1.5",
+		"prompt":"animate",
+		"image":{"url":"https://example.com/source.png"}
+	}`)
+
+	out, _, err := normalizeGrokMediaForwardBody(GrokMediaEndpointVideosGenerations, body, "application/json")
+
+	require.NoError(t, err)
+	require.Equal(t, "grok-imagine-video-1.5", gjson.GetBytes(out, "model").String())
+	require.Equal(t, "https://example.com/source.png", gjson.GetBytes(out, "image.url").String())
+}
+
+func TestCanonicalizeGrokMediaImageURLFieldsPreservesOfficialURL(t *testing.T) {
+	body := []byte(`{
+		"image":{"url":"https://example.com/official.png","image_url":"https://example.com/legacy.png"},
+		"images":[
+			{"image_url":"https://example.com/first.png"},
+			{"url":"https://example.com/second.png"}
+		],
+		"reference_images":[{"image_url":"https://example.com/reference.png"}],
+		"mask":{"image_url":"https://example.com/mask.png"}
+	}`)
+
+	out, err := canonicalizeGrokMediaImageURLFields(body, "image", "images", "reference_images", "mask")
+
+	require.NoError(t, err)
+	require.Equal(t, "https://example.com/official.png", gjson.GetBytes(out, "image.url").String())
+	require.False(t, gjson.GetBytes(out, "image.image_url").Exists())
+	require.Equal(t, "https://example.com/first.png", gjson.GetBytes(out, "images.0.url").String())
+	require.False(t, gjson.GetBytes(out, "images.0.image_url").Exists())
+	require.Equal(t, "https://example.com/second.png", gjson.GetBytes(out, "images.1.url").String())
+	require.Equal(t, "https://example.com/reference.png", gjson.GetBytes(out, "reference_images.0.url").String())
+	require.False(t, gjson.GetBytes(out, "reference_images.0.image_url").Exists())
+	require.Equal(t, "https://example.com/mask.png", gjson.GetBytes(out, "mask.url").String())
+	require.False(t, gjson.GetBytes(out, "mask.image_url").Exists())
+}
+
+func TestCanonicalizeGrokMediaImageURLFieldsReplacesEmptyOfficialURL(t *testing.T) {
+	body := []byte(`{"image":{"url":" ","image_url":"https://example.com/legacy.png"}}`)
+
+	out, err := canonicalizeGrokMediaImageURLFields(body, "image")
+
+	require.NoError(t, err)
+	require.Equal(t, "https://example.com/legacy.png", gjson.GetBytes(out, "image.url").String())
+	require.False(t, gjson.GetBytes(out, "image.image_url").Exists())
+}
+
 func TestNormalizeGrokMediaModelForEndpoint(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -425,7 +561,8 @@ func TestForwardGrokMediaImagesGenerationNormalizesImagineAlias(t *testing.T) {
 	require.Equal(t, http.MethodPost, upstream.lastReq.Method)
 	require.Equal(t, "Bearer api-key", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "application/json", upstream.lastReq.Header.Get("Content-Type"))
-	require.Equal(t, grokCLIVersion, upstream.lastReq.Header.Get("X-Grok-Client-Version"))
+	require.Empty(t, upstream.lastReq.Header.Get("X-Grok-Client-Version"))
+	require.NotEqual(t, grokUpstreamUserAgent, upstream.lastReq.Header.Get("User-Agent"))
 	require.JSONEq(t, `{"model":"grok-imagine-image-quality","prompt":"draw a cat"}`, string(upstream.lastBody))
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.JSONEq(t, `{"data":[]}`, recorder.Body.String())
@@ -522,7 +659,8 @@ func TestForwardGrokMediaImagesEditMultipartConvertsToJSON(t *testing.T) {
 	require.True(t, json.Valid(upstream.lastBody))
 	require.Equal(t, "grok-imagine-edit", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, "edit this private image", gjson.GetBytes(upstream.lastBody, "prompt").String())
-	require.True(t, strings.HasPrefix(gjson.GetBytes(upstream.lastBody, "image.image_url").String(), "data:image/png;base64,"))
+	require.True(t, strings.HasPrefix(gjson.GetBytes(upstream.lastBody, "image.url").String(), "data:image/png;base64,"))
+	require.False(t, gjson.GetBytes(upstream.lastBody, "image.image_url").Exists())
 }
 
 func TestForwardGrokMediaVideoGenerationReturnsUsageAndResponseID(t *testing.T) {
@@ -604,7 +742,7 @@ func TestForwardGrokMediaVideoGenerationPreservesImageToVideoModel(t *testing.T)
 	result, err := svc.ForwardGrokMedia(context.Background(), c, account, GrokMediaEndpointVideosGenerations, "", body, "application/json")
 	require.NoError(t, err)
 	require.Equal(t, "https://xai.test/v1/videos/generations", upstream.lastReq.URL.String())
-	require.JSONEq(t, `{"model":"grok-imagine-video-1.5","prompt":"animate","image":{"image_url":"data:image/png;base64,aW1n"}}`, string(upstream.lastBody))
+	require.JSONEq(t, `{"model":"grok-imagine-video-1.5","prompt":"animate","image":{"url":"data:image/png;base64,aW1n"}}`, string(upstream.lastBody))
 	require.Equal(t, "video-request-456", result.ResponseID)
 	require.Equal(t, "grok-imagine-video-1.5", result.BillingModel)
 	// 未指定 duration 时按上游默认 8 秒计费。
@@ -626,10 +764,14 @@ func TestForwardGrokMediaOAuthImageToVideoUsesOfficialAPIForLargeBody(t *testing
 		Name:        "grok-oauth",
 		Platform:    PlatformGrok,
 		Type:        AccountTypeOAuth,
+		Status:      StatusActive,
+		Schedulable: true,
 		Concurrency: 1,
 		Credentials: map[string]any{
-			"access_token": "oauth-access-token",
-			"base_url":     xai.DefaultCLIBaseURL,
+			"access_token":  "oauth-access-token",
+			"refresh_token": "oauth-refresh-token",
+			"expires_at":    time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),
+			"base_url":      xai.DefaultCLIBaseURL,
 		},
 	}
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
@@ -639,12 +781,15 @@ func TestForwardGrokMediaOAuthImageToVideoUsesOfficialAPIForLargeBody(t *testing
 		},
 		Body: io.NopCloser(strings.NewReader(`{"request_id":"video-request-oauth"}`)),
 	}}
-	svc := &OpenAIGatewayService{httpUpstream: upstream}
+	svc := &OpenAIGatewayService{httpUpstream: upstream, grokTokenProvider: NewGrokTokenProvider(nil, nil)}
 
 	_, err := svc.ForwardGrokMedia(context.Background(), c, account, GrokMediaEndpointVideosGenerations, "", body, "application/json")
 	require.NoError(t, err)
 	require.Equal(t, xai.DefaultBaseURL+"/videos/generations", upstream.lastReq.URL.String())
-	require.Equal(t, "data:image/png;base64,"+imageData, gjson.GetBytes(upstream.lastBody, "image.image_url").String())
+	require.Empty(t, upstream.lastReq.Header.Get("X-XAI-Token-Auth"))
+	require.Empty(t, upstream.lastReq.Header.Get("x-grok-client-version"))
+	require.Equal(t, "data:image/png;base64,"+imageData, gjson.GetBytes(upstream.lastBody, "image.url").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "image.image_url").Exists())
 }
 
 func TestForwardGrokMediaVideoStatusUsesGETWithoutBody(t *testing.T) {
@@ -1171,209 +1316,6 @@ func TestForwardGrokResponsesNonStreamingUsesCacheIdentityAndCachedUsage(t *test
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("api_key", &APIKey{ID: 5202})
 
-	account := &Account{
-		ID:          56,
-		Name:        "grok",
-		Platform:    PlatformGrok,
-		Type:        AccountTypeOAuth,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"access_token": "access-token",
-			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
-			"base_url":     xai.DefaultCLIBaseURL,
-		},
-	}
-	repo := &grokQuotaAccountRepo{
-		mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
-			accountsByID: map[int64]*Account{56: account},
-		},
-		recoveryClearResult: true,
-	}
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header: http.Header{
-			"Content-Type":   []string{"application/json"},
-			"Xai-Request-Id": []string{"xai-non-stream-req"},
-		},
-		Body: io.NopCloser(strings.NewReader(`{"id":"resp_grok_non_stream","object":"response","model":"grok-4.3","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":7,"output_tokens":2,"total_tokens":9,"input_tokens_details":{"cached_tokens":4}}}`)),
-	}}
-	svc := &OpenAIGatewayService{
-		httpUpstream:      upstream,
-		grokTokenProvider: NewGrokTokenProvider(repo, nil),
-		accountRepo:       repo,
-	}
-
-	result, err := svc.forwardGrokResponses(context.Background(), c, account, body, "grok", false, time.Now())
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.False(t, result.Stream)
-	require.Equal(t, "resp_grok_non_stream", result.ResponseID)
-	require.Equal(t, 7, result.Usage.InputTokens)
-	require.Equal(t, 2, result.Usage.OutputTokens)
-	require.Equal(t, 4, result.Usage.CacheReadInputTokens)
-	require.Equal(t, "grok-4.5", gjson.GetBytes(upstream.lastBody, "model").String())
-	identity := gjson.GetBytes(upstream.lastBody, "prompt_cache_key").String()
-	require.NotEmpty(t, identity)
-	require.Equal(t, identity, upstream.lastReq.Header.Get(grokConversationIDHeader))
-	// The sanitizer drops this unsupported client tool, but its explicit intent
-	// must still prevent native cache-routing tools from being injected.
-	require.False(t, gjson.GetBytes(upstream.lastBody, "tools").Exists())
-	require.False(t, gjson.GetBytes(upstream.lastBody, "tool_choice").Exists())
-	require.Equal(t, "resp_grok_non_stream", gjson.Get(recorder.Body.String(), "id").String())
-	require.Equal(t, 1, repo.recoveryClearCalls)
-	require.Equal(t, observedLimitedAt, repo.recoveryObservedAt)
-	require.Equal(t, observedResetAt, repo.recoveryObservedReset)
-}
-
-func TestForwardGrokResponsesFailoverKeepsCacheIdentityAcrossAccounts(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	body := []byte(`{"model":"grok","input":[{"role":"user","content":"stable prefix"}],"stream":false}`)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-	c.Set("api_key", &APIKey{ID: 5203})
-
-	newAccount := func(id int64, token string) *Account {
-		return &Account{
-			ID:          id,
-			Name:        fmt.Sprintf("grok-%d", id),
-			Platform:    PlatformGrok,
-			Type:        AccountTypeOAuth,
-			Concurrency: 1,
-			Credentials: map[string]any{
-				"access_token": token,
-				"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
-				"base_url":     xai.DefaultCLIBaseURL,
-			},
-		}
-	}
-	firstAccount := newAccount(58, "access-token-a")
-	secondAccount := newAccount(59, "access-token-b")
-	repo := &grokQuotaAccountRepo{
-		mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
-			accountsByID: map[int64]*Account{58: firstAccount, 59: secondAccount},
-		},
-	}
-	upstream := &httpUpstreamRecorder{responses: []*http.Response{
-		{
-			StatusCode: http.StatusServiceUnavailable,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"temporary"}}`)),
-		},
-		{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_after_failover","object":"response","model":"grok-4.3","status":"completed","output":[],"usage":{"input_tokens":5,"output_tokens":1}}`)),
-		},
-	}}
-	svc := &OpenAIGatewayService{
-		httpUpstream:      upstream,
-		grokTokenProvider: NewGrokTokenProvider(repo, nil),
-		accountRepo:       repo,
-	}
-
-	_, err := svc.forwardGrokResponses(context.Background(), c, firstAccount, body, "grok", false, time.Now())
-	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-
-	result, err := svc.forwardGrokResponses(context.Background(), c, secondAccount, body, "grok", false, time.Now())
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Len(t, upstream.requests, 2)
-	require.Len(t, upstream.bodies, 2)
-	firstIdentity := gjson.GetBytes(upstream.bodies[0], "prompt_cache_key").String()
-	secondIdentity := gjson.GetBytes(upstream.bodies[1], "prompt_cache_key").String()
-	require.NotEmpty(t, firstIdentity)
-	require.Equal(t, firstIdentity, secondIdentity)
-	require.Equal(t, firstIdentity, upstream.requests[0].Header.Get(grokConversationIDHeader))
-	require.Equal(t, secondIdentity, upstream.requests[1].Header.Get(grokConversationIDHeader))
-	require.Equal(t, "Bearer access-token-a", upstream.requests[0].Header.Get("Authorization"))
-	require.Equal(t, "Bearer access-token-b", upstream.requests[1].Header.Get("Authorization"))
-}
-
-func TestForwardAsChatCompletionsForGrokStreamingStopFallsBackToRawXAIChatCompletions(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	body := []byte(`{"model":"grok","messages":[{"role":"user","content":"hi"}],"stream":true,"stop":"done"}`)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Request.Header.Set(grokConversationIDHeader, "native-client-conversation")
-	c.Set("api_key", &APIKey{ID: 5301})
-
-	account := &Account{
-		ID:          53,
-		Name:        "grok",
-		Platform:    PlatformGrok,
-		Type:        AccountTypeOAuth,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"access_token": "access-token",
-			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
-			"base_url":     xai.DefaultCLIBaseURL,
-		},
-	}
-	repo := &grokQuotaAccountRepo{
-		mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
-			accountsByID: map[int64]*Account{53: account},
-		},
-	}
-	upstreamBody := strings.Join([]string{
-		`data: {"id":"chatcmpl_grok","object":"chat.completion.chunk","model":"grok-4.3","choices":[{"index":0,"delta":{"content":"ok"}}]}`,
-		"",
-		`data: {"id":"chatcmpl_grok","object":"chat.completion.chunk","model":"grok-4.3","choices":[],"usage":{"prompt_tokens":6,"completion_tokens":4,"total_tokens":10,"prompt_tokens_details":{"cached_tokens":1}}}`,
-		"",
-		"data: [DONE]",
-		"",
-	}, "\n")
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header: http.Header{
-			"Content-Type":                   []string{"text/event-stream"},
-			"X-Request-Id":                   []string{"chat-stream-req"},
-			"X-Ratelimit-Limit-Requests":     []string{"10"},
-			"X-Ratelimit-Remaining-Requests": []string{"7"},
-		},
-		Body: io.NopCloser(strings.NewReader(upstreamBody)),
-	}}
-	svc := &OpenAIGatewayService{
-		cfg:               rawChatCompletionsTestConfig(),
-		httpUpstream:      upstream,
-		grokTokenProvider: NewGrokTokenProvider(repo, nil),
-		accountRepo:       repo,
-	}
-
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
-	require.NoError(t, err)
-	require.Equal(t, xai.DefaultCLIBaseURL+"/chat/completions", upstream.lastReq.URL.String())
-	require.Equal(t, "Bearer access-token", upstream.lastReq.Header.Get("Authorization"))
-	require.Equal(t, "text/event-stream", upstream.lastReq.Header.Get("Accept"))
-	require.Equal(t, "sub2api-grok/1.0", upstream.lastReq.Header.Get("User-Agent"))
-	require.Equal(t, grokCLIVersion, upstream.lastReq.Header.Get("X-Grok-Client-Version"))
-	require.NotEmpty(t, upstream.lastReq.Header.Get(grokConversationIDHeader))
-	require.NotEqual(t, "native-client-conversation", upstream.lastReq.Header.Get(grokConversationIDHeader))
-	require.Equal(t, "grok-4.5", gjson.GetBytes(upstream.lastBody, "model").String())
-	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
-	require.True(t, result.Stream)
-	require.Equal(t, 6, result.Usage.InputTokens)
-	require.Equal(t, 4, result.Usage.OutputTokens)
-	require.Equal(t, 1, result.Usage.CacheReadInputTokens)
-	require.Contains(t, recorder.Body.String(), "data: [DONE]")
-	require.NotNil(t, repo.updates[53][grokQuotaSnapshotExtraKey])
-}
-
-func TestForwardGrokResponsesNonStreamingUsesCacheIdentityAndCachedUsage(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	body := []byte(`{"model":"grok","input":"hi","stream":false,"tools":[{"type":"namespace","name":"client_tools"}],"tool_choice":{"type":"namespace","name":"client_tools"}}`)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set("api_key", &APIKey{ID: 5202})
-
 	account := healthyGrokOAuthGatewayTestAccount(56, "access-token")
 	observedResetAt := time.Now().Add(-time.Second).UTC().Truncate(time.Second)
 	observedLimitedAt := observedResetAt.Add(-grokRateLimitRepeatCooldown)
@@ -1734,18 +1676,7 @@ func TestForwardAsAnthropicForGrokStreamingPreservesCacheUsage(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
 	c.Set("api_key", &APIKey{ID: 5402})
 
-	account := &Account{
-		ID:          57,
-		Name:        "grok",
-		Platform:    PlatformGrok,
-		Type:        AccountTypeOAuth,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"access_token": "access-token",
-			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
-			"base_url":     xai.DefaultCLIBaseURL,
-		},
-	}
+	account := healthyGrokOAuthGatewayTestAccount(57, "access-token")
 	repo := &grokQuotaAccountRepo{
 		mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
 			accountsByID: map[int64]*Account{57: account},

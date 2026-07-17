@@ -26,6 +26,11 @@ type GroupHandler struct {
 	groupCapacityService *service.GroupCapacityService
 }
 
+func usageViewModeFromContext(c *gin.Context) service.UsageViewMode {
+	role, _ := middleware.GetUserRoleFromContext(c)
+	return service.UsageViewModeForRole(role)
+}
+
 type optionalLimitField struct {
 	set   bool
 	value *float64

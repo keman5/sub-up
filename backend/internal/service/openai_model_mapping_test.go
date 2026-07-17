@@ -1,9 +1,6 @@
 package service
 
-import (
-	"context"
-	"testing"
-)
+import "testing"
 
 func TestResolveOpenAIForwardModel(t *testing.T) {
 	tests := []struct {
@@ -157,41 +154,6 @@ func TestResolveOpenAIForwardModel(t *testing.T) {
 	}
 }
 
-func TestOpenAIAccountEligibility_AllowsMappedTargetOutsideRequestedWhitelist(t *testing.T) {
-	account := &Account{
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeOAuth,
-		Status:      StatusActive,
-		Schedulable: true,
-		Credentials: map[string]any{
-			"model_mapping": map[string]any{
-				"gpt-5.5": "gpt-5.3-codex-spark",
-			},
-		},
-	}
-
-	eligible := isOpenAIAccountEligibleForRequestWithOptions(context.Background(), account, "gpt-5.5", openAIAccountRequestOptions{})
-
-	if !eligible {
-		t.Fatal("expected requested-model whitelist to allow mapped upstream target outside the same whitelist")
-	}
-}
-
-func TestResolveOpenAIForwardModel_PreventsClaudeModelFromFallingBackToGpt54(t *testing.T) {
-	account := &Account{
-		Credentials: map[string]any{},
-	}
-
-	withoutDefault := resolveOpenAIForwardModel(account, "claude-opus-4-6", "")
-	if withoutDefault != "claude-opus-4-6" {
-		t.Fatalf("resolveOpenAIForwardModel(...) = %q, want %q", withoutDefault, "claude-opus-4-6")
-	}
-
-	withDefault := resolveOpenAIForwardModel(account, "claude-opus-4-6", "gpt-5.4")
-	if withDefault != "gpt-5.4" {
-		t.Fatalf("resolveOpenAIForwardModel(...) = %q, want %q", withDefault, "gpt-5.4")
-	}
-}
 func TestResolveOpenAICompactForwardModel(t *testing.T) {
 	tests := []struct {
 		name          string

@@ -97,9 +97,6 @@ const DataTableStub = {
         <slot :name="'header-' + col.key" :column="col" />
       </template>
       <div v-for="row in data" :key="row.id">
-        <div data-test="username-cell">
-          <slot name="cell-username" :value="row.username" :row="row" />
-        </div>
         <slot name="cell-last_used_at" :value="row.last_used_at" :row="row" />
       </div>
     </div>
@@ -108,42 +105,19 @@ const DataTableStub = {
 
 const PaginationStub = {
   emits: ['update:page'],
-  template: '<button data-test="go-page-3" @click="$emit(\'update:page\', 3)">page 3</button>'
+  template: '<button data-test="next-page" @click="$emit(\'update:page\', 2)">next</button>'
 }
 
-const SelectStub = {
-  props: ['modelValue', 'options'],
-  emits: ['update:modelValue', 'change'],
-  template: '<select :value="modelValue" data-test="filter-select" @change="$emit(\'update:modelValue\', $event.target.value); $emit(\'change\')"><option v-for="option in options" :key="option.value" :value="option.value">{{ option.label }}</option></select>'
+const BulkEditUserModalStub = {
+  props: ['show', 'selectedIds'],
+  emits: ['close', 'success'],
+  template: `
+    <div v-if="show" data-test="bulk-modal">
+      <span data-test="bulk-modal-ids">{{ selectedIds.join(',') }}</span>
+      <button data-test="bulk-success" @click="$emit('success', selectedIds.length)">success</button>
+    </div>
+  `
 }
-
-const mountUsersView = () => mount(UsersView, {
-  global: {
-    stubs: {
-      AppLayout: { template: '<div><slot /></div>' },
-      TablePageLayout: {
-        template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
-      },
-      DataTable: DataTableStub,
-      Pagination: PaginationStub,
-      ConfirmDialog: true,
-      EmptyState: true,
-      GroupBadge: true,
-      Select: SelectStub,
-      UserAttributesConfigModal: true,
-      UserConcurrencyCell: true,
-      UserCreateModal: true,
-      UserEditModal: true,
-      UserApiKeysModal: true,
-      UserAllowedGroupsModal: true,
-      UserBalanceModal: true,
-      UserBalanceHistoryModal: true,
-      GroupReplaceModal: true,
-      Icon: true,
-      Teleport: true
-    }
-  }
-})
 
 describe('admin UsersView', () => {
   beforeEach(() => {
@@ -158,10 +132,10 @@ describe('admin UsersView', () => {
 
     listUsers.mockResolvedValue({
       items: [createAdminUser()],
-      total: 100,
+      total: 1,
       page: 1,
       page_size: 20,
-      pages: 5
+      pages: 1
     })
     getAllGroups.mockResolvedValue([])
     getBatchUsersUsage.mockResolvedValue({ stats: {} })
@@ -174,7 +148,35 @@ describe('admin UsersView', () => {
   })
 
   it('shows active, used, and created activity columns in order and requests last_used_at sort', async () => {
-    const wrapper = mountUsersView()
+    const wrapper = mount(UsersView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: true,
+          EmptyState: true,
+          GroupBadge: true,
+          Select: true,
+          UserAttributesConfigModal: true,
+          UserConcurrencyCell: true,
+          UserCreateModal: true,
+          UserEditModal: true,
+          BulkEditUserModal: BulkEditUserModalStub,
+          UserPlatformQuotaModal: true,
+          UserApiKeysModal: true,
+          UserAllowedGroupsModal: true,
+          UserBalanceModal: true,
+          UserBalanceHistoryModal: true,
+          GroupReplaceModal: true,
+          Icon: true,
+          Teleport: true
+        }
+      }
+    })
 
     await flushPromises()
 
@@ -195,22 +197,6 @@ describe('admin UsersView', () => {
       }),
       expect.any(Object)
     )
-  })
-
-  it('appends notes in parentheses after the username when notes exist', async () => {
-    listUsers.mockResolvedValue({
-      items: [createAdminUser({ notes: '重点客户' })],
-      total: 1,
-      page: 1,
-      page_size: 20,
-      pages: 1
-    })
-
-    const wrapper = mountUsersView()
-
-    await flushPromises()
-
-    expect(wrapper.get('[data-test="username-cell"]').text()).toBe('scoped-user(重点客户)')
   })
 
   it('clears usage current-page sort when switching to last_used_at server sort', async () => {
@@ -248,7 +234,35 @@ describe('admin UsersView', () => {
       }
     })
 
-    const wrapper = mountUsersView()
+    const wrapper = mount(UsersView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: true,
+          EmptyState: true,
+          GroupBadge: true,
+          Select: true,
+          UserAttributesConfigModal: true,
+          UserConcurrencyCell: true,
+          UserCreateModal: true,
+          UserEditModal: true,
+          BulkEditUserModal: BulkEditUserModalStub,
+          UserPlatformQuotaModal: true,
+          UserApiKeysModal: true,
+          UserAllowedGroupsModal: true,
+          UserBalanceModal: true,
+          UserBalanceHistoryModal: true,
+          GroupReplaceModal: true,
+          Icon: true,
+          Teleport: true
+        }
+      }
+    })
 
     await flushPromises()
     await vi.advanceTimersByTimeAsync(50)
@@ -280,54 +294,79 @@ describe('admin UsersView', () => {
     )
   })
 
-  it('re-searches on focus and uses the current keyword, falling back to full results when empty', async () => {
-    vi.useFakeTimers()
-    const wrapper = mountUsersView()
+  it('keeps selected user IDs across pages and clears them after a successful bulk update', async () => {
+    let refreshed = false
+    listUsers.mockImplementation(async (page: number) => {
+      const user = page === 2
+        ? createAdminUser({
+            id: 43,
+            email: refreshed ? 'refreshed-page-two@example.com' : 'page-two@example.com'
+          })
+        : createAdminUser({ id: 42, email: 'page-one@example.com' })
+      return {
+        items: [user],
+        total: 2,
+        page,
+        page_size: 20,
+        pages: 2
+      }
+    })
+
+    const wrapper = mount(UsersView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: PaginationStub,
+          ConfirmDialog: true,
+          EmptyState: true,
+          GroupBadge: true,
+          Select: true,
+          UserAttributesConfigModal: true,
+          UserConcurrencyCell: true,
+          UserCreateModal: true,
+          UserEditModal: true,
+          BulkEditUserModal: BulkEditUserModalStub,
+          UserPlatformQuotaModal: true,
+          UserApiKeysModal: true,
+          UserAllowedGroupsModal: true,
+          UserBalanceModal: true,
+          UserBalanceHistoryModal: true,
+          GroupReplaceModal: true,
+          Icon: true,
+          Teleport: true
+        }
+      }
+    })
 
     await flushPromises()
-    expect(listUsers).toHaveBeenCalledTimes(1)
 
-    const input = wrapper.get('input[type="text"]')
-    await input.trigger('focus')
-    vi.advanceTimersByTime(300)
+    expect(wrapper.find('[data-test="bulk-edit-limits"]').exists()).toBe(false)
+    await wrapper.get('[data-test="select-42"]').trigger('click')
+    expect(wrapper.get('[data-test="selected-keys"]').text()).toBe('42')
+    expect(wrapper.find('[data-test="bulk-edit-limits"]').exists()).toBe(true)
+
+    await wrapper.get('[data-test="next-page"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="selected-keys"]').text()).toBe('42')
+
+    await wrapper.get('[data-test="select-43"]').trigger('click')
+    expect(wrapper.get('[data-test="selected-keys"]').text()).toBe('42,43')
+
+    await wrapper.get('[data-test="bulk-edit-limits"]').trigger('click')
+    expect(wrapper.get('[data-test="bulk-modal-ids"]').text()).toBe('42,43')
+
+    const callsBeforeSuccess = listUsers.mock.calls.length
+    refreshed = true
+    await wrapper.get('[data-test="bulk-success"]').trigger('click')
     await flushPromises()
 
-    expect(listUsers).toHaveBeenCalledTimes(2)
-    expect(listUsers).toHaveBeenLastCalledWith(
-      1,
-      20,
-      expect.objectContaining({
-        search: undefined
-      }),
-      expect.any(Object)
-    )
-    expect(wrapper.text()).toContain('scoped@example.com')
-  })
-
-  it('returns to the first page when a visible built-in filter changes', async () => {
-    localStorage.setItem('user-visible-filters', JSON.stringify(['status']))
-    const wrapper = mountUsersView()
-
-    await flushPromises()
-    await wrapper.get('[data-test="go-page-3"]').trigger('click')
-    await flushPromises()
-
-    expect(listUsers).toHaveBeenLastCalledWith(
-      3,
-      20,
-      expect.any(Object),
-      expect.any(Object)
-    )
-
-    const statusFilter = wrapper.findAll('[data-test="filter-select"]')[0]
-    await statusFilter.setValue('disabled')
-    await flushPromises()
-
-    expect(listUsers).toHaveBeenLastCalledWith(
-      1,
-      20,
-      expect.objectContaining({ status: 'disabled' }),
-      expect.any(Object)
-    )
+    expect(listUsers.mock.calls.length).toBeGreaterThan(callsBeforeSuccess)
+    expect(wrapper.get('[data-test="row-order"]').text()).toBe('refreshed-page-two@example.com')
+    expect(wrapper.find('[data-test="bulk-edit-limits"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="selected-keys"]').text()).toBe('')
   })
 })

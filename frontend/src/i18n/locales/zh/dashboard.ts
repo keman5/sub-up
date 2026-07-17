@@ -122,8 +122,6 @@ export default {
     clickToChangeGroup: '点击更换分组',
     groupChangedSuccess: '分组更换成功',
     failedToChangeGroup: '更换分组失败',
-    resetRateLimitWindowUsage: '重置{window}',
-    resetRateLimitWindowConfirmMessage: '确定要重置密钥 "{name}" 的{window}已用额度吗？此操作不可撤销。',
     groupRequired: '请选择分组',
     usage: '用量',
     today: '今日',
@@ -145,9 +143,10 @@ export default {
       openai: {
         description: '将以下配置文件添加到 Codex CLI 配置目录中。',
         authModeTitle: 'Codex 认证模式',
-        authModeDescription: '兼容模式保留旧版 Codex 配置；API Key Mode 用于启用客户端图片执行器。',
+        authModeDescription: '兼容模式保留旧版 Codex 配置；API Key Mode 用于授权客户端图片执行器。',
         authModeLegacy: '兼容模式',
         authModeApiKey: 'API Key Mode',
+        authModeApiKeyRestartNotice: '保存此配置后，必须完全退出并重启 Codex Desktop 或 CLI，然后新建 task，让客户端重新构建工具注册表。',
         configTomlHint: '请确保以下内容位于 config.toml 文件的开头部分',
         note: '请确保配置目录存在。macOS/Linux 用户可运行 mkdir -p ~/.codex 创建目录。',
         noteWindows:
@@ -177,10 +176,16 @@ export default {
         note: '这些环境变量将在当前终端会话中生效。如需永久配置，请将其添加到 ~/.bashrc、~/.zshrc 或相应的配置文件中。'
       },
       grok: {
-        description: '配置 Grok Build 或 OpenCode，让 Responses API 请求通过当前 Sub2API Grok 分组发送。',
+        description: '配置 Grok Build、Claude Code、Codex 或 OpenCode，让请求通过当前 Sub2API Grok 分组发送。',
+        claudeDescription: '配置 Claude Code，让 Messages API 请求通过当前 Sub2API Grok 分组发送。',
+        codexDescription: '配置 Codex，让 Responses API 请求通过当前 Sub2API Grok 分组发送。',
         configTomlHint: '如已有 config.toml，请先备份再合并此模型配置。保存后运行 grok inspect 验证生效配置。',
-        note: '保存为 ~/.grok/config.toml，然后运行 grok inspect，并在 /model 中选择 sub2api-grok。',
-        noteWindows: '保存为 %USERPROFILE%\\.grok\\config.toml，然后运行 grok inspect，并在 /model 中选择 sub2api-grok。'
+        codexConfigTomlHint: '如已有 config.toml，请先备份再合并此服务商配置。',
+        note: '保存为 ~/.grok/config.toml，然后运行 grok inspect，并在 /model 中选择 grok。',
+        noteWindows: '保存为 %USERPROFILE%\\.grok\\config.toml，然后运行 grok inspect，并在 /model 中选择 grok。',
+        claudeNote: '二选一即可：终端命令仅在当前会话生效；保存 settings.json 可作为用户级持久配置。',
+        codexNote: '将 config.toml 保存到 ~/.codex，并在启动 Codex 前设置 SUB2API_API_KEY。',
+        codexNoteWindows: '将 config.toml 保存到 %USERPROFILE%\\.codex，并在 PowerShell 中设置 SUB2API_API_KEY 后启动 Codex。'
       },
       opencode: {
         title: 'OpenCode 配置示例',
@@ -233,6 +238,8 @@ export default {
     rateLimitHint: '设置此密钥在指定时间窗口内的最大消费额。0 = 无限制。',
     rateLimitUsage: '速率限制用量',
     resetRateLimitUsage: '重置速率限制用量',
+    resetRateLimitWindowUsage: '重置{window}',
+    resetRateLimitWindowConfirmMessage: '确定要重置密钥 "{name}" 的{window}已用额度吗？此操作不可撤销。',
     resetRateLimitTitle: '确认重置速率限制',
     resetRateLimitConfirmMessage: '确定要重置密钥 "{name}" 的速率限制用量吗？所有时间窗口的已用额度将归零。此操作不可撤销。',
     rateLimitResetSuccess: '速率限制已重置',
@@ -261,6 +268,8 @@ export default {
     description: '查看和分析您的 API 使用历史',
     costDetails: '费用明细',
     tokenDetails: 'Token 明细',
+    fullDuration: '完整耗时',
+    responseLatency: '响应耗时',
     cacheTtlOverriddenHint: '缓存 TTL Override 已启用',
     cacheTtlOverriddenLabel: 'TTL 替换',
     cacheTtlOverridden5m: '按 5m 计费',
@@ -277,8 +286,6 @@ export default {
     accountCost: '成本',
     userBilled: '用户扣费',
     accountBilled: '账号计费',
-    responseLatency: '响应耗时',
-    fullDuration: '完整耗时',
     resetNow: '现在',
     resetPending: '待刷新',
     accountMultiplier: '账号倍率',
@@ -819,10 +826,7 @@ export default {
     forbidden: '禁止访问',
     serverError: '服务器错误',
     networkError: '网络错误',
-    networkConnection: '网络错误，请检查连接。',
     timeout: '请求超时',
-    sessionExpired: '会话已过期，请重新登录。',
-    unknown: '未知错误',
     tryAgain: '请重试'
   },
 

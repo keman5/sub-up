@@ -317,18 +317,11 @@ func rewriteOpenAIUsageForPresentation(body []byte, multiplier float64) []byte {
 	}
 	updated := body
 	for _, field := range []string{
-		"input_tokens",
-		"output_tokens",
-		"prompt_tokens",
-		"completion_tokens",
-		"cache_creation_input_tokens",
-		"cache_read_input_tokens",
-		"input_tokens_details.cached_tokens",
-		"prompt_tokens_details.cached_tokens",
-		"output_tokens_details.image_tokens",
-		"completion_tokens_details.image_tokens",
-		"image_output_tokens",
-		"total_tokens",
+		"input_tokens", "output_tokens", "prompt_tokens", "completion_tokens",
+		"cache_creation_input_tokens", "cache_read_input_tokens",
+		"input_tokens_details.cached_tokens", "prompt_tokens_details.cached_tokens",
+		"output_tokens_details.image_tokens", "completion_tokens_details.image_tokens",
+		"image_output_tokens", "total_tokens",
 	} {
 		path := usagePath + "." + field
 		value := gjson.GetBytes(updated, path)
@@ -1190,12 +1183,8 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			}
 			if eventUsage, ok := extractOpenAIUsageFromJSONBytes(dataBytes); ok {
 				clientData := rewriteOpenAIUsageForPresentation(dataBytes, ResolveGatewayResponsePresentationMultiplier(
-					c,
-					eventUsage.InputTokens,
-					eventUsage.OutputTokens,
-					eventUsage.CacheCreationInputTokens,
-					eventUsage.CacheReadInputTokens,
-					eventUsage.ImageOutputTokens,
+					c, eventUsage.InputTokens, eventUsage.OutputTokens, eventUsage.CacheCreationInputTokens,
+					eventUsage.CacheReadInputTokens, eventUsage.ImageOutputTokens,
 				))
 				if !bytes.Equal(clientData, dataBytes) {
 					dataBytes = clientData
@@ -1332,12 +1321,8 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 		return nil, fmt.Errorf("restore OpenAI passthrough namespace response: %w", err)
 	}
 	clientBody := rewriteOpenAIUsageForPresentation(body, ResolveGatewayResponsePresentationMultiplier(
-		c,
-		usage.InputTokens,
-		usage.OutputTokens,
-		usage.CacheCreationInputTokens,
-		usage.CacheReadInputTokens,
-		usage.ImageOutputTokens,
+		c, usage.InputTokens, usage.OutputTokens, usage.CacheCreationInputTokens,
+		usage.CacheReadInputTokens, usage.ImageOutputTokens,
 	))
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, clientBody) {
 		c.Data(resp.StatusCode, contentType, clientBody)
@@ -1411,12 +1396,8 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		}
 	}
 	clientBody := rewriteOpenAIUsageForPresentation(body, ResolveGatewayResponsePresentationMultiplier(
-		c,
-		usage.InputTokens,
-		usage.OutputTokens,
-		usage.CacheCreationInputTokens,
-		usage.CacheReadInputTokens,
-		usage.ImageOutputTokens,
+		c, usage.InputTokens, usage.OutputTokens, usage.CacheCreationInputTokens,
+		usage.CacheReadInputTokens, usage.ImageOutputTokens,
 	))
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, clientBody) {
 		c.Data(resp.StatusCode, contentType, clientBody)

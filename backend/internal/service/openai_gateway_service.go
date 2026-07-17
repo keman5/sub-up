@@ -265,8 +265,9 @@ type OpenAIForwardResult struct {
 	wsReplayInputExists bool
 }
 
-// SucceededForScheduling reports whether a WebSocket turn completed normally.
-// Non-WebSocket and legacy zero-value results remain successful.
+// SucceededForScheduling reports whether this result is an upstream success
+// that may clear model-scoped transient state. The zero value remains a success
+// for existing non-WS callers.
 func (r *OpenAIForwardResult) SucceededForScheduling() bool {
 	if r == nil || !r.OpenAIWSMode || r.UpstreamTerminalEvent == "" {
 		return true
@@ -410,6 +411,7 @@ type OpenAIGatewayService struct {
 	openaiWSStateStoreOnce        sync.Once
 	openaiSchedulerOnce           sync.Once
 	openaiWSPassthroughDialerOnce sync.Once
+	openaiModelTransientOnce      sync.Once
 	agentIdentityTaskMu           sync.Mutex
 	openaiWSPool                  *openAIWSConnPool
 	openaiWSStateStore            OpenAIWSStateStore
@@ -417,7 +419,6 @@ type OpenAIGatewayService struct {
 	openaiWSPassthroughDialer     openAIWSClientDialer
 	openaiAccountStats            *openAIAccountRuntimeStats
 	openaiModelTransient          *openAIAccountModelTransientState
-	openaiModelTransientOnce      sync.Once
 
 	openaiWSFallbackUntil               sync.Map // key: int64(accountID), value: time.Time
 	openaiAccountRuntimeBlockUntil      sync.Map // key: int64(accountID), value: time.Time

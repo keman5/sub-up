@@ -25,6 +25,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -49,6 +50,7 @@ type GatewayHandler struct {
 	usageRecordWorkerPool     *service.UsageRecordWorkerPool
 	errorPassthroughService   *service.ErrorPassthroughService
 	contentModerationService  *service.ContentModerationService
+	securityAuditCoordinator  *securityaudit.Coordinator
 	concurrencyHelper         *ConcurrencyHelper
 	userMsgQueueHelper        *UserMsgQueueHelper
 	maxAccountSwitches        int
@@ -199,8 +201,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 
-	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolAnthropicMessages, reqModel, body); decision != nil && decision.Blocked {
-		h.errorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
+	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolAnthropicMessages, reqModel, body); decision != nil && !decision.AllowNextStage {
+		h.anthropicSecurityAuditError(c, decision)
 		return
 	}
 
@@ -241,7 +243,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	// 设置请求所属分组 ID（用于渠道级功能判断，如 WebSearch 模拟）
 	parsedReq.GroupID = apiKey.GroupID
-	parsedReq.Group = apiKey.Group
 
 	// 计算粘性会话hash
 	parsedReq.SessionContext = &service.SessionContext{
@@ -1401,10 +1402,9 @@ func (h *GatewayHandler) buildUsageData(ctx context.Context, apiKeyID int64) gin
 			"cost":                  dashStats.TotalCost,
 			"actual_cost":           dashStats.TotalActualCost,
 		},
-		"average_duration_ms":    dashStats.AverageDurationMs,
-		"average_first_token_ms": dashStats.AverageFirstTokenMs,
-		"rpm":                    dashStats.Rpm,
-		"tpm":                    dashStats.Tpm,
+		"average_duration_ms": dashStats.AverageDurationMs,
+		"rpm":                 dashStats.Rpm,
+		"tpm":                 dashStats.Tpm,
 	}
 }
 
@@ -1533,11 +1533,9 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 				"daily_usage_usd":     subscription.DailyUsageUSD,
 				"weekly_usage_usd":    subscription.WeeklyUsageUSD,
 				"monthly_usage_usd":   subscription.MonthlyUsageUSD,
-				"total_usage_usd":     subscription.TotalUsageUSD,
 				"daily_limit_usd":     apiKey.Group.DailyLimitUSD,
 				"weekly_limit_usd":    apiKey.Group.WeeklyLimitUSD,
 				"monthly_limit_usd":   apiKey.Group.MonthlyLimitUSD,
-				"total_limit_usd":     apiKey.Group.TotalLimitUSD,
 				"weekly_window_start": subscription.WeeklyWindowStart,
 				"expires_at":          subscription.ExpiresAt,
 			}
@@ -1611,14 +1609,6 @@ func (h *GatewayHandler) calculateSubscriptionRemaining(group *service.Group, su
 	// 检查月限额
 	if group.HasMonthlyLimit() {
 		remaining := *group.MonthlyLimitUSD - sub.MonthlyUsageUSD
-		if remaining <= 0 {
-			return 0
-		}
-		remainingValues = append(remainingValues, remaining)
-	}
-
-	if group.HasTotalLimit() {
-		remaining := *group.TotalLimitUSD - sub.TotalUsageUSD
 		if remaining <= 0 {
 			return 0
 		}

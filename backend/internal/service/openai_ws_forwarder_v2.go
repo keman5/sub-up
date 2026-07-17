@@ -457,6 +457,25 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 				}
 			}
 		}
+		if readErr == nil && !json.Valid(message) {
+			eventType, _, _ := parseOpenAIWSEventEnvelope(message)
+			if eventType == "" {
+				eventType = "unknown"
+			}
+			lease.MarkBroken()
+			logOpenAIWSModeInfo(
+				"invalid_event_json account_id=%d conn_id=%s event_type=%s bytes=%d wrote_downstream=%v",
+				account.ID,
+				truncateOpenAIWSLogValue(connID, openAIWSIDValueMaxLen),
+				truncateOpenAIWSLogValue(eventType, openAIWSLogValueMaxLen),
+				len(message),
+				wroteDownstream,
+			)
+			if !wroteDownstream {
+				return nil, wrapOpenAIWSFallback("invalid_event_json", errors.New("upstream websocket returned malformed Responses event JSON"))
+			}
+			return nil, errors.New("upstream websocket returned malformed Responses event JSON after downstream output")
+		}
 		if readErr != nil {
 			lease.MarkBroken()
 			closeStatus, closeReason := summarizeOpenAIWSReadCloseError(readErr)
@@ -484,25 +503,6 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			}
 			setOpsUpstreamError(c, 0, sanitizeUpstreamErrorMessage(readErr.Error()), "")
 			return nil, fmt.Errorf("openai ws read event: %w", readErr)
-		}
-		if readErr == nil && !json.Valid(message) {
-			eventType, _, _ := parseOpenAIWSEventEnvelope(message)
-			if eventType == "" {
-				eventType = "unknown"
-			}
-			lease.MarkBroken()
-			logOpenAIWSModeInfo(
-				"invalid_event_json account_id=%d conn_id=%s event_type=%s bytes=%d wrote_downstream=%v",
-				account.ID,
-				truncateOpenAIWSLogValue(connID, openAIWSIDValueMaxLen),
-				truncateOpenAIWSLogValue(eventType, openAIWSLogValueMaxLen),
-				len(message),
-				wroteDownstream,
-			)
-			if !wroteDownstream {
-				return nil, wrapOpenAIWSFallback("invalid_event_json", errors.New("upstream websocket returned malformed Responses event JSON"))
-			}
-			return nil, errors.New("upstream websocket returned malformed Responses event JSON after downstream output")
 		}
 		if normalized, changed := normalizeCompletedImageGenerationStatus(message); changed {
 			message = normalized

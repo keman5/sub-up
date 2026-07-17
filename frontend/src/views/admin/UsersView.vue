@@ -8,17 +8,17 @@
           <div class="flex flex-1 flex-wrap items-center gap-3">
             <!-- Search Box -->
             <div class="relative w-full md:w-64">
-              <SearchSuggestInput
+              <Icon
+                name="search"
+                size="md"
+                class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
+              <input
                 v-model="searchQuery"
+                type="text"
                 :placeholder="t('admin.users.searchUsers')"
-                :suggestions="userSearchSuggestions"
-                :open="showUserSearchDropdown"
-                :empty-text="searchQuery ? t('common.noOptionsFound') : ''"
-                @search="handleSearch"
-                @focus="onUserSearchFocus"
-                @blur="onUserSearchBlur"
-                @select="selectUserSearchOption"
-                @clear="clearUserSearch"
+                class="input pl-10"
+                @input="handleSearch"
               />
             </div>
 
@@ -292,12 +292,8 @@
             </div>
           </template>
 
-          <template #cell-username="{ row }">
-            <span
-              class="block max-w-full whitespace-normal break-all text-sm text-gray-700 dark:text-gray-300"
-            >
-              {{ formatUsernameWithNotes(row) }}
-            </span>
+          <template #cell-username="{ value }">
+            <span class="text-sm text-gray-700 dark:text-gray-300">{{ value || '-' }}</span>
           </template>
 
           <template #cell-notes="{ value }">
@@ -670,9 +666,8 @@
     <Teleport to="body">
       <div
         v-if="activeMenuId !== null && menuPosition"
-        ref="actionMenuContentRef"
         class="action-menu-content fixed z-[9999] w-48 overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-black/5 dark:bg-dark-800 dark:ring-white/10"
-        :style="actionMenuStyle"
+        :style="{ top: menuPosition.top + 'px', left: menuPosition.left + 'px' }"
       >
         <div class="py-1">
           <template v-for="user in users" :key="user.id">
@@ -777,13 +772,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, nextTick, onMounted, onUnmounted, type CSSProperties } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { useTableSelection } from '@/composables/useTableSelection'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
-import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
-import { clampFloatingMenuPosition, getActionMenuPosition } from '@/utils/floatingMenuPosition'
+import { useTableSelection } from '@/composables/useTableSelection'
 import { formatDateTime } from '@/utils/format'
 import Icon from '@/components/icons/Icon.vue'
 
@@ -802,7 +795,6 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import Select from '@/components/common/Select.vue'
-import SearchSuggestInput, { type SearchSuggestOption } from '@/components/common/SearchSuggestInput.vue'
 import { buildApiKeyGroupFilterOptions } from './apiKeyGroupFilterOptions'
 import UserAttributesConfigModal from '@/components/user/UserAttributesConfigModal.vue'
 import UserConcurrencyCell from '@/components/user/UserConcurrencyCell.vue'
@@ -831,12 +823,6 @@ const attributeColumns = computed<Column[]>(() =>
       sortable: false
     }))
 )
-
-const formatUsernameWithNotes = (user: Pick<AdminUser, 'username' | 'notes'>): string => {
-  const username = user.username?.trim() || '-'
-  const notes = user.notes?.trim()
-  return notes ? `${username}(${notes})` : username
-}
 
 // Get formatted attribute value for display in table
 const getAttributeValue = (userId: number, attrId: number): string => {
@@ -1036,8 +1022,6 @@ const columns = computed<Column[]>(() =>
 const users = ref<AdminUser[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
-const userSearchSuggestions = ref<SearchSuggestOption<AdminUser>[]>([])
-const showUserSearchDropdown = ref(false)
 const USER_SORT_STORAGE_KEY = 'admin-users-table-sort'
 const loadInitialSortState = (): { sort_by: string; sort_order: 'asc' | 'desc' } => {
   const fallback = { sort_by: 'created_at', sort_order: 'desc' as 'asc' | 'desc' }
@@ -1203,59 +1187,6 @@ const saveFiltersToStorage = () => {
     console.error('Failed to save filters:', e)
   }
 }
-
-const showBuiltInFilterWhenValueExists = (key: string, value: unknown) => {
-  if (value != null && value !== '') {
-    visibleFilters.add(key)
-  }
-}
-
-const userRouteQuerySync = useRouteQuerySync({
-  fields: [
-    { queryKey: 'search', get: () => searchQuery.value, set: (value) => { searchQuery.value = value }, defaultValue: '' },
-    {
-      queryKey: 'role',
-      get: () => filters.role,
-      set: (value) => {
-        filters.role = value
-        showBuiltInFilterWhenValueExists('role', value)
-      },
-      defaultValue: '',
-      defaultQueryValue: 'all'
-    },
-    {
-      queryKey: 'status',
-      get: () => filters.status,
-      set: (value) => {
-        filters.status = value
-        showBuiltInFilterWhenValueExists('status', value)
-      },
-      defaultValue: '',
-      defaultQueryValue: 'all'
-    },
-    {
-      queryKey: 'group',
-      get: () => filters.group,
-      set: (value) => {
-        filters.group = value
-        showBuiltInFilterWhenValueExists('group', value)
-      },
-      defaultValue: '',
-      defaultQueryValue: 'all'
-    },
-    {
-      queryKey: 'api_key_group_id',
-      get: () => filters.apiKeyGroup,
-      set: (value) => {
-        filters.apiKeyGroup = value
-        showBuiltInFilterWhenValueExists('apiKeyGroup', value)
-      },
-      defaultValue: '',
-      defaultQueryValue: 'all',
-      parse: 'number'
-    },
-  ],
-})
 
 // Get attribute definition by ID
 const getAttributeDefinition = (attrId: number): UserAttributeDefinition | undefined => {
@@ -1498,34 +1429,6 @@ const refreshCurrentPageSecondaryData = () => {
 // Action Menu State
 const activeMenuId = ref<number | null>(null)
 const menuPosition = ref<{ top: number; left: number } | null>(null)
-const adjustedMenuPosition = ref<({ top: number; left: number; maxHeight: number }) | null>(null)
-const actionMenuContentRef = ref<HTMLElement | null>(null)
-const actionMenuStyle = computed<CSSProperties>(() => {
-  const position = adjustedMenuPosition.value ?? menuPosition.value
-  if (!position) return {}
-
-  return {
-    top: `${position.top}px`,
-    left: `${position.left}px`,
-    maxHeight: `${adjustedMenuPosition.value?.maxHeight ?? window.innerHeight - 16}px`,
-    overflowY: 'auto'
-  }
-})
-
-const adjustActionMenuPosition = () => {
-  if (activeMenuId.value === null || !menuPosition.value) return
-
-  nextTick(() => {
-    if (!actionMenuContentRef.value || !menuPosition.value) return
-
-    const rect = actionMenuContentRef.value.getBoundingClientRect()
-    adjustedMenuPosition.value = clampFloatingMenuPosition(
-      menuPosition.value,
-      { width: rect.width, height: rect.height },
-      { width: window.innerWidth, height: window.innerHeight }
-    )
-  })
-}
 
 const openActionMenu = (user: AdminUser, e: MouseEvent) => {
   if (activeMenuId.value === user.id) {
@@ -1538,25 +1441,51 @@ const openActionMenu = (user: AdminUser, e: MouseEvent) => {
     }
 
     const rect = target.getBoundingClientRect()
-    const position = getActionMenuPosition({
-      triggerRect: rect,
-      pointerX: e.clientX,
-      pointerY: e.clientY,
-      menuSize: { width: 192, height: 240 },
-      viewport: { width: window.innerWidth, height: window.innerHeight }
-    })
+    const menuWidth = 200
+    const menuHeight = 240
+    const padding = 8
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
 
-    menuPosition.value = { top: position.top, left: position.left }
-    adjustedMenuPosition.value = null
+    let left, top
+
+    if (viewportWidth < 768) {
+      // 居中显示,水平位置
+      left = Math.max(padding, Math.min(
+        rect.left + rect.width / 2 - menuWidth / 2,
+        viewportWidth - menuWidth - padding
+      ))
+
+      // 优先显示在按钮下方
+      top = rect.bottom + 4
+
+      // 如果下方空间不够,显示在上方
+      if (top + menuHeight > viewportHeight - padding) {
+        top = rect.top - menuHeight - 4
+        // 如果上方也不够,就贴在视口顶部
+        if (top < padding) {
+          top = padding
+        }
+      }
+    } else {
+      left = Math.max(padding, Math.min(
+        e.clientX - menuWidth,
+        viewportWidth - menuWidth - padding
+      ))
+      top = e.clientY
+      if (top + menuHeight > viewportHeight - padding) {
+        top = viewportHeight - menuHeight - padding
+      }
+    }
+
+    menuPosition.value = { top, left }
     activeMenuId.value = user.id
-    adjustActionMenuPosition()
   }
 }
 
 const closeActionMenu = () => {
   activeMenuId.value = null
   menuPosition.value = null
-  adjustedMenuPosition.value = null
 }
 
 // Close menu when clicking outside
@@ -1666,7 +1595,6 @@ const loadUsers = async () => {
       return
     }
     users.value = response.items
-    syncUserSearchSuggestions(response.items)
     pagination.total = response.total
     pagination.pages = response.pages
     usageStats.value = {}
@@ -1703,70 +1631,12 @@ const handleBulkLimitsSuccess = async () => {
 }
 
 let searchTimeout: ReturnType<typeof setTimeout>
-const debounceSearchSuggestions = () => {
+const handleSearch = () => {
   clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => {
     pagination.page = 1
-    void userRouteQuerySync.syncToRoute()
     loadUsers()
   }, 300)
-}
-
-const syncUserSearchSuggestions = (items: AdminUser[]) => {
-  const existingSuggestions = userSearchSuggestions.value
-  const existingById = new Map(existingSuggestions.map((suggestion) => [suggestion.id, suggestion]))
-  const nextSuggestions = items.map((user) => {
-    const existing = existingById.get(user.id)
-    const secondaryText = [user.username?.trim(), user.notes?.trim()].filter(Boolean).join(' / ') || `#${user.id}`
-    if (existing) {
-      existing.primaryText = user.email
-      existing.secondaryText = secondaryText
-      existing.value = user
-      return existing
-    }
-    return {
-      id: user.id,
-      primaryText: user.email,
-      secondaryText,
-      value: user
-    }
-  })
-
-  const unchanged =
-    existingSuggestions.length === nextSuggestions.length &&
-    existingSuggestions.every((suggestion, index) => suggestion === nextSuggestions[index])
-
-  if (!unchanged) {
-    existingSuggestions.splice(0, existingSuggestions.length, ...nextSuggestions)
-  }
-}
-
-const handleSearch = () => {
-  debounceSearchSuggestions()
-}
-
-const onUserSearchFocus = () => {
-  showUserSearchDropdown.value = true
-  debounceSearchSuggestions()
-}
-
-const onUserSearchBlur = () => {
-  showUserSearchDropdown.value = false
-}
-
-const selectUserSearchOption = (option: SearchSuggestOption<AdminUser>) => {
-  searchQuery.value = option.primaryText
-  showUserSearchDropdown.value = false
-  clearTimeout(searchTimeout)
-  pagination.page = 1
-  void userRouteQuerySync.syncToRoute()
-  loadUsers()
-}
-
-const clearUserSearch = () => {
-  searchQuery.value = ''
-  showUserSearchDropdown.value = false
-  debounceSearchSuggestions()
 }
 
 const handlePageChange = (page: number) => {
@@ -1811,7 +1681,6 @@ const toggleBuiltInFilter = (key: string) => {
   }
   saveFiltersToStorage()
   pagination.page = 1
-  void userRouteQuerySync.syncToRoute()
   loadUsers()
 }
 
@@ -1827,7 +1696,6 @@ const toggleAttributeFilter = (attr: UserAttributeDefinition) => {
   }
   saveFiltersToStorage()
   pagination.page = 1
-  void userRouteQuerySync.syncToRoute()
   loadUsers()
 }
 
@@ -1838,8 +1706,6 @@ const updateAttributeFilter = (attrId: number, value: string) => {
 // Apply filter and save to localStorage
 const applyFilter = () => {
   saveFiltersToStorage()
-  pagination.page = 1
-  void userRouteQuerySync.syncToRoute()
   loadUsers()
 }
 
@@ -1968,9 +1834,6 @@ const handleScroll = () => {
 onMounted(async () => {
   await loadAttributeDefinitions()
   loadSavedFilters()
-  userRouteQuerySync.restoreFromRoute()
-  void userRouteQuerySync.syncToRoute()
-  saveFiltersToStorage()
   loadSavedColumns()
   loadUsers()
   if (hasVisibleGroupsColumn.value || visibleFilters.has('group')) {
@@ -1981,13 +1844,11 @@ onMounted(async () => {
   }
   document.addEventListener('click', handleClickOutside)
   window.addEventListener('scroll', handleScroll, true)
-  window.addEventListener('resize', adjustActionMenuPosition)
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
   window.removeEventListener('scroll', handleScroll, true)
-  window.removeEventListener('resize', adjustActionMenuPosition)
   clearTimeout(searchTimeout)
   abortController?.abort()
 })

@@ -67,7 +67,6 @@ const DataTableStub = {
   props: ['columns', 'data'],
   template: `
     <div data-test="data-table">
-      <div data-test="columns">{{ columns.map(column => column.key).join(',') }}</div>
       <template v-for="column in columns" :key="column.key">
         <div v-if="column.key === 'usage'" data-test="usage-header">
           <slot :name="'header-' + column.key" :column="column" />
@@ -167,19 +166,15 @@ describe('admin AccountsView usage windows hint', () => {
     expect(hint.text()).toBe('admin.accounts.usageWindowsHint')
   })
 
-  it('shows account ID as a dedicated list column before account name', async () => {
+  it('renders the upstream billing trust warning next to the declared-rate column', async () => {
     const wrapper = mountView()
     await flushPromises()
 
-    const visibleColumns = wrapper.get('[data-test="columns"]').text().split(',')
-    expect(visibleColumns.slice(0, 3)).toEqual(['select', 'id', 'name'])
-  })
-
-  it('does not render duplicate table column keys', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-
-    const visibleColumns = wrapper.get('[data-test="columns"]').text().split(',')
-    expect(new Set(visibleColumns).size).toBe(visibleColumns.length)
+    const header = wrapper.find('[data-test="upstream-billing-header"]')
+    expect(header.exists()).toBe(true)
+    expect(header.text()).toContain('admin.accounts.columns.upstreamBillingRate')
+    expect(wrapper.findAll('[data-test="usage-windows-hint"]').some(node =>
+      node.text() === 'admin.accounts.upstreamBilling.trustWarning'
+    )).toBe(true)
   })
 })

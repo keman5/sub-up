@@ -48,9 +48,7 @@ export default {
       dataImportErrors: 'Error Details',
       dataImportSuccess: 'Import completed: accounts {account_created}, failed {account_failed}',
       dataImportCompletedWithErrors: 'Import completed with errors: account failed {account_failed}, proxy failed {proxy_failed}',
-      messages: {
-        accountCreated: 'Account created successfully'
-      },
+      messages: { accountCreated: 'Account created successfully' },
       syncFromCrsTitle: 'Sync Accounts from CRS',
       syncFromCrsDesc:
         'Sync accounts from claude-relay-service (CRS) into this system (CRS is called server-to-server).',
@@ -99,6 +97,42 @@ export default {
       apiKey: 'API Key',
       fromModel: 'Request model, e.g. gpt-5.4',
       toModel: 'Upstream model, e.g. gpt-5.4-compact',
+      saving: 'Saving...',
+      refreshing: 'Refreshing...',
+      noAccounts: 'No accounts',
+      noAccountsDescription: 'Add an AI platform account to start using the API gateway.',
+      accountCreatedSuccess: 'Account created successfully',
+      accountUpdatedSuccess: 'Account updated successfully',
+      accountDeletedSuccess: 'Account deleted successfully',
+      cookieRefreshedSuccess: 'Cookie refreshed successfully',
+      testSuccess: 'Account test passed',
+      failedToSave: 'Failed to save account',
+      deleteConfirmMessage: "Are you sure you want to delete account '{name}'?",
+      refreshCookie: 'Refresh Cookie',
+      testAccount: 'Test Account',
+      form: {
+        nameLabel: 'Account Name',
+        namePlaceholder: 'Enter account name',
+        platformLabel: 'Platform',
+        selectPlatform: 'Select platform',
+        typeLabel: 'Type',
+        selectType: 'Select type',
+        credentialsLabel: 'Credentials',
+        credentialsPlaceholder: 'Enter Cookie or API key',
+        priorityLabel: 'Priority',
+        priorityHint: 'Lower values have higher priority',
+        weightLabel: 'Weight',
+        weightHint: 'Weight value used for load balancing',
+        statusLabel: 'Status'
+      },
+      filters: {
+        platform: 'Platform',
+        allPlatforms: 'All Platforms',
+        type: 'Type',
+        allTypes: 'All Types',
+        status: 'Status',
+        allStatuses: 'All Statuses'
+      },
       // Schedulable toggle
       schedulable: 'Schedulable',
       schedulableHint: 'Enable to include this account in API request scheduling',
@@ -637,7 +671,11 @@ export default {
         hint: 'When enabled, account traffic (chat/media/probes) is forwarded to the specified address. OAuth authorization and token refresh are unaffected and stay on the official endpoints.',
         placeholder: 'https://relay.example.com/v1',
         required: 'An address is required when Custom Upstream URL is enabled',
-        invalid: 'Invalid upstream address (must be a full http(s):// URL)'
+        invalid: 'Invalid upstream address (must be a full http(s):// URL)',
+        presets: {
+          cli: 'Grok Build CLI',
+          official: 'Official API'
+        }
       },
       autoPauseOnExpired: 'Auto Pause On Expired',
       autoPauseOnExpiredDesc: 'When enabled, the account will auto pause scheduling after it expires',
@@ -873,8 +911,6 @@ export default {
           failedToValidateRT: 'Failed to validate refresh token',
           missingExchangeParams: 'Missing auth code, session ID, or state',
           missingRefreshToken: 'Missing refresh token',
-          mobileRefreshTokenAuth: 'Mobile RT Input',
-          accessTokenAuth: 'Access Token Input',
           errors: {
             OPENAI_OAUTH_PROXY_REQUIRED:
               'No proxy is configured and this server could not reach OpenAI directly, so the OpenAI OAuth request failed. Select a proxy that can access OpenAI and retry; if the authorization code has expired, regenerate the authorization URL.'
@@ -883,6 +919,8 @@ export default {
           refreshTokenAuth: 'Manual RT Input',
           refreshTokenDesc: 'Enter your existing OpenAI Refresh Token(s). Supports batch input (one per line). The system will automatically validate and create accounts.',
           refreshTokenPlaceholder: 'Paste your OpenAI Refresh Token...\nSupports multiple, one per line',
+          mobileRefreshTokenAuth: 'Manual Mobile RT Input',
+          accessTokenAuth: 'Manual AT Input',
           codexSessionAuth: 'Codex OAuth auth.json / AT Import',
           codexSessionDesc: 'Paste a Codex OAuth auth.json or an accessToken. Accounts use the step 1 settings.',
           codexSessionInputLabel: 'Codex OAuth auth.json or accessToken',
@@ -1271,42 +1309,6 @@ export default {
         usageTrend: '30-Day Cost & Request Trend',
         noData: 'No usage data available for this account'
       },
-      form: {
-        nameLabel: 'Account Name',
-        namePlaceholder: 'Enter account name',
-        platformLabel: 'Platform',
-        selectPlatform: 'Select platform',
-        typeLabel: 'Type',
-        selectType: 'Select type',
-        credentialsLabel: 'Credentials',
-        credentialsPlaceholder: 'Enter Cookie or API key',
-        priorityLabel: 'Priority',
-        priorityHint: 'Lower values have higher priority',
-        weightLabel: 'Weight',
-        weightHint: 'Weight value used for load balancing',
-        statusLabel: 'Status'
-      },
-      filters: {
-        platform: 'Platform',
-        allPlatforms: 'All Platforms',
-        type: 'Type',
-        allTypes: 'All Types',
-        status: 'Status',
-        allStatuses: 'All Statuses'
-      },
-      saving: 'Saving...',
-      refreshing: 'Refreshing...',
-      noAccounts: 'No accounts',
-      noAccountsDescription: 'Add an AI platform account to start using the API gateway.',
-      accountCreatedSuccess: 'Account created successfully',
-      accountUpdatedSuccess: 'Account updated successfully',
-      accountDeletedSuccess: 'Account deleted successfully',
-      cookieRefreshedSuccess: 'Cookie refreshed successfully',
-      testSuccess: 'Account test passed',
-      failedToSave: 'Failed to save account',
-      deleteConfirmMessage: "Are you sure you want to delete account '{name}'?",
-      refreshCookie: 'Refresh Cookie',
-      testAccount: 'Test Account',
       usageWindow: {
         statsTitle: '5-Hour Window Usage Statistics',
         statsTitleDaily: 'Daily Usage Statistics',
@@ -1330,10 +1332,10 @@ export default {
         grokLastStatus: 'Status {status}',
         grokLastProbe: 'Probe {time}',
         grokLastHeadersSeen: 'Headers {time}',
-        openaiCodexSparkShow: 'Spark usage',
-        openaiCodexSparkHide: 'Spark usage',
         passiveSampled: 'Passive',
-        activeQuery: 'Query'
+        activeQuery: 'Query',
+        openaiCodexSparkShow: 'Spark usage',
+        openaiCodexSparkHide: 'Spark usage'
       },
       openaiQuotaReset: {
         count: 'Credits',

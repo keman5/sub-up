@@ -633,7 +633,7 @@ type userGroupRateBatchReader interface {
 // NewAdminService creates a new AdminService
 func NewAdminService(
 	userRepo UserRepository,
-	groupRepo GroupRepository,
+	groupRepo AdminGroupRepository,
 	accountRepo AdminAccountRepository,
 	proxyRepo ProxyRepository,
 	apiKeyRepo APIKeyRepository,
@@ -651,18 +651,11 @@ func NewAdminService(
 	privacyClientFactory PrivacyClientFactory,
 	runtimeBlocker AccountRuntimeBlocker,
 	affiliateService *AffiliateService,
-	duplicateRepos ...GroupDuplicateRepository,
 ) AdminService {
-	var groupDuplicateRepo GroupDuplicateRepository
-	if len(duplicateRepos) > 0 {
-		groupDuplicateRepo = duplicateRepos[0]
-	} else if candidate, ok := groupRepo.(GroupDuplicateRepository); ok {
-		groupDuplicateRepo = candidate
-	}
 	return &adminServiceImpl{
 		userRepo:             userRepo,
 		groupRepo:            groupRepo,
-		groupDuplicateRepo:   groupDuplicateRepo,
+		groupDuplicateRepo:   groupRepo,
 		accountRepo:          accountRepo,
 		accountDuplicateRepo: accountRepo,
 		proxyRepo:            proxyRepo,

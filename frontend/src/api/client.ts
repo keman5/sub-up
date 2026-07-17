@@ -73,19 +73,15 @@ function isAuthEndpoint(url?: string): boolean {
 }
 
 function shouldSkipGlobalErrorToast(config?: InternalAxiosRequestConfig | null, status?: number): boolean {
-  if (config?.skipGlobalErrorToast === true) return true
-  if (status === 401) return true
-  return isAuthEndpoint(config?.url)
+  return config?.skipGlobalErrorToast === true || status === 401 || isAuthEndpoint(config?.url)
 }
 
 function dispatchGlobalErrorToast(message: string, config?: InternalAxiosRequestConfig | null, status?: number): void {
   if (shouldSkipGlobalErrorToast(config, status)) return
   try {
-    window.dispatchEvent(new CustomEvent<ApiClientErrorDetail>('sub2api-api-error', {
-      detail: { message }
-    }))
+    window.dispatchEvent(new CustomEvent<ApiClientErrorDetail>('sub2api-api-error', { detail: { message } }))
   } catch {
-    // ignore browser event failures
+    // Browser event dispatch is best effort.
   }
 }
 
@@ -133,7 +129,7 @@ apiClient.interceptors.request.use(
       }
       if (shouldMarkUserUIRequest(requestURL)) {
         config.headers[USER_UI_REQUEST_HEADER] = '1'
-    }
+      }
     }
 
     return config
@@ -289,14 +285,10 @@ apiClient.interceptors.response.use(
               localStorage.setItem('token_expires_at', String(Date.now() + expires_in * 1000))
               try {
                 window.dispatchEvent(new CustomEvent('auth-token-refreshed', {
-                  detail: {
-                    access_token,
-                    refresh_token: newRefreshToken,
-                    expires_in,
-                  },
+                  detail: { access_token, refresh_token: newRefreshToken, expires_in },
                 }))
               } catch {
-                // ignore event failures
+                // Browser event dispatch is best effort.
               }
 
               // Notify subscribers with new token

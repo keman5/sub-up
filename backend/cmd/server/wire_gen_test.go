@@ -48,7 +48,6 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 	idempotencyCleanupSvc := service.NewIdempotencyCleanupService(nil, cfg)
 	schedulerSnapshotSvc := service.NewSchedulerSnapshotService(nil, nil, nil, nil, cfg)
 	opsSystemLogSinkSvc := service.NewOpsSystemLogSink(nil)
-	openAIQuotaRefreshSvc := service.NewOpenAIQuotaRefreshService(nil, nil, time.Second)
 
 	cleanup := provideCleanup(
 		nil, // entClient
@@ -62,10 +61,8 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		schedulerSnapshotSvc,
 		tokenRefreshSvc,
 		accountExpirySvc,
-		openAIQuotaRefreshSvc,
 		proxyExpirySvc,
 		subscriptionExpirySvc,
-		nil, // accountPoolHealthNotify
 		&service.UsageCleanupService{},
 		idempotencyCleanupSvc,
 		&service.BatchImageCleanupService{},
@@ -88,6 +85,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // quotaFlusher
 		nil, // upstreamBillingProbe
 		nil, // auditLog
+		nil, // promptAudit
 	)
 
 	require.NotPanics(t, func() {

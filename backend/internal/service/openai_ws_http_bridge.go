@@ -201,6 +201,11 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			releaseUpstreamCtx()
 			return nil, fmt.Errorf("apply grok prompt cache identity: %w", err)
 		}
+		body, err = applyGrokFreeMessagesFunctionToolCacheRoute(body, grokIntentSourceBody, account, grokCacheIdentity)
+		if err != nil {
+			releaseUpstreamCtx()
+			return nil, fmt.Errorf("apply grok Free function-tool cache route: %w", err)
+		}
 		upstreamReq, err = buildGrokResponsesRequest(upstreamCtx, c, account, body, token, grokCacheIdentity, s.cfg)
 	} else {
 		upstreamReq, err = s.buildUpstreamRequestOpenAIPassthrough(upstreamCtx, c, account, body, token)
@@ -213,7 +218,10 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		upstreamReq.Header.Set(responsesLiteHeader, "true")
 	}
 
-	proxyURL := s.openAICodexHTTPProxyURL(account, upstreamReq)
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
 	if c != nil {
 		c.Set("openai_passthrough", true)
 		c.Set("openai_ws_http_bridge", true)
@@ -232,6 +240,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, openAIWSHTTPBridgeErrorBodyLimitBytes))
 		if account.Platform == PlatformGrok {
 			s.handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		} else if shouldCooldownOpenAITransientUpstreamError(resp.StatusCode, respBody) {
+			canonicalModel := canonicalOpenAIAccountSchedulingModel(account, originalModel)
+			s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, canonicalModel)
 		}
 		upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
 		if upstreamMsg == "" {

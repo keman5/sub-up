@@ -284,9 +284,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import { useAppStore } from '@/stores'
-import { useAppDialog } from '@/composables/useAppDialog'
 import type { BackupS3Config, BackupScheduleConfig, BackupRecord } from '@/api/admin/backup'
 import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
+import { useAppDialog } from '@/composables/useAppDialog'
 import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
 
 const { t } = useI18n()
@@ -294,6 +294,7 @@ const appStore = useAppStore()
 const appDialog = useAppDialog()
 const backupStepUp = useStepUp()
 
+// 敏感操作被 2FA 门控拦截时的统一提示。
 function reportStepUpBlocked(error: unknown): boolean {
   if (!isStepUpBlocked(error)) return false
   appStore.showError(
@@ -472,10 +473,14 @@ async function loadS3Config() {
 async function saveS3Config() {
   savingS3.value = true
   try {
-    await adminAPI.backup.updateS3Config(s3Form.value)
+    await backupStepUp.run(() => adminAPI.backup.updateS3Config(s3Form.value))
     appStore.showSuccess(t('admin.backup.s3.saved'))
     await loadS3Config()
   } catch (error) {
+    if (isStepUpCancelled(error)) {
+      savingS3.value = false
+      return
+    }
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
   } finally {
     savingS3.value = false
@@ -578,15 +583,9 @@ async function downloadBackup(id: string) {
 }
 
 async function restoreBackup(id: string) {
-  const confirmed = await appDialog.confirm({
-    message: t('admin.backup.actions.restoreConfirm'),
-    danger: true,
-  })
+  const confirmed = await appDialog.confirm({ message: t('admin.backup.actions.restoreConfirm'), danger: true })
   if (!confirmed) return
-  const password = await appDialog.askText({
-    message: t('admin.backup.actions.restorePasswordPrompt'),
-    inputType: 'password',
-  })
+  const password = await appDialog.askText({ message: t('admin.backup.actions.restorePasswordPrompt'), inputType: 'password' })
   if (!password) return
   restoringId.value = id
   try {
@@ -604,11 +603,7 @@ async function restoreBackup(id: string) {
 }
 
 async function removeBackup(id: string) {
-  const confirmed = await appDialog.confirm({
-    message: t('admin.backup.actions.deleteConfirm'),
-    danger: true,
-  })
-  if (!confirmed) return
+  if (!(await appDialog.confirm({ message: t('admin.backup.actions.deleteConfirm'), danger: true }))) return
   try {
     await adminAPI.backup.deleteBackup(id)
     appStore.showSuccess(t('admin.backup.actions.deleted'))

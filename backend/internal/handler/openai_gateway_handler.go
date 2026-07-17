@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -25,10 +26,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func billingErrorDetailsWithFallback(
-	err error,
-	retryAfter *int,
-) (status int, code, message string, fallbackRetryAfter int) {
+func billingErrorDetailsWithFallback(err error, retryAfter *int) (status int, code, message string, fallbackRetryAfter int) {
 	status, code, message, fallback := billingErrorDetails(err)
 	if retryAfter != nil && fallback > 0 {
 		*retryAfter = fallback
@@ -45,7 +43,7 @@ func (h *OpenAIGatewayHandler) enforceBillingEligibilityWithFallback(
 	streamStarted bool,
 	handle func(c *gin.Context, status int, code, message string, streamStarted bool),
 ) (*service.UserSubscription, *service.APIKey, bool) {
-	if c == nil || apiKey == nil {
+	if c == nil || apiKey == nil || handle == nil {
 		return subscription, apiKey, false
 	}
 	if h == nil || h.billingCacheService == nil {
@@ -61,7 +59,6 @@ func (h *OpenAIGatewayHandler) enforceBillingEligibilityWithFallback(
 	if checkErr == nil {
 		return subscription, apiKey, true
 	}
-
 	if reqLog != nil {
 		reqLog.Info("openai.billing_eligibility_check_failed", zap.Error(checkErr))
 	}
@@ -80,7 +77,6 @@ func (h *OpenAIGatewayHandler) enforceBillingEligibilityWithFallback(
 				maintenanceCopy := *fallback.Subscription
 				h.subscriptionService.DoWindowMaintenance(&maintenanceCopy)
 			}
-
 			if contextProvider != nil {
 				if refreshedSubscription, refreshedKey, ctxErr := contextProvider(); ctxErr == nil {
 					if refreshedSubscription != nil {
@@ -91,18 +87,15 @@ func (h *OpenAIGatewayHandler) enforceBillingEligibilityWithFallback(
 					}
 				}
 			}
-
 			if activeAPIKey != nil && activeSubscription != nil {
 				if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), activeAPIKey.User, activeAPIKey, activeAPIKey.Group, activeSubscription, platform); err == nil {
 					if reqLog != nil {
 						reqLog.Info("openai.billing_eligibility_check_fallback_applied", zap.Int64("group_id", fallback.Group.ID))
 					}
-					if c != nil {
-						c.Set(string(middleware2.ContextKeyAPIKey), activeAPIKey)
-						c.Set(string(middleware2.ContextKeySubscription), activeSubscription)
-						if activeAPIKey.Group != nil {
-							c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.Group, activeAPIKey.Group))
-						}
+					c.Set(string(middleware2.ContextKeyAPIKey), activeAPIKey)
+					c.Set(string(middleware2.ContextKeySubscription), activeSubscription)
+					if activeAPIKey.Group != nil {
+						c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.Group, activeAPIKey.Group))
 					}
 					return activeSubscription, activeAPIKey, true
 				}
@@ -114,9 +107,6 @@ func (h *OpenAIGatewayHandler) enforceBillingEligibilityWithFallback(
 	status, code, message, fallbackRetryAfter := billingErrorDetailsWithFallback(checkErr, &retryAfter)
 	if fallbackRetryAfter > 0 {
 		retryAfter = fallbackRetryAfter
-	}
-	if c == nil {
-		return subscription, apiKey, false
 	}
 	if retryAfter > 0 {
 		c.Header("Retry-After", strconv.Itoa(retryAfter))
@@ -134,6 +124,7 @@ type OpenAIGatewayHandler struct {
 	usageRecordWorkerPool    *service.UsageRecordWorkerPool
 	errorPassthroughService  *service.ErrorPassthroughService
 	contentModerationService *service.ContentModerationService
+	securityAuditCoordinator *securityaudit.Coordinator
 	opsService               *service.OpsService
 	concurrencyHelper        *ConcurrencyHelper
 	imageLimiter             *imageConcurrencyLimiter
@@ -233,7 +224,6 @@ func NewOpenAIGatewayHandler(
 	gatewayService *service.OpenAIGatewayService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
-	subscriptionService *service.SubscriptionService,
 	apiKeyService *service.APIKeyService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
 	errorPassthroughService *service.ErrorPassthroughService,
@@ -252,7 +242,6 @@ func NewOpenAIGatewayHandler(
 	return &OpenAIGatewayHandler{
 		gatewayService:           gatewayService,
 		billingCacheService:      billingCacheService,
-		subscriptionService:      subscriptionService,
 		apiKeyService:            apiKeyService,
 		usageRecordWorkerPool:    usageRecordWorkerPool,
 		errorPassthroughService:  errorPassthroughService,
@@ -284,8 +273,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 
-	subject, subjectFound := middleware2.GetAuthSubjectFromContext(c)
-	if !subjectFound {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
 		h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
 		return
 	}
@@ -342,10 +331,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
-	if policyModel, forced := service.ResolveGroupModelPolicyModel(apiKey.Group, reqModel); forced {
-		reqModel = policyModel
-		body = h.gatewayService.ReplaceModelInBody(body, policyModel)
-	}
 
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
@@ -378,12 +363,15 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	setOpsRequestContext(c, reqModel, reqStream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
-	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, body); decision != nil && decision.Blocked {
-		h.errorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
+	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, body); decision != nil && !decision.AllowNextStage {
+		h.openAISecurityAuditError(c, decision)
 		return
 	}
 
-	imageIntent := service.IsImageGenerationIntentForPlatform("/v1/responses", reqModel, body, openAICompatibleRequestPlatform(apiKey))
+	// 使用 IsExplicitImageGenerationIntent 排除被动 image_gen namespace 声明。
+	// Codex 在所有请求中被动声明 image_gen namespace，宽泛检测会导致禁了生图的
+	// 分组中所有 Codex 请求被 403（#4447），并误占生图并发槽位。
+	imageIntent := service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, body)
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
@@ -418,10 +406,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// Get subscription info (may be nil)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	requestPlatform := openAICompatibleRequestPlatform(apiKey)
-	requiredCapability := service.OpenAIEndpointCapabilityChatCompletions
-	if imageIntent && requestPlatform == service.PlatformOpenAI {
-		requiredCapability = service.OpenAIEndpointCapabilityResponses
-	}
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -438,13 +422,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// 2. Re-check billing eligibility after wait
 	billingOK := false
 	subscription, apiKey, billingOK = h.enforceBillingEligibilityWithFallback(
-		c,
-		apiKey,
-		subscription,
-		reqLog,
-		nil,
-		streamStarted,
-		h.handleStreamingAwareError,
+		c, apiKey, subscription, reqLog, nil, streamStarted, h.handleStreamingAwareError,
 	)
 	if !billingOK {
 		return
@@ -456,14 +434,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	requireCompact := isOpenAIRemoteCompactPath(c)
-	reqCtx := h.gatewayService.WithModelRouteRequestContext(
-		c.Request.Context(),
-		sessionHash,
-		reqModel,
-		service.IsImageGenerationIntent("/v1/responses", reqModel, body),
-		nil,
-		body,
-	)
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
@@ -472,6 +442,16 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
+
+	// 生图意图的 /v1/responses 请求必须调度到确实支持 Responses API 的账号，否则
+	// 会在 forward 阶段被静默降级为无法生图的 Chat Completions 直转（#4417）。
+	// 仅对 OpenAI 平台生效：Grok 生图走独立的 forwardGrokResponses 路径，不应被过滤。
+	// 使用 IsExplicitImageGenerationIntent 排除被动 image_gen namespace 声明，
+	// 避免 Codex 的被动工具目录使 CC-only 账号被误过滤（#4476）。
+	requiredCapability := service.OpenAIEndpointCapabilityChatCompletions
+	if service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, body) && requestPlatform == service.PlatformOpenAI {
+		requiredCapability = service.OpenAIEndpointCapabilityResponses
+	}
 
 	for {
 		// Streaming Forward intentionally detaches the upstream request so usage can
@@ -483,7 +463,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// Select account supporting the requested model
 		reqLog.Debug("openai.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			reqCtx,
+			c.Request.Context(),
 			apiKey.GroupID,
 			previousResponseID,
 			sessionHash,
@@ -609,7 +589,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						streamStarted = true
 					}
 					if failoverErr.ShouldReportAccountScheduleFailure() {
-						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
 					}
 					if !failoverErr.ShouldRetryNextAccount() {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
@@ -692,7 +672,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		if result != nil {
 			// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
 			if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
-				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders, result.UpstreamModel)
+				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders)
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
 		} else {
@@ -905,8 +885,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 
-	subject, subjectFound := middleware2.GetAuthSubjectFromContext(c)
-	if !subjectFound {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
 		h.anthropicErrorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
 		return
 	}
@@ -964,8 +944,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	setOpsRequestContext(c, reqModel, reqStream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
-	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolAnthropicMessages, reqModel, body); decision != nil && decision.Blocked {
-		h.anthropicErrorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
+	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolAnthropicMessages, reqModel, body); decision != nil && !decision.AllowNextStage {
+		h.anthropicSecurityAuditError(c, decision)
 		return
 	}
 
@@ -994,13 +974,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	billingOK := false
 	subscription, apiKey, billingOK = h.enforceBillingEligibilityWithFallback(
-		c,
-		apiKey,
-		subscription,
-		reqLog,
-		nil,
-		streamStarted,
-		h.anthropicStreamingAwareError,
+		c, apiKey, subscription, reqLog, nil, streamStarted, h.anthropicStreamingAwareError,
 	)
 	if !billingOK {
 		return
@@ -1012,14 +986,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	if h.rejectIfCyberSessionBlocked(c, apiKey, body, reqModel, cyberBlockFormatAnthropic) {
 		return
 	}
-	reqCtx := h.gatewayService.WithModelRouteRequestContext(
-		c.Request.Context(),
-		sessionHash,
-		reqModel,
-		service.IsImageGenerationIntent("/v1/responses", reqModel, body),
-		nil,
-		body,
-	)
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
@@ -1039,7 +1005,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		}
 		reqLog.Debug("openai_messages.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			reqCtx,
+			c.Request.Context(),
 			apiKey.GroupID,
 			"", // no previous_response_id
 			sessionHash,
@@ -1150,7 +1116,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						return
 					}
 					if failoverErr.ShouldReportAccountScheduleFailure() {
-						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(currentRoutingModel), false, nil)
 					}
 					if !failoverErr.ShouldRetryNextAccount() {
 						h.handleAnthropicFailoverExhausted(c, failoverErr, streamStarted)
@@ -1547,9 +1513,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	wsConn.SetReadLimit(service.ResolveOpenAIWSClientReadLimitBytes(h.cfg))
 
 	firstMessageTimeout := service.ResolveOpenAIWSClientFirstMessageTimeout(h.cfg)
-	readCtx, cancel := context.WithTimeout(ctx, firstMessageTimeout)
-	msgType, firstMessage, err := wsConn.Read(readCtx)
-	cancel()
+	msgType, firstMessage, err := service.ReadOpenAIWSClientMessage(
+		ctx,
+		wsConn,
+		firstMessageTimeout,
+		coderws.StatusPolicyViolation,
+		"missing first response.create message",
+	)
 	if err != nil {
 		if errors.Is(context.Cause(ctx), service.ErrOpenAIWSIngressLeaseLost) {
 			reqLog.Warn("openai.websocket_ingress_lease_lost_before_first_message", zap.Error(err))
@@ -1598,13 +1568,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	setOpsRequestContext(c, reqModel, true)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeWSV2))
 
-	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, firstMessage); decision != nil && decision.Blocked {
-		writeContentModerationWSError(ctx, wsConn, decision)
-		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, decision.Message)
+	if decision := h.checkSecurityAuditStage(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, firstMessage, "first_turn"); decision != nil && !decision.AllowNextStage {
+		writeSecurityAuditWSError(ctx, wsConn, decision)
+		closeOpenAIClientWS(wsConn, securityAuditWSCloseStatus(decision), securityAuditWSCloseReason(decision))
 		return
 	}
 
-	imageIntent := service.IsImageGenerationIntentForPlatform("/v1/responses", reqModel, firstMessage, openAICompatibleRequestPlatform(apiKey))
+	imageIntent := service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, firstMessage)
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, service.ImageGenerationPermissionMessage())
 		return
@@ -1642,7 +1612,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	// 必须尽早注册，确保任何 early return 都能释放已获取的并发槽位。
 	defer releaseTurnSlots()
 
-	userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlot(ctx, subject.UserID, subject.Concurrency)
+	userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlotForAPIKey(ctx, subject.UserID, subject.Concurrency, apiKey.ID)
 	if err != nil {
 		reqLog.Warn("openai.websocket_user_slot_acquire_failed", zap.Error(err))
 		closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "failed to acquire user concurrency slot")
@@ -1657,7 +1627,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		if currentUserRelease != nil {
 			return true
 		}
-		userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlot(ctx, subject.UserID, subject.Concurrency)
+		userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlotForAPIKey(ctx, subject.UserID, subject.Concurrency, apiKey.ID)
 		if err != nil {
 			reqLog.Warn("openai.websocket_user_slot_reacquire_failed", zap.Error(err))
 			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "failed to acquire user concurrency slot")
@@ -1673,18 +1643,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	requestPlatform := openAICompatibleRequestPlatform(apiKey)
-	requiredCapability := service.OpenAIEndpointCapabilityChatCompletions
-	if imageIntent && requestPlatform == service.PlatformOpenAI {
-		requiredCapability = service.OpenAIEndpointCapabilityResponses
+	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
+	if requestPlatform == service.PlatformGrok {
+		requiredTransport = service.OpenAIUpstreamTransportHTTPSSE
 	}
 	billingOK := false
 	subscription, apiKey, billingOK = h.enforceBillingEligibilityWithFallback(
-		c,
-		apiKey,
-		subscription,
-		reqLog,
-		nil,
-		false,
+		c, apiKey, subscription, reqLog, nil, false,
 		func(inner *gin.Context, _ int, _ string, message string, _ bool) {
 			if inner == nil {
 				closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
@@ -1695,10 +1660,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	)
 	if !billingOK {
 		return
-	}
-	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
-	if requestPlatform == service.PlatformGrok {
-		requiredTransport = service.OpenAIUpstreamTransportHTTPSSE
 	}
 
 	sessionHash := h.gatewayService.GenerateSessionHashWithFallback(
@@ -1716,7 +1677,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return false
 		}
 		if failoverErr.ShouldReportAccountScheduleFailure() {
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
 		}
 		releaseAccountSlot()
 		if !failoverErr.ShouldRetryNextAccount() {
@@ -1748,6 +1709,14 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return false
 		}
 		return ensureUserSlotHeld()
+	}
+
+	// 与 HTTP Responses 路径保持一致：生图意图请求要求账号支持 Responses API（#4417）。
+	// WSv2 传输本身已隐含 Responses 支持，此处为防御性对齐。
+	// 使用 IsExplicitImageGenerationIntent 排除被动 namespace 声明（#4476）。
+	requiredCapability := service.OpenAIEndpointCapabilityChatCompletions
+	if service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, firstMessage) && requestPlatform == service.PlatformOpenAI {
+		requiredCapability = service.OpenAIEndpointCapabilityResponses
 	}
 
 	for {
@@ -1863,9 +1832,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if model == "" {
 					model = reqModel
 				}
-				if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, model, payload); decision != nil && decision.Blocked {
-					writeContentModerationWSError(ctx, wsConn, decision)
-					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, decision.Message, nil)
+				if decision := h.checkSecurityAuditStage(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, model, payload, "subsequent_turn"); decision != nil && !decision.AllowNextStage {
+					writeSecurityAuditWSError(ctx, wsConn, decision)
+					return service.NewOpenAIWSClientCloseError(securityAuditWSCloseStatus(decision), securityAuditWSCloseReason(decision), nil)
 				}
 				return nil
 			},
@@ -1880,7 +1849,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				// 防御式清理：避免异常路径下旧槽位覆盖导致泄漏。
 				releaseTurnSlots()
 				// 非首轮 turn 需要重新抢占并发槽位，避免长连接空闲占槽。
-				userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlot(ctx, subject.UserID, subject.Concurrency)
+				userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlotForAPIKey(ctx, subject.UserID, subject.Concurrency, apiKey.ID)
 				if err != nil {
 					return service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to acquire user concurrency slot", err)
 				}
@@ -1934,7 +1903,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				}
 				// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
 				if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
-					h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(ctx, account.ID, result.ResponseHeaders, result.UpstreamModel)
+					h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(ctx, account.ID, result.ResponseHeaders)
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
 				inboundEndpoint := GetInboundEndpoint(c)
