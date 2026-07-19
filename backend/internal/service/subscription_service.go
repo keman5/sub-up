@@ -570,6 +570,30 @@ func (s *SubscriptionService) assignSubscriptionWithPolicy(ctx context.Context, 
 			replaced, replaceErr := s.replaceExistingSubscription(ctx, sub, input)
 			return replaced, true, replaceErr
 		}
+		// The administrator-facing assignment flow requires confirmation before
+		// replacing an existing subscription. Batch assignment deliberately
+		// bypasses confirmation and keeps upstream's idempotent expired renewal.
+		if !requireConfirmationForExisting {
+			now := time.Now()
+			if sub.Status == SubscriptionStatusExpired ||
+				(sub.Status != SubscriptionStatusSuspended && !sub.ExpiresAt.After(now)) {
+				validityDays := normalizeAssignValidityDays(input.ValidityDays)
+				newExpiresAt := now.AddDate(0, 0, validityDays)
+				if newExpiresAt.After(MaxExpiresAt) {
+					newExpiresAt = MaxExpiresAt
+				}
+				renewalNotes := input.Notes
+				if strings.TrimSpace(sub.Notes) == strings.TrimSpace(input.Notes) {
+					renewalNotes = ""
+				}
+				if err := s.updateExistingSubscriptionTerm(ctx, sub, renewalNotes, now, newExpiresAt, true); err != nil {
+					return nil, false, err
+				}
+				s.maybeInvalidateAssignmentCaches(input.UserID, input.GroupID, false)
+				renewed, getErr := s.userSubRepo.GetByID(ctx, sub.ID)
+				return renewed, true, getErr
+			}
+		}
 		if requireConfirmationForExisting {
 			return nil, false, ErrSubscriptionDuplicateConfirm.WithMetadata(map[string]string{
 				"conflict_reason": "subscription_exists",

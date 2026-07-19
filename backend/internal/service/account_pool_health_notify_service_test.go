@@ -113,6 +113,9 @@ func (r *accountPoolHealthRepoStub) ListSchedulableUngroupedByPlatform(context.C
 func (r *accountPoolHealthRepoStub) ListSchedulableUngroupedByPlatforms(context.Context, []string) ([]Account, error) {
 	return nil, nil
 }
+func (r *accountPoolHealthRepoStub) ListModelAvailabilityCandidates(context.Context, *int64, []string, bool) ([]Account, error) {
+	return nil, nil
+}
 func (r *accountPoolHealthRepoStub) SetRateLimited(context.Context, int64, time.Time) error {
 	return nil
 }
