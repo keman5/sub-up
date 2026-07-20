@@ -659,7 +659,6 @@ curl -k -sS -H 'Cache-Control: no-cache' 'https://ai.upit.top/?redeploy=20260601
 | 2026-06-08 | 账号管理页默认筛选为“全部状态”，运营首次进入时会混入停用、异常和不可调度账号，不利于优先处理正常可用账号。 | `frontend/src/views/admin/AccountsView.vue` 将账号列表初始 `status` 改为 `active`，让状态筛选默认选中“正常”；保留筛选下拉里的“全部状态”选项，运营仍可手动切回全量。`frontend/src/views/admin/__tests__/AccountsView.searchSuggest.spec.ts` 增加首次加载默认带 `status: active` 的回归测试。 | `pnpm --dir frontend exec vitest run src/views/admin/__tests__/AccountsView.searchSuggest.spec.ts`；`pnpm --dir frontend run typecheck`；`git diff --check`。 | 同步官方后搜索 `AccountsView.vue` 的 `initialParams.status` 和 `AccountsView.searchSuggest.spec.ts`。如果官方重构账号筛选或表格加载逻辑，继续保持“首次进入默认只看正常账号，但允许手动切回全部状态”的运营口径。 |
 | 2026-06-08 | 账号管理用量窗口里 Spark 使用量仍和主套餐显示相同；cliproxyapi 可单独查询 Spark，说明本地把两种套餐快照混到同一组字段。 | 将 OpenAI Codex quota 快照按模型族分开：请求/探测模型为 `gpt-5.3-codex-spark` 时写 `codex_5h_*` / `codex_7d_*` 与 `codex_usage_updated_at`，非 Spark Codex 主套餐模型写 `codex_main_5h_*` / `codex_main_7d_*` 与 `codex_main_usage_updated_at`。`AccountUsageService` 主套餐区域只优先从 `codex_main_*` 构造 `five_hour/seven_day`，不得把 Spark 的 `codex_*` 历史快照提升为主套餐；Spark 展开区读取明确 Spark 字段，并避免在缺少 Spark 更新时间时被 raw primary/secondary 兜底污染。 | `go test ./internal/service -run 'TestBuildCodexUsageExtraUpdates|TestAccountUsageService_GetOpenAIUsage|TestExtractOpenAICodexProbeUpdates|TestHandle429_OpenAI|TestOpenAIModelRouter|TestBuildOpenAICodexProbePayload|TestCodexSnapshotBaseTime|TestCodexResetAtRFC3339' -count=1`；`go test ./internal/service -count=1`；`pnpm --dir frontend exec vitest run src/components/account/__tests__/AccountUsageCell.spec.ts src/views/admin/__tests__/AccountsView.usageWindowsHint.spec.ts`；`pnpm --dir frontend run typecheck`；`git diff --check`。 | 同步官方后搜索 `codex_main_5h`、`codex_main_7d`、`buildCodexUsageExtraUpdatesForFamily`、`openAICodexUsageFamilyForModel`、`openAIMainFiveHour` 和 `openAICodexSparkWindows`。如果官方提供独立 Spark/主套餐管理接口，可收敛主动探测实现，但必须保留“模型族决定写入字段、Spark 不被主套餐或 raw 兜底覆盖、主套餐不吃 Spark 快照”的边界。 |
 | 2026-06-09 | OpenAI 路由内二次账单检查仍有“额度已超限后直接拒绝”问题：`/v1/chat/completions`、`/v1/images/*`、`/v1/embeddings` 分支未复用中间件接力结果，导致同一请求仍被 2 次额度拦截。 | 在 `backend/internal/handler/openai_gateway_handler.go` 增加统一兜底 `enforceBillingEligibilityWithFallback` 与 `billingErrorDetailsWithFallback`，并在 `NewOpenAIGatewayHandler` 注入同一 `subscriptionService`（`backend/cmd/server/wire_gen.go`）；OpenAIGateway `ChatCompletions`、`Embeddings`、`Images` 改为统一调用该兜底路径，在二次检查失败且命中限额错误时触发 `ResolveQuotaFallback` 后重试。 | `go test ./internal/handler -run TestEnforceBillingEligibilityWithFallback -count=1`；`go test ./internal/handler -count=1`；`go test ./... -run TestNonExistent -count=1`；`ssh 51tokens 'grep ^IMAGE_TAG= /opt/sub2api-ap2-deploy/.env'`；`ssh 51tokens 'docker inspect -f "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" sub2api-ap2'`；`ssh 51tokens 'docker inspect -f "{{.Config.Image}}" sub2api-ap2'`；`ssh 51tokens 'curl -fsS http://127.0.0.1:8083/health'`；`git diff --check`。| 已在 ap2 执行：`IMAGE_TAG=sub2api:subapi-aebdd6f1-a2-redeploy-20260609075235`；`docker inspect -f` 健康检查返回 `healthy`；`docker inspect -f '{{.Config.Image}}'` 返回同镜像；`curl` 返回 `{"status":"ok"}`；`docker compose` 为 `sub2api-ap2` 使用该镜像。 | 同步官方后核对 `OpenAIGatewayHandler` 在 `ChatCompletions`/`Embeddings`/`Images` 二次检查路径是否仍有接力重试逻辑；并复核 `subscriptionService` 注入链路（`wire_gen.go`）、`ResolveQuotaFallback` 与 `GetGroup`/`GetQuotaFallback` 上游行为。新增测试文件 `backend/internal/handler/openai_chat_completions_billing_fallback_test.go` 建议保留作为回归。 |
-| 2026-07-15 | 登录后的全局右下角“故障排查助手”悬浮入口占用界面空间，产品不再提供该前台诊断交互。 | 从 `App.vue` 移除全局挂载，删除只供该入口使用的 `TroubleshootingAssistant`、前端 troubleshooting API 模块及其组件测试；受保护的后端诊断接口暂时保留，避免破坏已有 API 调用方。 | `pnpm --dir frontend run typecheck`；`pnpm --dir frontend run build`；确认登录后页面不存在“故障排查”悬浮按钮，且全局 Toast、公告和合规弹窗仍正常显示。 | 同步官方后搜索 `TroubleshootingAssistant`、`api/troubleshooting` 和 `troubleshootingAPI`。不要恢复全局右下角悬浮入口；若后续决定同时下线服务端接口，再独立移除路由、handler、service、通知事件和后端测试。 |
 
 ## 2026-06-06 未 push 改动梳理
 
@@ -1246,6 +1245,28 @@ TODO: 填写验证命令
 - `frontend/src/views/user/BatchImageGuideView.vue`
 - `frontend/src/views/user/CustomPageView.vue`
 - `frontend/src/views/user/SubscriptionsView.vue`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
+### 2026-07-21: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `frontend/src/components/account/CreateAccountModal.vue`
+- `frontend/src/components/account/EditAccountModal.vue`
 
 **验证：**
 

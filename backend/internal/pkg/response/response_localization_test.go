@@ -29,32 +29,11 @@ func TestErrorFromLocalizesStructuredErrorsByAcceptLanguage(t *testing.T) {
 			wantReason:     "SUBSCRIPTION_DUPLICATE_CONFIRMATION_REQUIRED",
 		},
 		{
-			name:           "english_troubleshooting_only",
-			acceptLanguage: "en-US,en;q=0.9",
-			err:            infraerrors.BadRequest("TROUBLESHOOTING_ONLY", "这里只能排查请求失败原因，请粘贴报错信息、状态码、接口 URL 或 request id"),
-			wantMessage:    "This assistant can only diagnose request failures. Paste an error message, status code, API URL, or request id.",
-			wantReason:     "TROUBLESHOOTING_ONLY",
-		},
-		{
 			name:           "unknown_reason_keeps_original_message",
 			acceptLanguage: "zh-CN",
 			err:            infraerrors.BadRequest("SOME_NEW_REASON", "original message"),
 			wantMessage:    "original message",
 			wantReason:     "SOME_NEW_REASON",
-		},
-		{
-			name:           "english_troubleshooting_notify_empty",
-			acceptLanguage: "en-US,en;q=0.9",
-			err:            infraerrors.BadRequest("TROUBLESHOOTING_NOTIFY_EMPTY", "缺少需要通知管理员的排查内容"),
-			wantMessage:    "Troubleshooting details are required before notifying an administrator.",
-			wantReason:     "TROUBLESHOOTING_NOTIFY_EMPTY",
-		},
-		{
-			name:           "chinese_troubleshooting_notify_emails_empty",
-			acceptLanguage: "zh-CN",
-			err:            infraerrors.ServiceUnavailable("TROUBLESHOOTING_NOTIFY_EMAILS_EMPTY", "管理员通知邮箱未配置"),
-			wantMessage:    "管理员通知邮箱未配置",
-			wantReason:     "TROUBLESHOOTING_NOTIFY_EMAILS_EMPTY",
 		},
 		{
 			name:           "chinese_api_key_expired",

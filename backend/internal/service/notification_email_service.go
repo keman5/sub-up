@@ -36,7 +36,6 @@ const (
 	NotificationEmailEventCyberPolicyNotice           = "content_moderation.cyber_policy_notice"
 	NotificationEmailEventOpsAlert                    = "ops.alert"
 	NotificationEmailEventOpsScheduledReport          = "ops.scheduled_report"
-	NotificationEmailEventTroubleshootingAdminNotify  = "troubleshooting.admin_notify"
 
 	notificationEmailTemplateKeyPrefix       = "notification_email_template:"
 	notificationEmailPreferenceKeyPrefix     = "notification_email_preference:"
@@ -914,7 +913,7 @@ func isSafeNotificationEmailURL(raw string) bool {
 
 func notificationEmailSampleVariables(locale string) map[string]string {
 	if normalizeNotificationLocale(locale) == notificationEmailLocaleChinese {
-		return map[string]string{
+		variables := map[string]string{
 			"site_name":             defaultSiteName,
 			"recipient_name":        "张三",
 			"recipient_email":       "user@example.com",
@@ -963,17 +962,11 @@ func notificationEmailSampleVariables(locale string) map[string]string {
 			"report_start_time":     "2026-05-19 12:00",
 			"report_end_time":       "2026-05-20 12:00",
 			"report_html":           "<h2>日报</h2><p>请求量：1024</p>",
-			"user_id":               "42",
-			"message":               "unexpected status 503 Service Unavailable",
-			"diagnosis":             "已确认当前账号池无可用账号，需要管理员处理。",
-			"request_id":            "req-123",
-			"status_code":           "503",
-			"reported_at":           "2026-07-05 12:00:00",
 		}
 		addNotificationEmailOpsSummarySampleVariables(variables)
 		return variables
 	}
-	return map[string]string{
+	variables := map[string]string{
 		"site_name":             defaultSiteName,
 		"recipient_name":        "Alex",
 		"recipient_email":       "user@example.com",
@@ -1022,12 +1015,6 @@ func notificationEmailSampleVariables(locale string) map[string]string {
 		"report_start_time":     "2026-05-19 12:00",
 		"report_end_time":       "2026-05-20 12:00",
 		"report_html":           "<h2>Daily summary</h2><p>Requests: 1024</p>",
-		"user_id":               "42",
-		"message":               "unexpected status 503 Service Unavailable",
-		"diagnosis":             "The account pool is currently unavailable and requires administrator review.",
-		"request_id":            "req-123",
-		"status_code":           "503",
-		"reported_at":           "2026-07-05 12:00:00",
 	}
 	addNotificationEmailOpsSummarySampleVariables(variables)
 	return variables
@@ -1076,7 +1063,6 @@ var notificationEmailEventOrder = []string{
 	NotificationEmailEventCyberPolicyNotice,
 	NotificationEmailEventOpsAlert,
 	NotificationEmailEventOpsScheduledReport,
-	NotificationEmailEventTroubleshootingAdminNotify,
 }
 
 var notificationEmailEventDefinitions = map[string]NotificationEmailEventInfo{
@@ -1221,15 +1207,6 @@ var notificationEmailEventDefinitions = map[string]NotificationEmailEventInfo{
 			),
 			append(append([]string{}, notificationEmailOpsSummaryPlaceholders...), "report_detail_display", "report_html")...,
 		),
-	},
-	NotificationEmailEventTroubleshootingAdminNotify: {
-		Event:       NotificationEmailEventTroubleshootingAdminNotify,
-		Label:       "Troubleshooting admin notification",
-		Description: "Sent to configured admin notification emails when a user asks administrators to review a troubleshooting result.",
-		Category:    "admin",
-		Optional:    false,
-		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...),
-			"user_id", "message", "diagnosis", "request_id", "status_code", "reported_at"),
 	},
 }
 
@@ -1567,38 +1544,6 @@ var notificationEmailOfficialTemplates = map[string]map[string]notificationEmail
 		notificationEmailLocaleChinese: {
 			Subject: "[运维报表] {{report_name}}",
 			HTML:    notificationEmailOpsScheduledReportTemplate(notificationEmailLocaleChinese),
-		},
-	},
-	NotificationEmailEventTroubleshootingAdminNotify: {
-		notificationEmailDefaultLocale: {
-			Subject: "[{{site_name}}] Troubleshooting request from user {{user_id}}",
-			HTML: notificationEmailCard("#2563eb", "Troubleshooting request", `
-<p>A user has asked administrators to review a troubleshooting result.</p>
-<table style="width:100%;border-collapse:collapse;">
-  <tr><td>User ID</td><td>{{user_id}}</td></tr>
-  <tr><td>Reported at</td><td>{{reported_at}}</td></tr>
-  <tr><td>Status code</td><td>{{status_code}}</td></tr>
-  <tr><td>Request ID</td><td>{{request_id}}</td></tr>
-</table>
-<p><strong>Original error</strong></p>
-<p>{{message}}</p>
-<p><strong>Diagnosis</strong></p>
-<p>{{diagnosis}}</p>`),
-		},
-		notificationEmailLocaleChinese: {
-			Subject: "[{{site_name}}] 用户 {{user_id}} 请求管理员排查",
-			HTML: notificationEmailCard("#2563eb", "故障排查请求", `
-<p>用户已在故障排查助手中请求管理员协助复核。</p>
-<table style="width:100%;border-collapse:collapse;">
-  <tr><td>用户 ID</td><td>{{user_id}}</td></tr>
-  <tr><td>通知时间</td><td>{{reported_at}}</td></tr>
-  <tr><td>状态码</td><td>{{status_code}}</td></tr>
-  <tr><td>Request ID</td><td>{{request_id}}</td></tr>
-</table>
-<p><strong>原始报错</strong></p>
-<p>{{message}}</p>
-<p><strong>排查结论</strong></p>
-<p>{{diagnosis}}</p>`),
 		},
 	},
 }

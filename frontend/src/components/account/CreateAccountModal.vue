@@ -3140,6 +3140,7 @@
           :groups="groups"
           :platform="form.platform"
           :mixed-scheduling="mixedScheduling"
+          :show-select-all="true"
           data-tour="account-form-groups"
         />
       </div>
