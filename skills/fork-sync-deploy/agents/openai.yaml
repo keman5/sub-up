@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fork 同步与部署"
+  short_description: "同步主分支并保护 fork 改动，双重复查后分级部署"
+  default_prompt: "使用 $fork-sync-deploy 将 origin/main 合并到 subapi，复查 fork 需求后再部署线上。"
