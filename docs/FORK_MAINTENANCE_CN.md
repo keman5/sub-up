@@ -1278,6 +1278,44 @@ TODO: 填写验证命令
 
 - TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
 
+### 2026-07-23: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `backend/ent/group.go`
+- `backend/ent/group/group.go`
+- `backend/ent/group/where.go`
+- `backend/ent/group_create.go`
+- `backend/ent/group_update.go`
+- `backend/ent/migrate/schema.go`
+- `backend/ent/mutation.go`
+- `backend/ent/runtime/runtime.go`
+- `backend/ent/schema/group.go`
+- `backend/ent/schema/user_subscription.go`
+- `backend/ent/usersubscription.go`
+- `backend/ent/usersubscription/usersubscription.go`
+- `backend/ent/usersubscription/where.go`
+- `backend/ent/usersubscription_create.go`
+- `backend/ent/usersubscription_update.go`
+- `backend/internal/handler/admin/account_handler.go`
+- `backend/internal/server/http.go`
+- `backend/internal/service/openai_gateway_grok_cache.go`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：
