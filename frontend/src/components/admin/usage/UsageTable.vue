@@ -41,6 +41,9 @@
               {{ t('admin.usage.userDeletedBadge') }}
             </span>
             <span class="ml-1 text-gray-500 dark:text-gray-400">#{{ row.user_id }}</span>
+            <div v-if="row.user?.notes?.trim()" class="mt-0.5 truncate text-xs text-gray-400 dark:text-gray-500" :title="row.user.notes">
+              {{ row.user.notes.trim() }}
+            </div>
           </div>
         </template>
 

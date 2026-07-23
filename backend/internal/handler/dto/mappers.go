@@ -732,6 +732,7 @@ func UsageLogFromServiceAdminWithViewer(l *service.UsageLog, mode service.UsageV
 	usageLog.UpstreamEndpoint = l.UpstreamEndpoint
 	out := &AdminUsageLog{
 		UsageLog:          usageLog,
+		User:              UserFromServiceAdmin(l.User),
 		UpstreamModel:     l.UpstreamModel,
 		ChannelID:         l.ChannelID,
 		ModelMappingChain: l.ModelMappingChain,

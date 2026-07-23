@@ -1632,7 +1632,11 @@ export interface UsageLogAccountSummary {
   name: string
 }
 
-export interface AdminUsageLog extends UsageLog {
+export interface AdminUsageLog extends Omit<UsageLog, 'user'> {
+  // The admin usage endpoint includes internal notes for the record owner.
+  // UsageTable is also reused by the user-facing history page, where notes are absent.
+  user?: User & { notes?: string | null }
+
   upstream_model?: string | null
   model_mapping_chain?: string | null
 

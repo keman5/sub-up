@@ -27,8 +27,6 @@ function initIOSViewportZoomFix() {
   viewport.setAttribute('content', `${content}, maximum-scale=1.0`)
 }
 
-}
-
 async function bootstrap() {
   // Apply theme class globally before app mount to keep all routes consistent.
   initThemeClass()

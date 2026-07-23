@@ -49,9 +49,18 @@ validate_refs() {
   git -C "$ROOT" rev-parse --verify --quiet "$REMOTE/$TARGET_BRANCH" >/dev/null || die "缺少目标引用：$REMOTE/$TARGET_BRANCH"
 }
 
-print_checklist() {
-  printf '\n[fork-sync-deploy] Fork 专属清单标题（必须逐项复查 docs/FORK_MAINTENANCE_CN.md）：\n'
+collect_documented_items() {
+  printf '%s\n' '[恢复清单]'
   sed -n '/^## Non-upstream feature recovery checklist$/,/^## Local patch records$/p; /^## 非上游功能恢复清单$/,/^## 本地补丁记录$/p' "$ROOT/docs/FORK_MAINTENANCE_CN.md" | rg '^### [0-9]+\.' || true
+  printf '%s\n' '[主文档本地补丁]'
+  rg -n '^### 20[0-9]{2}-[0-9]{2}|^\| 20[0-9]{2}-[0-9]{2}' "$ROOT/docs/FORK_MAINTENANCE_CN.md" || true
+  printf '%s\n' '[月度维护记录]'
+  rg -n '^### 20[0-9]{2}-[0-9]{2}|^\| 20[0-9]{2}-[0-9]{2}' "$ROOT"/docs/fork-maintenance/*.md || true
+}
+
+print_checklist() {
+  printf '\n[fork-sync-deploy] 必须逐项复查的 fork 清单和维护记录：\n'
+  collect_documented_items
 }
 
 write_review_evidence() {
@@ -64,6 +73,7 @@ write_review_evidence() {
   mkdir -p "$evidence_dir"
   git -C "$ROOT" diff --name-status "$source_ref...$target_ref" > "$evidence_dir/fork-delta-name-status.txt"
   "$ROOT/tools/fork-maintenance/fork-maintenance.sh" inventory --base "$source_ref" > "$evidence_dir/fork-inventory.txt"
+  collect_documented_items > "$evidence_dir/documented-fork-items.txt"
   printf '[fork-sync-deploy] Fork 文件数：%s；证据目录：%s\n' \
     "$(wc -l < "$evidence_dir/fork-delta-name-status.txt" | tr -d ' ')" "$evidence_dir"
 }

@@ -91,7 +91,7 @@ upload_file_via_ssh() {
   local remote_path="$2"
   local attempt status
   for attempt in 1 2 3 4 5; do
-    ssh -o BatchMode=yes -o ConnectTimeout=10 "$HOST" "cat > '$remote_path'" < "$local_path" && return 0
+    ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o IPQoS=none "$HOST" "cat > '$remote_path'" < "$local_path" && return 0
     status=$?
     printf '[local-gzip-deploy] retry %s/5 after exit %s: upload %s\n' "$attempt" "$status" "$(basename "$local_path")" >&2
     sleep $((attempt * 2))
