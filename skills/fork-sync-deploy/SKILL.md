@@ -13,8 +13,8 @@ description: 将最新 origin/main 同步并合并到本仓库的 subapi fork，
 
 1. 确认工作区干净，且没有进行中的 merge、rebase 或 cherry-pick。
 2. 拉取 `origin/main` 和 `origin/subapi`，保存 fork 差异快照，快进本地 `subapi`，再将 `origin/main` 合并到其中。
-3. 用 `docs/FORK_MAINTENANCE_CN.md` 作为 fork 专属行为的唯一依据，逐一解决冲突。不得盲目选择 `ours` 或 `theirs`。
-4. 完成第一次复查：检查 `## 非上游功能恢复清单` 的每个条目、其涉及文件、恢复要点和验证步骤。检查合并差异，排除意外删除 fork 文件或被不等价的上游实现覆盖。
+3. 以 `docs/FORK_MAINTENANCE_CN.md` 为主索引，并连同 `docs/fork-maintenance/*.md` 的月度明细作为 fork 专属行为依据，逐一解决冲突。不得盲目选择 `ours` 或 `theirs`。
+4. 完成第一次复查：检查主文档 `## 非上游功能恢复清单` 的每个条目，以及月度明细中尚未被后续记录明确废止的每项改动，核对涉及文件、恢复要点和验证步骤。检查合并差异，排除意外删除 fork 文件或被不等价的上游实现覆盖。
 5. 运行完整自动验证，再独立进行第二次复查。重新打开清单并比较最终的 `origin/main...HEAD` 差异，不能只看冲突块。
 6. 阅读 `docs/VPS_DEPLOY_NOTES.md`、`deploy/README.md` 和 `deploy/local-gzip-binary-deploy.sh` 的部署方案。执行恢复 dry-run，依次部署测试、a1 和主环境，恢复已记录的非 Git 状态，并验证公开健康检查端点。
 
@@ -41,7 +41,7 @@ skills/fork-sync-deploy/scripts/sync-main-into-subapi.sh audit --review first
 
 ## 两次独立复查
 
-每次复查都要完整阅读 `docs/FORK_MAINTENANCE_CN.md` 的清单部分。对每个编号条目，检查列出的文件并验证声明的行为。复查证据保存在已忽略的 `tmp/fork-maintenance/reviews/`；应查看其中保存的最终 `fork-delta-name-status.txt`，不能只依赖终端输出。在任务回复中记录简明结果：条目编号、状态、证据及考虑过的上游等价实现。现有辅助脚本仅为护栏，不能替代逐项人工复查。
+每次复查都要完整阅读 `docs/FORK_MAINTENANCE_CN.md` 的清单部分和 `docs/fork-maintenance/*.md` 的月度明细。对每个编号条目及每项尚未废止的月度改动，检查列出的文件并验证声明的行为。复查证据保存在已忽略的 `tmp/fork-maintenance/reviews/`；应查看其中保存的最终 `fork-delta-name-status.txt`，不能只依赖终端输出。在任务回复中记录简明结果：条目编号、状态、证据及考虑过的上游等价实现。现有辅助脚本仅为护栏，不能替代逐项人工复查。
 
 ```bash
 # 第一次复查：解决冲突后、完整测试前。

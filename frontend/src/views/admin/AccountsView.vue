@@ -311,6 +311,7 @@
               :today-stats="todayStatsByAccountId[String(row.id)] ?? null"
               :today-stats-loading="todayStatsLoading"
               :manual-refresh-token="usageManualRefreshToken"
+              @runtime-state-updated="handleAccountRuntimeStateUpdated"
             />
           </template>
           <template #cell-proxy="{ row }">
@@ -1199,6 +1200,13 @@ const refreshAccountsIncrementally = async () => {
   } finally {
     autoRefreshFetching.value = false
   }
+}
+
+// A successful upstream quota query can change the persisted runtime state.
+// Reload the row so status and schedulability do not remain stale beside fresh usage.
+const handleAccountRuntimeStateUpdated = async () => {
+  resetAutoRefreshCache()
+  await refreshAccountsIncrementally()
 }
 
 const handleManualRefresh = async () => {

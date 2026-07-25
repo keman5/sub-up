@@ -30,6 +30,8 @@ VERIFY_SEARCHES = (
     ("favicon helper", "applySiteIcons|resolveIconMimeType", "frontend/src"),
     ("static logo icon", 'rel="icon".*/logo\\.svg|/logo\\.svg.*rel="icon"', "frontend/index.html"),
     ("fork record", "2026-05-31 线上 OAuth|favicon-20260531210858|bg-20260531", "docs/FORK_MAINTENANCE_CN.md"),
+    ("account runtime-state refresh binding", '@runtime-state-updated="handleAccountRuntimeStateUpdated"', "frontend/src/views/admin/AccountsView.vue"),
+    ("admin usage user notes mapping", "UserFromServiceAdmin\\(l\\.User\\)", "backend/internal/handler/dto/mappers.go"),
 )
 
 LOCAL_PATCH_RECORD_HEADING = "## 本地补丁记录"
@@ -355,6 +357,9 @@ def cmd_verify_after_upstream(args: argparse.Namespace) -> int:
         test_cmds.append(["pnpm", "--dir", "frontend", "exec", "vitest", "run", "src/__tests__/app-favicon.spec.ts"])
     else:
         print("[skip] favicon test: frontend/src/__tests__/app-favicon.spec.ts not found")
+    native_dialog_spec = ROOT / "frontend" / "src" / "components" / "common" / "__tests__" / "nativeDialogUsage.spec.ts"
+    if native_dialog_spec.exists():
+        test_cmds.append(["pnpm", "--dir", "frontend", "exec", "vitest", "run", "src/components/common/__tests__/nativeDialogUsage.spec.ts"])
     if not args.skip_build:
         test_cmds.append(["pnpm", "--dir", "frontend", "run", "build"])
     for cmd in test_cmds:

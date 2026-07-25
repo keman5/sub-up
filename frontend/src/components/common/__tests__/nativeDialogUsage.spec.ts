@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 const srcRoot = resolve(__dirname, '../../..')
 const allowedExtensions = new Set(['.ts', '.vue'])
 const ignoredDirs = new Set(['__tests__'])
+const ignoredRelativeDirs = new Set(['i18n/locales'])
 
 function extensionOf(path: string) {
   const index = path.lastIndexOf('.')
@@ -17,6 +18,7 @@ function collectSourceFiles(dir: string): string[] {
   for (const entry of readdirSync(dir)) {
     if (ignoredDirs.has(entry)) continue
     const path = join(dir, entry)
+    if (ignoredRelativeDirs.has(relative(srcRoot, path))) continue
     const stat = statSync(path)
     if (stat.isDirectory()) {
       out.push(...collectSourceFiles(path))

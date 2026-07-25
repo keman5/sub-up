@@ -281,7 +281,6 @@ gzip -c /tmp/sub2api-build-output/sub2api | ssh 51tokens '
 - `sub2api-postgres`：唯一 PostgreSQL 容器。
 - `sub2api-redis`：唯一 Redis 容器。
 - `sub2api-deploy_sub2api-network`：共享 Docker network；`ap1` / `test` compose 通过 `external: true` 接入。
-- primary / `ap1` / `test` 均不启用 Headroom，不设置 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL` / `HEADROOM_STATS_*`。
 
 已废弃并移除的容器：
 
@@ -293,30 +292,6 @@ gzip -c /tmp/sub2api-build-output/sub2api | ssh 51tokens '
 - `pdc-agent-sub2api`
 
 > 注意：旧数据目录、卷和迁移备份不要立即删除。2026-06-11 迁移备份位于 `/root/sub2api-migration-backup-20260611-200522`，包含 compose / `.env` 备份和 PostgreSQL dump。
-
-2026-07-07 线上补清 Headroom 残留：
-
-- `/opt/sub2api-deploy/docker-compose.yml` 移除 `headroom-main` 服务块，并移除 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_*` / `HEADROOM_STATS_*` 环境变量。
-- `/opt/sub2api-ap1-deploy/docker-compose.yml` 移除 `headroom-a1` 服务块，并移除 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_*` / `HEADROOM_STATS_*` 环境变量。
-- `/opt/sub2api-deploy/.env` 与 `/opt/sub2api-ap1-deploy/.env` 同步删除上述变量。
-- 重建 `sub2api`、`sub2api-ap1` 后删除旧 `headroom-main`、`headroom-a1` 容器；`sub2api-test` 不变。
-- 远端备份：`docker-compose.yml.bak-headroom-20260707101228`、`.env.bak-headroom-20260707101228`。
-
-当前验证口径：
-
-```bash
-ssh 51tokens '
-  docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | egrep "NAMES|headroom|sub2api" || true
-  for d in /opt/sub2api-deploy /opt/sub2api-ap1-deploy /opt/sub2api-test-deploy; do
-    grep -nE "HEADROOM|GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES" "$d/.env" "$d/docker-compose.yml" 2>/dev/null || true
-  done
-  for c in sub2api sub2api-ap1 sub2api-test; do
-    docker exec "$c" sh -lc "env | grep -E \"^(GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES|HEADROOM|OPENAI_HEADROOM)=\" || true"
-  done
-'
-```
-
-期望结果：没有 `headroom-*` 容器；active compose / `.env` / app 容器环境里均无 Headroom responses override 和 stats 配置。
 
 `ap1` / `test` compose 关键要求：
 
@@ -462,41 +437,7 @@ ssh 51tokens '
 
 后续重部署或重建 compose 时，必须保留上述分档。除非升级 VPS 或明确评估并发压力，不要把三套环境恢复成 `DATABASE_MAX_OPEN_CONNS=50`、`DATABASE_MAX_IDLE_CONNS=10`、`REDIS_POOL_SIZE=512`、`REDIS_MIN_IDLE_CONNS=10`。
 
-#### 3.4.2 2026-07-07 Headroom 彻底移除
-
-生产环境不再保留 Headroom sidecar、responses override、统计 API 或后台开关。后续部署、回滚旧 compose、同步官方代码时，只允许保留直连 ChatGPT Codex 的默认路径，不得恢复 Headroom 容器或相关 env。
-
-必须保持不存在：
-
-```text
-headroom-main
-headroom-a1
-GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_URL
-GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_BODY_BYTES
-GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_BYPASS_TTL_SECONDS
-HEADROOM_STATS_ENABLED
-HEADROOM_STATS_URL
-HEADROOM_STATS_TIMEOUT_SECONDS
-openai_headroom_enabled
-```
-
-验证命令：
-
-```bash
-ssh 51tokens '
-  docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | egrep "NAMES|headroom|sub2api" || true
-  for d in /opt/sub2api-deploy /opt/sub2api-ap1-deploy /opt/sub2api-test-deploy; do
-    grep -nE "HEADROOM|GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES" "$d/.env" "$d/docker-compose.yml" 2>/dev/null || true
-  done
-  for c in sub2api sub2api-ap1 sub2api-test; do
-    docker exec "$c" sh -lc "env | grep -E \"^(GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES|HEADROOM|OPENAI_HEADROOM)=\" || true"
-  done
-'
-```
-
-期望结果：没有 `headroom-*` 容器；active compose / `.env` / app 容器环境里均无 Headroom responses override 和 stats 配置。
-
-#### 3.4.3 snapd 移除与 sysstat 历史监控
+#### 3.4.2 snapd 移除与 sysstat 历史监控
 
 当前 VPS 不使用 snapd / LXD。为减少后台 watchdog 和无用服务，已移除：
 
@@ -1135,25 +1076,6 @@ old-vps-final-20260614-210956.tar.zst.sha256
 
 已在新 VPS 手工比对 sha256，压缩包大小约 `315M`。用户明确要求不需要下载到本地；本地临时 rsync 目录已移除。后续部署和排障统一使用 `51tokens`。
 
-### 4. Headroom 已彻底移除
-
-2026-07-07 起，生产和代码均不再保留 Headroom 能力：
-
-| 环境 | Headroom 容器 | sub2api override |
-| --- | --- | --- |
-| primary | 无 | 无 |
-| a1 / ap1 | 无 | 无 |
-| test / a2t | 无 | 无 |
-
-已删除的能力包括：
-
-- 后端 `GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES_*` 配置读取和 OpenAI OAuth Codex responses override。
-- 后端 `HEADROOM_STATS_*` 配置、`/admin/ops/headroom/stats` API、Headroom stats service。
-- 后台 `openai_headroom_enabled` 开关与前端 Headroom 统计卡片。
-- 线上 `headroom-main` / `headroom-a1` sidecar 服务及相关 compose/env。
-
-后续如果从旧备份恢复 compose 或同步旧 fork 代码，必须先搜索上面的变量、API 和容器名，确认没有被带回。
-
 ## 十四、2026-06-21 分组用量展示倍率部署说明
 
 本 fork 增加分组级“用量展示倍率”：`groups.usage_multiplier_enabled` 控制开关，`groups.usage_multiplier` 保存倍率；每条新用量在写入 `usage_logs.presentation_multiplier` 时按真实输入、输出、cache creation、cache read 合计是否达到 1000 token 决定是否快照倍率。数据库原始 token/cost 不变，普通用户和普通管理员看到的是展示倍率后的 usage；`super_admin` 看到真实 usage 和真实倍率配置。普通 admin 的分组接口/前端会隐藏并忽略展示倍率配置，避免通过管理页或手工请求泄露/修改真实倍率。
@@ -1404,11 +1326,7 @@ pnpm dlx wrangler pages deploy /tmp/sub2api-pages-test --project-name sub2api-fr
 
 2026-06-15 后续调整：CPU 面板是否显示改为只看前台构建变量 `VITE_OPS_HOST_HEALTH_VISIBLE=true`，不再让前台通过 public settings 字段决定显示；a1/a2 Pages 发布时带该变量构建，主环境 Pages 构建不带该变量即可隐藏。
 
-### 6. Headroom 相关历史路径已删除
-
-2026-07-07 起，a1 Claude Messages、Chat Completions、Images、WS bridge 等路径不再支持或依赖 Headroom sidecar override。相关历史修复仅作为 git 历史存在，不再在部署文档中保留可执行恢复步骤。
-
-### 7. Cloudflare 524 与 OpenAI 上游响应头超时
+### 6. Cloudflare 524 与 OpenAI 上游响应头超时
 
 三套 API 域名均经过 Cloudflare。Cloudflare 与源站连接成功、但源站在 120 秒内没有返回完整响应时，会由边缘生成 524；这类响应不是 sub2api 生成的，后端无法在 524 正文后补充本地化说明。
 

@@ -8,12 +8,14 @@ const {
   listAccounts,
   listWithEtag,
   getBatchTodayStats,
+  getUpstreamBillingProbeSettings,
   getAllProxies,
   getAllGroups
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  getUpstreamBillingProbeSettings: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn()
 }))
@@ -24,6 +26,7 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      getUpstreamBillingProbeSettings,
       delete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
@@ -68,6 +71,7 @@ const DataTableStub = {
     <div data-test="data-table">
       <div v-if="loading" data-test="loading">loading</div>
       <div v-else v-for="row in data" :key="row.id" data-test="row">
+        <span data-test="account-name">{{ row.name }}</span>
         <slot name="cell-usage" :row="row" />
       </div>
     </div>
@@ -88,8 +92,11 @@ const usageCellMountedTokens: number[] = []
 const usageCellRefreshTransitions: Array<[number | undefined, number | undefined]> = []
 
 const AccountUsageCellStub = defineComponent({
+  emits: ['runtime-state-updated'],
   props: {
     account: { type: Object, required: true },
+    todayStats: { type: Object, default: null },
+    todayStatsLoading: { type: Boolean, default: false },
     manualRefreshToken: { type: Number, default: 0 }
   },
   setup(props) {
@@ -104,7 +111,10 @@ const AccountUsageCellStub = defineComponent({
     )
     return {}
   },
-  template: '<div data-test="usage-cell">{{ manualRefreshToken }}</div>'
+  template: `
+    <div data-test="usage-cell">{{ manualRefreshToken }}</div>
+    <button data-test="runtime-state-updated" @click="$emit('runtime-state-updated')">runtime state updated</button>
+  `
 })
 
 const createAccount = (id: number, name: string) => ({
@@ -173,11 +183,13 @@ describe('admin AccountsView manual usage refresh', () => {
     listAccounts.mockReset()
     listWithEtag.mockReset()
     getBatchTodayStats.mockReset()
+    getUpstreamBillingProbeSettings.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
 
     listWithEtag.mockResolvedValue({ notModified: true, etag: null, data: null })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: false })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
   })
@@ -216,6 +228,26 @@ describe('admin AccountsView manual usage refresh', () => {
 
     expect(usageCellMountedTokens).toEqual([0, 0])
     expect(usageCellRefreshTransitions).toContainEqual([0, 1])
+
+    wrapper.unmount()
+  })
+
+  it('reloads current rows when an upstream quota query updates runtime state', async () => {
+    listAccounts.mockResolvedValueOnce(pageResponse([{ ...createAccount(1, 'before-quota-query'), status: 'error', schedulable: false }]))
+    listWithEtag.mockResolvedValueOnce({
+      notModified: false,
+      etag: 'updated-runtime-state',
+      data: pageResponse([{ ...createAccount(1, 'after-quota-query'), status: 'active', schedulable: true }])
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="runtime-state-updated"]').trigger('click')
+    await flushPromises()
+
+    expect(listWithEtag).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('after-quota-query')
 
     wrapper.unmount()
   })

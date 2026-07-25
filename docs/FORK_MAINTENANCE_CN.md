@@ -721,10 +721,11 @@ curl -k -sS -H 'Cache-Control: no-cache' 'https://ai.upit.top/?redeploy=20260601
 
 ### 2026-07-06: 自动记录本地改动
 
-**自动记录：**
+**本地修复：**
 
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 上游合并后，账号用量单元格仍会触发 `runtime-state-updated`，但账号列表丢失了事件订阅和状态增量刷新处理；刷新实际 OpenAI quota 后，列表会保留旧异常态。恢复父级事件绑定和 ETag 失效后的增量重拉，并新增“异常态变正常态”的回归测试。
+- 原生弹窗扫描将 i18n 文案中的 `confirm(` 误判为浏览器调用。扫描继续覆盖可执行 `.ts` / `.vue` 源码，但跳过纯本地化文案目录，避免翻译内容使安全护栏失效。
+- fork 同步技能和维护脚本现在强制将月度维护明细纳入两次复查，并检查账号状态回写、管理端使用记录用户备注和原生弹窗护栏。
 
 **涉及文件：**
 
@@ -733,38 +734,18 @@ curl -k -sS -H 'Cache-Control: no-cache' 'https://ai.upit.top/?redeploy=20260601
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+pnpm --dir frontend exec vitest run src/views/admin/__tests__/AccountsView.manualRefreshUsage.spec.ts src/components/account/__tests__/AccountUsageCell.spec.ts src/components/admin/usage/__tests__/UsageTable.spec.ts src/components/common/__tests__/nativeDialogUsage.spec.ts
+make test
+pnpm --dir frontend run typecheck
+pnpm --dir frontend run build
+make secret-scan
+tools/fork-maintenance/fork-maintenance.sh verify-after-upstream --skip-build
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
-
-### 2026-07-07: 移除 Headroom 代理残留
-
-**业务目的：**
-
-- 线上已不再使用 Headroom，代码和部署侧都不应继续保留可被误开启的 Headroom sidecar、Responses override、后台开关或统计入口。
-- 本次补清 `gateway.openai_oauth_codex_responses_*` 默认配置，避免字段本体删除后仍留下不可见的 Viper 默认 key。
-
-**涉及文件：**
-
-- `backend/internal/config/config.go`
-
-**验证：**
-
-```bash
-rg -n "OpenAIOAuthCodexResponses|openAIOAuthCodexResponses|openai_oauth_codex_responses|HeadroomStats|headroom/stats|OpsHeadroomStatsCard|openai_headroom_enabled|SettingKeyOpenAIHeadroomEnabled|isOpenAIHeadroomEnabled|HEADROOM_STATS|HEADROOM_COMPRESSION|HEADROOM_WORKERS|compression_refused|headroom proxy" backend frontend deploy .github scripts -g '!docs/**'
-cd backend && go test ./internal/config ./internal/service
-cd backend && go test ./internal/handler/admin -run 'TestOpsHostHealth|TestSettingHandler_GetSettings_ReturnsPersistedOpsMonitoringEnabledWithoutOpsService|TestSettingHandler_UpdateSettings_DoesNotPersistPartialSystemSettingsWhenAuthSourceDefaultsFail' -count=1
-pnpm --dir frontend exec vitest run src/views/admin/ops/__tests__/OpsDashboard.hostHealth.spec.ts src/views/admin/ops/components/__tests__/OpsHostHealthCard.spec.ts src/views/admin/__tests__/SettingsView.spec.ts
-git diff --check
-```
-
-**同步官方后的复查：**
-
-- 继续搜索 `headroom-main`、`headroom-a1`、`GATEWAY_OPENAI_OAUTH_CODEX_RESPONSES`、`HEADROOM_STATS`、`openai_headroom_enabled`、`OpsHeadroomStatsCard`、`HeadroomStatsService`。
-- 当前生产和代码均不得恢复 Headroom sidecar、Responses override、后台开关或 stats API；如果官方也移除了相关能力，本地补丁可以删除。
+- 同步官方后检查 `@runtime-state-updated="handleAccountRuntimeStateUpdated"`、`handleAccountRuntimeStateUpdated`、`UserFromServiceAdmin(l.User)` 和 `nativeDialogUsage.spec.ts`；账号实际用量查询成功后必须重新拉取当前行的运行态，且管理端备注不得出现在普通用户用量接口。
+- 两次复查必须同时覆盖主文档与 `docs/fork-maintenance/*.md`。只有上游提供等价的状态回写、管理员备注隔离和无原生弹窗保证，并由回归测试证明后，才可移除相应本地护栏。
 
 ### 2026-07-13: 自动记录本地改动
 
@@ -1305,6 +1286,32 @@ TODO: 填写验证命令
 - `backend/internal/handler/admin/account_handler.go`
 - `backend/internal/server/http.go`
 - `backend/internal/service/openai_gateway_grok_cache.go`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
+### 2026-07-25: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `docs/fork-maintenance/2026-07.md`
+- `frontend/src/components/common/__tests__/nativeDialogUsage.spec.ts`
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/views/admin/__tests__/AccountsView.manualRefreshUsage.spec.ts`
+- `skills/fork-sync-deploy/SKILL.md`
+- `tools/fork-maintenance/fork_maintenance.py`
 
 **验证：**
 
