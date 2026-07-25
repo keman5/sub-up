@@ -126,6 +126,54 @@ describe('AccountUsageCell', () => {
     expect(getUsage).not.toHaveBeenCalled()
   })
 
+  it('uses an active upstream query when the account list is refreshed', async () => {
+    getUsage.mockResolvedValue({
+      five_hour: { utilization: 12, resets_at: null, remaining_seconds: 0 }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9010,
+          platform: 'anthropic',
+          type: 'oauth'
+        }),
+        manualRefreshToken: 0
+      }
+    })
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenLastCalledWith(9010, 'passive', undefined)
+
+    await wrapper.setProps({ manualRefreshToken: 1 })
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenLastCalledWith(9010, 'active', true)
+    expect(wrapper.emitted('runtime-state-updated')).toHaveLength(1)
+  })
+
+  it('uses the initial list refresh token when a usage cell mounts late', async () => {
+    getUsage.mockResolvedValue({
+      five_hour: { utilization: 12, resets_at: null, remaining_seconds: 0 }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9011,
+          platform: 'openai',
+          type: 'oauth'
+        }),
+        manualRefreshToken: 1
+      }
+    })
+    await flushPromises()
+
+    expect(queryOpenAIQuota).toHaveBeenCalledWith(9011)
+    expect(getUsage).toHaveBeenCalledWith(9011, 'active', true)
+    expect(wrapper.emitted('runtime-state-updated')).toHaveLength(1)
+  })
+
   it('Antigravity 图片用量会聚合新旧 image 模型', async () => {
     getUsage.mockResolvedValue({
       antigravity_quota: {
@@ -672,10 +720,12 @@ describe('AccountUsageCell', () => {
     await wrapper.setProps({ manualRefreshToken: 1 })
     await flushPromises()
 
-    // 手动刷新再拉一次
+    // 列表刷新走和单行“查询”一致的主动上游用量查询。
     expect(getUsage).toHaveBeenCalledTimes(2)
     expect(getUsage.mock.calls.some(([accountId]) => accountId === 2010)).toBe(true)
-    expect(getUsage.mock.calls[1]).toEqual([2010, undefined, true])
+    expect(queryOpenAIQuota).toHaveBeenCalledWith(2010)
+    expect(queryOpenAIQuota.mock.invocationCallOrder[0]).toBeLessThan(getUsage.mock.invocationCallOrder[1])
+    expect(getUsage.mock.calls[1]).toEqual([2010, 'active', true])
     // 单一数据源：始终使用 /usage API 值
     expect(wrapper.text()).toContain('5h|18|900')
   })

@@ -653,7 +653,7 @@ import { adminAPI } from '@/api/admin'
 import type { GrokQuotaProbeResult } from '@/api/admin/grok'
 import type { Account, AccountUsageInfo, GeminiCredentials, UsageProgress, WindowStats } from '@/types'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
-import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
+import { enqueueActiveUsageRefresh, enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import { formatCompactNumber, formatRelativeTime } from '@/utils/format'
 import { queryOpenAIQuota } from '@/api/admin/accounts'
 import UsageProgressBar from './UsageProgressBar.vue'
@@ -1458,23 +1458,35 @@ const attachVisibilityObserver = () => {
   visibilityObserver.observe(rootRef.value)
 }
 
-const loadActiveUsage = async (options?: { refreshQuotaFromUpstream?: boolean }) => {
+const loadActiveUsage = async (options?: {
+  refreshQuotaFromUpstream?: boolean
+  queued?: boolean
+  notifyRuntimeState?: boolean
+}) => {
   const { refreshQuotaFromUpstream = false } = options ?? {}
   activeQueryLoading.value = true
-  let quotaRefreshed = false
-  try {
+
+  const fetchUsage = async () => {
     if (refreshQuotaFromUpstream && props.account.platform === 'openai' && props.account.type === 'oauth') {
       try {
         await queryOpenAIQuota(props.account.id)
-        quotaRefreshed = true
       } catch (e) {
         console.error('Failed to refresh OpenAI quota before active usage refresh:', e)
       }
     }
+
     const result = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
     usageInfo.value = result
     _usageCache.set(props.account.id, { data: result, ts: Date.now() })
-    if (quotaRefreshed) emit('runtime-state-updated')
+    if (options?.notifyRuntimeState) emit('runtime-state-updated')
+  }
+
+  try {
+    if (options?.queued) {
+      await enqueueActiveUsageRefresh(fetchUsage)
+    } else {
+      await fetchUsage()
+    }
   } catch (e: any) {
     console.error('Failed to load active usage:', e)
   } finally {
@@ -1483,7 +1495,7 @@ const loadActiveUsage = async (options?: { refreshQuotaFromUpstream?: boolean })
 }
 
 const refreshActiveUsage = async () => {
-  await loadActiveUsage({ refreshQuotaFromUpstream: true })
+  await loadActiveUsage({ refreshQuotaFromUpstream: true, notifyRuntimeState: true })
 }
 
 const handleOpenAIQuotaQueried = async () => {
@@ -1643,6 +1655,18 @@ onMounted(() => {
   }
 
   if (!shouldAutoLoadUsageOnMount.value) return
+  if (props.manualRefreshToken > 0) {
+    // A virtualized or mobile row can mount after the page has requested its
+    // initial refresh. Honor that request instead of falling back to passive data.
+    loadActiveUsage({
+      refreshQuotaFromUpstream: true,
+      queued: true,
+      notifyRuntimeState: true
+    }).catch((e) => {
+      console.error('Failed to refresh active usage on list entry:', e)
+    })
+    return
+  }
   const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
   requestAutoLoad(source)
 })
@@ -1663,10 +1687,13 @@ watch(
     if (nextToken === prevToken) return
     if (!shouldFetchUsage.value) return
 
-    const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
     _usageCache.delete(props.account.id)
-    loadUsage({ source, bypassCache: true, force: true }).catch((e) => {
-      console.error('Failed to refresh usage after manual refresh:', e)
+    loadActiveUsage({
+      refreshQuotaFromUpstream: true,
+      queued: true,
+      notifyRuntimeState: true
+    }).catch((e) => {
+      console.error('Failed to refresh active usage after list refresh:', e)
     })
   }
 )

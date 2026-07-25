@@ -685,6 +685,8 @@ const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
+let runtimeStateRefreshPending = false
+let runtimeStateRefreshInFlight = false
 
 const refreshCurrentPageUsageCells = async () => {
   await nextTick()
@@ -1202,11 +1204,24 @@ const refreshAccountsIncrementally = async () => {
   }
 }
 
-// A successful upstream quota query can change the persisted runtime state.
-// Reload the row so status and schedulability do not remain stale beside fresh usage.
-const handleAccountRuntimeStateUpdated = async () => {
-  resetAutoRefreshCache()
-  await refreshAccountsIncrementally()
+// A successful upstream usage query can change persisted runtime state. Coalesce
+// updates so a serial list refresh cannot lose a later account's status change.
+const handleAccountRuntimeStateUpdated = () => {
+  runtimeStateRefreshPending = true
+  if (runtimeStateRefreshInFlight) return
+
+  void (async () => {
+    runtimeStateRefreshInFlight = true
+    try {
+      while (runtimeStateRefreshPending) {
+        runtimeStateRefreshPending = false
+        resetAutoRefreshCache()
+        await refreshAccountsIncrementally()
+      }
+    } finally {
+      runtimeStateRefreshInFlight = false
+    }
+  })()
 }
 
 const handleManualRefresh = async () => {
@@ -2124,7 +2139,14 @@ const handleClickOutside = (event: MouseEvent) => {
 }
 
 onMounted(async () => {
-  load()
+  try {
+    await load()
+    // The initial list must be as current as an explicit list refresh. This
+    // schedules each visible account's upstream usage read after it renders.
+    await refreshCurrentPageUsageCells()
+  } catch (error) {
+    console.error('Failed to load accounts on initial page entry:', error)
+  }
   loadUpstreamBillingProbeGlobalState()
   try {
     const [p, g] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll()])

@@ -194,6 +194,19 @@ describe('admin AccountsView manual usage refresh', () => {
     getAllGroups.mockResolvedValue([])
   })
 
+  it('refreshes current-page usage cells when entering the account list', async () => {
+    listAccounts
+      .mockResolvedValueOnce(pageResponse([createAccount(1, 'before-refresh')]))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(usageCellMountedTokens).toEqual([0])
+    expect(usageCellRefreshTransitions).toContainEqual([0, 1])
+
+    wrapper.unmount()
+  })
+
   it('refreshes remounted current-page usage cells after the table reload finishes', async () => {
     listAccounts
       .mockResolvedValueOnce(pageResponse([createAccount(1, 'before-refresh')]))
@@ -203,12 +216,13 @@ describe('admin AccountsView manual usage refresh', () => {
     await flushPromises()
 
     expect(usageCellMountedTokens).toEqual([0])
+    expect(usageCellRefreshTransitions).toContainEqual([0, 1])
 
     await wrapper.get('[data-test="refresh-accounts"]').trigger('click')
     await flushPromises()
 
-    expect(usageCellMountedTokens).toEqual([0, 0])
-    expect(usageCellRefreshTransitions).toContainEqual([0, 1])
+    expect(usageCellMountedTokens).toEqual([0, 1])
+    expect(usageCellRefreshTransitions).toContainEqual([1, 2])
 
     wrapper.unmount()
   })
@@ -226,8 +240,8 @@ describe('admin AccountsView manual usage refresh', () => {
     await wrapper.get('[data-test="bulk-updated"]').trigger('click')
     await flushPromises()
 
-    expect(usageCellMountedTokens).toEqual([0, 0])
-    expect(usageCellRefreshTransitions).toContainEqual([0, 1])
+    expect(usageCellMountedTokens).toEqual([0, 1])
+    expect(usageCellRefreshTransitions).toContainEqual([1, 2])
 
     wrapper.unmount()
   })
