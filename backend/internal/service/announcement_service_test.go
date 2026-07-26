@@ -47,6 +47,9 @@ type announcementUserRepoStub struct {
 }
 
 func (s *announcementUserRepoStub) Create(context.Context, *User) error { return nil }
+func (s *announcementUserRepoStub) CreateWithEmailAliasGuard(ctx context.Context, user *User) error {
+	return s.Create(ctx, user)
+}
 func (s *announcementUserRepoStub) GetByID(_ context.Context, id int64) (*User, error) {
 	for i := range s.users {
 		if s.users[i].ID == id {
@@ -131,6 +134,9 @@ func (s *announcementUserRepoStub) BatchUpdateLimits(context.Context, []int64, *
 	return 0, nil
 }
 func (s *announcementUserRepoStub) ExistsByEmail(context.Context, string) (bool, error) {
+	return false, nil
+}
+func (s *announcementUserRepoStub) ExistsByEmailAlias(context.Context, string) (bool, error) {
 	return false, nil
 }
 func (s *announcementUserRepoStub) RemoveGroupFromAllowedGroups(context.Context, int64) (int64, error) {
