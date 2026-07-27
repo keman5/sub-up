@@ -274,40 +274,43 @@ func buildExpiredAdminNotificationRows(subs []UserSubscription) ([]expiredAdminN
 
 func renderExpiredAdminNotificationRows(rows []expiredAdminNotificationRow) string {
 	var builder strings.Builder
-	builder.WriteString(`<table style="width:100%;border-collapse:collapse;margin:16px 0;">`)
-	builder.WriteString(`<thead><tr>`)
-	for _, header := range []string{"ID", "Group", "User", "Expired at"} {
-		builder.WriteString(`<th style="border-bottom:1px solid #e5e7eb;padding:8px;text-align:left;">`)
-		builder.WriteString(html.EscapeString(header))
-		builder.WriteString(`</th>`)
+	write := func(value string) {
+		_, _ = builder.WriteString(value)
 	}
-	builder.WriteString(`</tr></thead><tbody>`)
+	write(`<table style="width:100%;border-collapse:collapse;margin:16px 0;">`)
+	write(`<thead><tr>`)
+	for _, header := range []string{"ID", "Group", "User", "Expired at"} {
+		write(`<th style="border-bottom:1px solid #e5e7eb;padding:8px;text-align:left;">`)
+		write(html.EscapeString(header))
+		write(`</th>`)
+	}
+	write(`</tr></thead><tbody>`)
 	for _, row := range rows {
-		builder.WriteString(`<tr>`)
-		builder.WriteString(`<td style="border-bottom:1px solid #f3f4f6;padding:8px;">#`)
-		builder.WriteString(strconv.FormatInt(row.SubscriptionID, 10))
-		builder.WriteString(`</td>`)
-		builder.WriteString(`<td style="border-bottom:1px solid #f3f4f6;padding:8px;">`)
-		builder.WriteString(html.EscapeString(row.GroupName))
-		builder.WriteString(`</td>`)
-		builder.WriteString(`<td style="border-bottom:1px solid #f3f4f6;padding:8px;">`)
-		builder.WriteString(html.EscapeString(row.UserEmail))
+		write(`<tr>`)
+		write(`<td style="border-bottom:1px solid #f3f4f6;padding:8px;">#`)
+		write(strconv.FormatInt(row.SubscriptionID, 10))
+		write(`</td>`)
+		write(`<td style="border-bottom:1px solid #f3f4f6;padding:8px;">`)
+		write(html.EscapeString(row.GroupName))
+		write(`</td>`)
+		write(`<td style="border-bottom:1px solid #f3f4f6;padding:8px;">`)
+		write(html.EscapeString(row.UserEmail))
 		secondary := strings.TrimSpace(row.UserNotes)
 		if secondary == "" && row.UserName != row.UserEmail {
 			secondary = strings.TrimSpace(row.UserName)
 		}
 		if secondary != "" {
-			builder.WriteString(`<br><span style="color:#6b7280;">`)
-			builder.WriteString(html.EscapeString(secondary))
-			builder.WriteString(`</span>`)
+			write(`<br><span style="color:#6b7280;">`)
+			write(html.EscapeString(secondary))
+			write(`</span>`)
 		}
-		builder.WriteString(`</td>`)
-		builder.WriteString(`<td style="border-bottom:1px solid #f3f4f6;padding:8px;">`)
-		builder.WriteString(html.EscapeString(row.ExpiryTime.Format("2006-01-02 15:04")))
-		builder.WriteString(`</td>`)
-		builder.WriteString(`</tr>`)
+		write(`</td>`)
+		write(`<td style="border-bottom:1px solid #f3f4f6;padding:8px;">`)
+		write(html.EscapeString(row.ExpiryTime.Format("2006-01-02 15:04")))
+		write(`</td>`)
+		write(`</tr>`)
 	}
-	builder.WriteString(`</tbody></table>`)
+	write(`</tbody></table>`)
 	return builder.String()
 }
 

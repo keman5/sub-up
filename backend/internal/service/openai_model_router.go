@@ -71,14 +71,6 @@ func withOpenAIModelRouteEvalInput(ctx context.Context, input *openAIModelRouteE
 	return context.WithValue(ctx, openAIModelRouteEvalCtxKey{}, input)
 }
 
-func openAIModelRouteEvalInputFromContext(ctx context.Context) *openAIModelRouteEvalInput {
-	if ctx == nil {
-		return nil
-	}
-	input, _ := ctx.Value(openAIModelRouteEvalCtxKey{}).(*openAIModelRouteEvalInput)
-	return input
-}
-
 func (s *OpenAIGatewayService) WithModelRouteRequestContext(
 	ctx context.Context,
 	sessionHash string,
@@ -187,7 +179,7 @@ func (s *OpenAIGatewayService) evaluateOpenAIModelRoute(
 			return explicitDecision
 		}
 	}
-	if openAIModelRouterShouldPassthroughAccount(input.Account, cfg) && !(meta.ImageIntent && cfg.ImageOrVisionForcePremium) {
+	if openAIModelRouterShouldPassthroughAccount(input.Account, cfg) && (!meta.ImageIntent || !cfg.ImageOrVisionForcePremium) {
 		decision.Tier = openAIModelRouterTierPremium
 		decision.UpstreamModel = strings.TrimSpace(input.RequestedModel)
 		if decision.UpstreamModel == "" {
@@ -445,43 +437,6 @@ func openAIModelRouterShouldPassthroughAccount(account *Account, cfg config.Gate
 	return mode == "" || mode == openAIModelRouterOAuthModePassthrough
 }
 
-func (s *OpenAIGatewayService) onOpenAIModelRouterResult(
-	ctx context.Context,
-	sessionHash string,
-	err error,
-) {
-	if !s.isOpenAIModelRouterEnabled() || strings.TrimSpace(sessionHash) == "" {
-		return
-	}
-	state := s.getOpenAIModelRouterState(ctx, sessionHash)
-	if state.Tier == "" {
-		return
-	}
-
-	if isOpenAIModelRouterCapabilityError(err) {
-		state.CapabilityFailureConsecutive++
-	} else {
-		state.CapabilityFailureConsecutive = 0
-	}
-	state.UpdatedAtUnix = time.Now().Unix()
-	ttl := time.Duration(s.cfg.Gateway.ModelRouter.SessionRouteTTLSeconds) * time.Second
-	s.setOpenAIModelRouterState(ctx, sessionHash, state, ttl)
-}
-
-func isOpenAIModelRouterCapabilityError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(strings.TrimSpace(err.Error()))
-	if msg == "" {
-		return false
-	}
-	return strings.Contains(msg, "not supported") ||
-		strings.Contains(msg, "only supported") ||
-		strings.Contains(msg, "unsupported") ||
-		strings.Contains(msg, "requires")
-}
-
 func openAIModelRouterPromoteOneTier(tier openAIModelRouterTier) openAIModelRouterTier {
 	switch tier {
 	case openAIModelRouterTierEconomy:
@@ -648,7 +603,7 @@ func decodeOpenAIModelRouterState(raw int64) openAIModelRouterRouteState {
 	}
 	tierCode := raw / 10000
 	failures := int(raw % 10000)
-	tier := openAIModelRouterTierEconomy
+	var tier openAIModelRouterTier
 	switch tierCode {
 	case 2:
 		tier = openAIModelRouterTierBalanced

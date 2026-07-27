@@ -183,6 +183,7 @@ const userKeyword = computed({
 const userSuggestions = ref<SearchSuggestOption<SimpleUser>[]>([])
 const showUserDropdown = ref(false)
 let userSearchTimeout: ReturnType<typeof setTimeout> | null = null
+let userSearchSequence = 0
 
 const apiKeyKeyword = computed({
   get: () => String(filters.value.api_key_search ?? ''),
@@ -296,25 +297,45 @@ const billingModeOptions = ref<SelectOption[]>([
 
 const emitChange = () => emit('change')
 
+const clearPendingUserSearch = () => {
+  if (userSearchTimeout) {
+    clearTimeout(userSearchTimeout)
+    userSearchTimeout = null
+  }
+  userSearchSequence += 1
+}
+
 const debounceUserSearch = () => {
-  if (userSearchTimeout) clearTimeout(userSearchTimeout)
+  clearPendingUserSearch()
+  const query = userKeyword.value.trim()
+  if (!query) {
+    syncSuggestionItems(userSuggestions, [], () => ({ primaryText: '' }))
+    return
+  }
+
+  const sequence = userSearchSequence
   userSearchTimeout = setTimeout(async () => {
+    userSearchTimeout = null
     try {
-      const results = await adminAPI.usage.searchUsers(userKeyword.value)
-      syncSuggestionItems(
-        userSuggestions,
-        results.sort((a, b) => Number(a.deleted) - Number(b.deleted)),
-        (user) => ({
-          primaryText: user.email,
-          secondaryText:
-            [
-              [user.notes, user.username].map((value) => value?.trim()).find(Boolean),
-              user.deleted ? t('admin.usage.userDeletedBadge') : '',
-            ].filter(Boolean).join(' · ') || `#${user.id}`,
-        })
-      )
+      const results = await adminAPI.usage.searchUsers(query)
+      if (sequence === userSearchSequence) {
+        syncSuggestionItems(
+          userSuggestions,
+          results.sort((a, b) => Number(a.deleted) - Number(b.deleted)),
+          (user) => ({
+            primaryText: user.email,
+            secondaryText:
+              [
+                [user.notes, user.username].map((value) => value?.trim()).find(Boolean),
+                user.deleted ? t('admin.usage.userDeletedBadge') : '',
+              ].filter(Boolean).join(' · ') || `#${user.id}`,
+          })
+        )
+      }
     } catch {
-      syncSuggestionItems(userSuggestions, [], () => ({ primaryText: '' }))
+      if (sequence === userSearchSequence) {
+        syncSuggestionItems(userSuggestions, [], () => ({ primaryText: '' }))
+      }
     }
   }, 300)
 }
@@ -578,5 +599,7 @@ const setUserKeyword = (email: string) => {
   showUserDropdown.value = false
 }
 
-defineExpose({ setUserKeyword })
+const getUserSearchRevision = () => userSearchSequence
+
+defineExpose({ getUserSearchRevision, setUserKeyword })
 </script>

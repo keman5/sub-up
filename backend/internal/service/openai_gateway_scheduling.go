@@ -304,22 +304,6 @@ func isOpenAICompatibleAccountEligibleForRequest(ctx context.Context, account *A
 	return true
 }
 
-type openAIAccountRequestOptions struct {
-	requireCompact     bool
-	requiredCapability OpenAIEndpointCapability
-}
-
-func (s *OpenAIGatewayService) buildOpenAIAccountRequestOptions(ctx context.Context, requireCompact bool, requiredCapability OpenAIEndpointCapability) openAIAccountRequestOptions {
-	return openAIAccountRequestOptions{
-		requireCompact:     requireCompact,
-		requiredCapability: requiredCapability,
-	}
-}
-
-func isOpenAIAccountEligibleForRequestWithOptions(ctx context.Context, account *Account, requestedModel string, opts openAIAccountRequestOptions) bool {
-	return isOpenAICompatibleAccountEligibleForRequest(ctx, account, PlatformOpenAI, requestedModel, opts.requireCompact, opts.requiredCapability)
-}
-
 type openAIQuotaAutoPauseDecision struct {
 	window      string
 	threshold   float64

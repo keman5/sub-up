@@ -47,6 +47,10 @@ func (r *stubQuotaAccountRepo) UpdateCredentials(_ context.Context, id int64, cr
 	return nil
 }
 
+func (r *stubQuotaAccountRepo) ClearRateLimit(_ context.Context, _ int64) error {
+	return nil
+}
+
 // stubQuotaTokenCache 实现 OpenAITokenCache，返回预设静态 token。
 type stubQuotaTokenCache struct {
 	tokens map[string]string

@@ -1328,6 +1328,67 @@ TODO: 填写验证命令
 - 初次进入账号管理及顶部刷新列表都会为当前页可查询账号串行读取真实上游用量窗口，OpenAI OAuth 先刷新 quota 快照再读取窗口；自动轮询不触发逐行上游请求。
 - 用量读取成功后合并刷新外层账号运行态，避免额度恢复后的异常状态滞留。完整说明、验证命令和同步复查点见 `docs/fork-maintenance/2026-07.md` 的 2026-07-25 记录。
 
+### 2026-07-27: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `frontend/src/components/admin/usage/UsageFilters.vue`
+- `frontend/src/i18n/locales/en/admin/promptAudit.ts`
+- `frontend/src/views/admin/GroupsView.vue`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
+### 2026-07-27: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/repository/usage_log_repo_dashboard.go`
+- `backend/internal/repository/user_subscription_repo.go`
+- `backend/internal/server/middleware/middleware_localization_test.go`
+- `backend/internal/service/account_pool_health_notify_service.go`
+- `backend/internal/service/antigravity_token_refresher.go`
+- `backend/internal/service/notification_email_service.go`
+- `backend/internal/service/notification_email_service_test.go`
+- `backend/internal/service/openai_codex_transform.go`
+- `backend/internal/service/openai_gateway_passthrough.go`
+- `backend/internal/service/openai_gateway_response_handling.go`
+- `backend/internal/service/openai_gateway_scheduling.go`
+- `backend/internal/service/openai_gateway_usage.go`
+- `backend/internal/service/openai_model_router.go`
+- `backend/internal/service/openai_oauth_passthrough_test.go`
+- `backend/internal/service/openai_quota_spark_window_test.go`
+- `backend/internal/service/ops_scheduled_report_service.go`
+- `backend/internal/service/subscription_expiry_service.go`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：

@@ -25,22 +25,6 @@ import (
 
 func f64p(v float64) *float64 { return &v }
 
-func openAITestOAuthAccount() *Account {
-	return &Account{
-		ID:          123,
-		Name:        "acc",
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeOAuth,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"access_token":       "oauth-token",
-			"chatgpt_account_id": "chatgpt-acc",
-		},
-		Status:      StatusActive,
-		Schedulable: true,
-	}
-}
-
 type httpUpstreamRecorder struct {
 	lastReq      *http.Request
 	lastBody     []byte

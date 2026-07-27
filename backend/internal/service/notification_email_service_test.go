@@ -700,7 +700,7 @@ func (s *notificationEmailTestSMTPServer) handleConn(conn net.Conn) {
 				if strings.TrimRight(dataLine, "\r\n") == "." {
 					break
 				}
-				body.WriteString(dataLine)
+				_, _ = body.WriteString(dataLine)
 			}
 			s.mu.Lock()
 			s.bodies = append(s.bodies, body.String())

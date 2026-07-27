@@ -526,25 +526,6 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 	return stats, nil
 }
 
-// getPerformanceStatsByAPIKey 获取指定 API Key 的 RPM 和 TPM（近5分钟平均值）
-func (r *usageLogRepository) getPerformanceStatsByAPIKey(ctx context.Context, apiKeyID int64) (rpm, tpm int64, err error) {
-	fiveMinutesAgo := time.Now().Add(-5 * time.Minute)
-	query := `
-		SELECT
-			COUNT(*) as request_count,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as token_count
-		FROM usage_logs
-		WHERE created_at >= $1 AND api_key_id = $2`
-	args := []any{fiveMinutesAgo, apiKeyID}
-
-	var requestCount int64
-	var tokenCount int64
-	if err := scanSingleRow(ctx, r.sql, query, args, &requestCount, &tokenCount); err != nil {
-		return 0, 0, err
-	}
-	return requestCount / 5, tokenCount / 5, nil
-}
-
 // GetAPIKeyDashboardStats 获取指定 API Key 的仪表盘统计（按 api_key_id 过滤）
 func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKeyID int64) (*UserDashboardStats, error) {
 	stats := &UserDashboardStats{}

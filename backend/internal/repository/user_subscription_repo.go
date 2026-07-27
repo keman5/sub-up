@@ -494,14 +494,12 @@ func (r *userSubscriptionRepository) BatchUpdateExpiredStatus(ctx context.Contex
 		return nil, err
 	}
 
-	client := r.client
+	client := clientFromContext(ctx, r.client)
 	txCtx := ctx
 	if err == nil {
 		defer func() { _ = tx.Rollback() }()
 		client = tx.Client()
 		txCtx = dbent.NewTxContext(ctx, tx)
-	} else {
-		client = clientFromContext(ctx, r.client)
 	}
 
 	now := time.Now()

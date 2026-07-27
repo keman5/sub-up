@@ -351,10 +351,12 @@ func (s *OpsScheduledReportService) runReport(ctx context.Context, report *opsSc
 		locale := ""
 		if s.emailService.notificationEmailService != nil {
 			locale = s.emailService.notificationEmailService.ResolveRecipientLocale(ctx, 0, addr)
+			locale = s.resolveOpsScheduledReportTemplateLocale(ctx, locale)
 			templateVariables := opsScheduledReportLocalizedEmailVariables(report, now, locale)
 			rawHTMLVariables := map[string]string{"report_html": content.html}
 			if isOpsSummaryReport(report) {
 				templateVariables = opsSummaryReportEmailVariables(report, now, content.overview, locale)
+				templateVariables["report_html"] = content.html
 			}
 			if err := s.emailService.notificationEmailService.Send(ctx, NotificationEmailSendInput{
 				Event:            NotificationEmailEventOpsScheduledReport,
@@ -387,6 +389,22 @@ func (s *OpsScheduledReportService) runReport(ctx context.Context, report *opsSc
 		}
 	}
 	return attempts, nil
+}
+
+func (s *OpsScheduledReportService) resolveOpsScheduledReportTemplateLocale(ctx context.Context, locale string) string {
+	normalized := normalizeNotificationLocale(locale)
+	if s == nil || s.emailService == nil || s.emailService.notificationEmailService == nil || normalized == notificationEmailDefaultLocale {
+		return normalized
+	}
+	current, err := s.emailService.notificationEmailService.GetTemplate(ctx, NotificationEmailEventOpsScheduledReport, normalized)
+	if err != nil || current.IsCustom {
+		return normalized
+	}
+	fallback, err := s.emailService.notificationEmailService.GetTemplate(ctx, NotificationEmailEventOpsScheduledReport, notificationEmailDefaultLocale)
+	if err != nil || !fallback.IsCustom {
+		return normalized
+	}
+	return notificationEmailDefaultLocale
 }
 
 func opsScheduledReportDeliverySourceID(report *opsScheduledReport) string {

@@ -1187,7 +1187,6 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 					eventUsage.CacheReadInputTokens, eventUsage.ImageOutputTokens,
 				))
 				if !bytes.Equal(clientData, dataBytes) {
-					dataBytes = clientData
 					trimmedData = strings.TrimSpace(string(clientData))
 					line = "data: " + string(clientData)
 				}

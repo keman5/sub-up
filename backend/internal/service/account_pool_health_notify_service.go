@@ -201,22 +201,25 @@ func (s *AccountPoolHealthNotifyService) now() time.Time {
 
 func renderAccountPoolUnavailableRows(accounts []Account) string {
 	var b strings.Builder
-	b.WriteString(`<table style="width:100%;border-collapse:collapse;">`)
-	b.WriteString(`<thead><tr><th align="left">ID</th><th align="left">Name</th><th align="left">Platform</th><th align="left">Status</th><th align="left">Schedulable</th><th align="left">Notes</th></tr></thead><tbody>`)
+	write := func(value string) {
+		_, _ = b.WriteString(value)
+	}
+	write(`<table style="width:100%;border-collapse:collapse;">`)
+	write(`<thead><tr><th align="left">ID</th><th align="left">Name</th><th align="left">Platform</th><th align="left">Status</th><th align="left">Schedulable</th><th align="left">Notes</th></tr></thead><tbody>`)
 	for _, account := range accounts {
 		notes := ""
 		if account.Notes != nil {
 			notes = strings.TrimSpace(*account.Notes)
 		}
-		b.WriteString("<tr>")
-		b.WriteString("<td>" + html.EscapeString(strconv.FormatInt(account.ID, 10)) + "</td>")
-		b.WriteString("<td>" + html.EscapeString(account.Name) + "</td>")
-		b.WriteString("<td>" + html.EscapeString(account.Platform) + "</td>")
-		b.WriteString("<td>" + html.EscapeString(account.Status) + "</td>")
-		b.WriteString("<td>" + html.EscapeString(fmt.Sprintf("%t", account.Schedulable)) + "</td>")
-		b.WriteString("<td>" + html.EscapeString(notes) + "</td>")
-		b.WriteString("</tr>")
+		write("<tr>")
+		write("<td>" + html.EscapeString(strconv.FormatInt(account.ID, 10)) + "</td>")
+		write("<td>" + html.EscapeString(account.Name) + "</td>")
+		write("<td>" + html.EscapeString(account.Platform) + "</td>")
+		write("<td>" + html.EscapeString(account.Status) + "</td>")
+		write("<td>" + html.EscapeString(fmt.Sprintf("%t", account.Schedulable)) + "</td>")
+		write("<td>" + html.EscapeString(notes) + "</td>")
+		write("</tr>")
 	}
-	b.WriteString("</tbody></table>")
+	write("</tbody></table>")
 	return b.String()
 }

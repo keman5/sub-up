@@ -819,13 +819,6 @@ func normalizeNotificationLocale(raw string) string {
 	return notificationEmailDefaultLocale
 }
 
-func normalizeNotificationConfiguredDefaultLocale(raw string) string {
-	if strings.TrimSpace(raw) == "" {
-		return notificationEmailConfiguredDefaultLocale
-	}
-	return normalizeNotificationLocale(raw)
-}
-
 func notificationEmailTemplateKey(event, locale string) string {
 	return notificationEmailTemplateKeyPrefix + event + ":" + locale
 }

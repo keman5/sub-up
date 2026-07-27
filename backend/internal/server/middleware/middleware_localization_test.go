@@ -14,15 +14,18 @@ func TestGatewayMiddlewareErrorWritersLocalizeMessages(t *testing.T) {
 	tests := []struct {
 		name   string
 		write  func(*gin.Context)
-		decode func(map[string]any) string
+		decode func(*testing.T, map[string]any) string
 	}{
 		{
 			name: "standard auth envelope",
 			write: func(c *gin.Context) {
 				AbortWithError(c, http.StatusForbidden, "SUBSCRIPTION_NOT_FOUND", "No active subscription found for this group")
 			},
-			decode: func(body map[string]any) string {
-				return body["message"].(string)
+			decode: func(t *testing.T, body map[string]any) string {
+				t.Helper()
+				message, ok := body["message"].(string)
+				require.True(t, ok)
+				return message
 			},
 		},
 		{
@@ -30,8 +33,13 @@ func TestGatewayMiddlewareErrorWritersLocalizeMessages(t *testing.T) {
 			write: func(c *gin.Context) {
 				AnthropicErrorWriter(c, http.StatusForbidden, "No active subscription found for this group")
 			},
-			decode: func(body map[string]any) string {
-				return body["error"].(map[string]any)["message"].(string)
+			decode: func(t *testing.T, body map[string]any) string {
+				t.Helper()
+				errBody, ok := body["error"].(map[string]any)
+				require.True(t, ok)
+				message, ok := errBody["message"].(string)
+				require.True(t, ok)
+				return message
 			},
 		},
 		{
@@ -39,8 +47,13 @@ func TestGatewayMiddlewareErrorWritersLocalizeMessages(t *testing.T) {
 			write: func(c *gin.Context) {
 				GoogleErrorWriter(c, http.StatusForbidden, "No active subscription found for this group")
 			},
-			decode: func(body map[string]any) string {
-				return body["error"].(map[string]any)["message"].(string)
+			decode: func(t *testing.T, body map[string]any) string {
+				t.Helper()
+				errBody, ok := body["error"].(map[string]any)
+				require.True(t, ok)
+				message, ok := errBody["message"].(string)
+				require.True(t, ok)
+				return message
 			},
 		},
 	}
@@ -56,7 +69,7 @@ func TestGatewayMiddlewareErrorWritersLocalizeMessages(t *testing.T) {
 
 			var body map[string]any
 			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
-			require.Equal(t, "当前分组没有有效订阅，请联系管理员续期", tt.decode(body))
+			require.Equal(t, "当前分组没有有效订阅，请联系管理员续期", tt.decode(t, body))
 		})
 	}
 }
