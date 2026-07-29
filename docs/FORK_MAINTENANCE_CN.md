@@ -718,6 +718,7 @@ curl -k -sS -H 'Cache-Control: no-cache' 'https://ai.upit.top/?redeploy=20260601
 | 月份 | 明细文件 | 说明 |
 | --- | --- | --- |
 | 2026-06 | `docs/fork-maintenance/2026-06.md` | 2026-06-10 之后的本地补丁表格行、长篇专题记录、账号管理弹窗文案与 Compact 专属模型映射等明细。 |
+| 2026-07 | `docs/fork-maintenance/2026-07.md` | 上游拆分结构适配、部署拓扑、路由筛选同步、账号用量刷新及后续本地补丁明细。 |
 
 ### 2026-07-06: 自动记录本地改动
 

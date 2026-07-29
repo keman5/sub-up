@@ -16,15 +16,20 @@ import (
 type AnnouncementService struct {
 	announcementRepo AnnouncementRepository
 	readRepo         AnnouncementReadRepository
-	userRepo         UserRepository
+	userRepo         AnnouncementUserRepository
 	userSubRepo      UserSubscriptionRepository
 	emailService     *NotificationEmailService
+}
+
+type AnnouncementUserRepository interface {
+	GetByID(ctx context.Context, id int64) (*User, error)
+	ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters UserListFilters) ([]User, *pagination.PaginationResult, error)
 }
 
 func NewAnnouncementService(
 	announcementRepo AnnouncementRepository,
 	readRepo AnnouncementReadRepository,
-	userRepo UserRepository,
+	userRepo AnnouncementUserRepository,
 	userSubRepo UserSubscriptionRepository,
 ) *AnnouncementService {
 	return &AnnouncementService{

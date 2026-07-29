@@ -308,11 +308,6 @@ const clearPendingUserSearch = () => {
 const debounceUserSearch = () => {
   clearPendingUserSearch()
   const query = userKeyword.value.trim()
-  if (!query) {
-    syncSuggestionItems(userSuggestions, [], () => ({ primaryText: '' }))
-    return
-  }
-
   const sequence = userSearchSequence
   userSearchTimeout = setTimeout(async () => {
     userSearchTimeout = null
