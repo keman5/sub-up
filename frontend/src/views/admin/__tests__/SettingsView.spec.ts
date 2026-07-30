@@ -539,6 +539,10 @@ function mountView() {
         ProxySelector: true,
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
+        OpenAIFastPolicyUserSelector: {
+          props: ["modelValue"],
+          template: '<div class="openai-fast-policy-user-selector-stub" />',
+        },
       },
     },
   });
@@ -1256,6 +1260,69 @@ describe("admin SettingsView payment visible method controls", () => {
     // supported_types should be normalized to an empty array, not null
     expect(Array.isArray(receivedProviders[0].supported_types)).toBe(true);
     expect(receivedProviders[0].supported_types).toEqual([]);
+  });
+});
+
+describe("admin SettingsView OpenAI Fast/Flex allowlists", () => {
+  beforeEach(() => {
+    getSettings.mockReset();
+    updateSettings.mockReset();
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      openai_fast_policy_settings: {
+        rules: [
+          {
+            service_tier: "priority",
+            action: "filter",
+            scope: "all",
+            user_ids: [7],
+            account_allowlist: [11, 12],
+            openai_account_allowlist: [21],
+          },
+        ],
+      },
+    });
+    updateSettings.mockImplementation(async (payload) => ({
+      ...baseSettingsResponse,
+      ...payload,
+    }));
+    getWebSearchEmulationConfig.mockResolvedValue({ enabled: false, providers: [] });
+    updateWebSearchEmulationConfig.mockResolvedValue({ enabled: false, providers: [] });
+    getAdminApiKey.mockResolvedValue({ exists: false, masked_key: "" });
+    getOverloadCooldownSettings.mockResolvedValue({});
+    getRateLimit429CooldownSettings.mockResolvedValue({});
+    updateRateLimit429CooldownSettings.mockResolvedValue({});
+    getStreamTimeoutSettings.mockResolvedValue({});
+    getRectifierSettings.mockResolvedValue({});
+    getBetaPolicySettings.mockResolvedValue({});
+    getGroups.mockResolvedValue([]);
+    listProxies.mockResolvedValue({ items: [] });
+    getProviders.mockResolvedValue({ data: [] });
+  });
+
+  it("renders the email allowlist separately and preserves both allowlists on save", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("admin.settings.openaiFastPolicy.accountAllowlist");
+    expect(wrapper.findAll(".openai-fast-policy-user-selector-stub")).toHaveLength(2);
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openai_fast_policy_settings: {
+          rules: [
+            expect.objectContaining({
+              user_ids: [7],
+              account_allowlist: [11, 12],
+              openai_account_allowlist: [21],
+            }),
+          ],
+        },
+      }),
+    );
   });
 });
 

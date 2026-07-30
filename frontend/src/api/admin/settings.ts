@@ -1342,6 +1342,10 @@ export interface OpenAIFastPolicyRule {
   action: "pass" | "filter" | "block" | "force_priority";
   scope: "all" | "oauth" | "apikey" | "bedrock";
   user_ids?: number[];
+  /** Sub2API user IDs whose requests bypass this matching rule. */
+  account_allowlist?: number[];
+  /** OpenAI upstream account IDs that bypass this matching rule. */
+  openai_account_allowlist?: number[];
   error_message?: string;
   model_whitelist?: string[];
   fallback_action?: "pass" | "filter" | "block" | "force_priority";
