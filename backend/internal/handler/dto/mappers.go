@@ -151,6 +151,9 @@ func GroupFromServiceAdminWithViewer(g *service.Group, mode service.UsageViewMod
 	out := &AdminGroup{
 		Group:                       groupFromServiceBase(g),
 		BillingRateMultiplier:       g.RateMultiplier,
+		ProfitControlEnabled:        g.ProfitControlEnabled,
+		ProfitMinMargin:             g.ProfitMinMargin,
+		ProfitSafetyBuffer:          g.ProfitSafetyBuffer,
 		ModelRouting:                g.ModelRouting,
 		ModelRoutingEnabled:         g.ModelRoutingEnabled,
 		MCPXMLInject:                g.MCPXMLInject,

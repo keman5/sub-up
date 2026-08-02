@@ -163,6 +163,11 @@ type AdminGroup struct {
 	// BillingRateMultiplier is the internal multiplier used for actual billing.
 	BillingRateMultiplier float64 `json:"billing_rate_multiplier"`
 
+	// Profit-control values are internal operating data and are never included in Group.
+	ProfitControlEnabled bool    `json:"profit_control_enabled"`
+	ProfitMinMargin      float64 `json:"profit_min_margin"`
+	ProfitSafetyBuffer   float64 `json:"profit_safety_buffer"`
+
 	// 模型路由配置（仅 anthropic 平台使用）
 	ModelRouting        map[string][]int64 `json:"model_routing"`
 	ModelRoutingEnabled bool               `json:"model_routing_enabled"`
