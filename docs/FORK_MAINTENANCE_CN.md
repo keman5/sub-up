@@ -110,6 +110,7 @@ tools/fork-maintenance/install-hooks.sh
   - 通过 `inventory`、`check-doc`、`snapshot` 和 `verify-after-upstream` 盘点和验证。
   - `check-doc` 不再依赖固定 protected 路径；除维护文档本身、临时目录和构建产物外，非 merge/rebase/cherry-pick 等上游同步期间 staged 的本地改动都会触发自动记录。
   - 已提交的代码改动仍依赖 Git merge/rebase 保留；脚本只做护栏，不替代人工冲突处理。
+  - `verify-after-upstream` 在当前 `frontend/node_modules/.bin/` 已安装时直接在 `frontend/` 中运行本地 `vitest` / `vite`；只有本地依赖缺失时才回退到 `pnpm`，避免网络重试改写锁文件或在仓库根目录留下构建缓存。
 - 线上非 Git 状态：
   - `reapply-production-state` 可恢复 `/opt/51token-home` 静态首页 logo/favicon 覆盖。
   - `favicon.ico` 会由当前 `frontend/public/logo.png` 重新生成，不直接复用可能过期的本地 ICO。
@@ -882,12 +883,14 @@ tools/fork-maintenance/fork-maintenance.sh verify-after-upstream --skip-build
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+cd backend && go test ./...
+cd frontend && ./node_modules/.bin/vue-tsc --noEmit && ./node_modules/.bin/vitest run
+git diff --check
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
 
 ### 2026-07-13: 自动记录本地改动
 
@@ -1006,12 +1009,14 @@ TODO: 填写验证命令
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+cd backend && go test ./...
+cd frontend && ./node_modules/.bin/vue-tsc --noEmit && ./node_modules/.bin/vitest run
+git diff --check
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
 
 ### 2026-07-16: 自动记录本地改动
 
@@ -1027,12 +1032,14 @@ TODO: 填写验证命令
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+cd backend && go test ./...
+cd frontend && ./node_modules/.bin/vue-tsc --noEmit && ./node_modules/.bin/vitest run
+git diff --check
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
 
 ### 2026-07-20: 自动记录本地改动
 
@@ -1231,12 +1238,14 @@ TODO: 填写验证命令
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+cd backend && go test ./...
+cd frontend && ./node_modules/.bin/vue-tsc --noEmit && ./node_modules/.bin/vitest run
+git diff --check
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
 
 ### 2026-07-21: 自动记录本地改动
 
@@ -1253,12 +1262,14 @@ TODO: 填写验证命令
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+cd backend && go test ./...
+cd frontend && ./node_modules/.bin/vue-tsc --noEmit && ./node_modules/.bin/vitest run
+git diff --check
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
 
 ### 2026-07-23: 自动记录本地改动
 
@@ -1291,12 +1302,14 @@ TODO: 填写验证命令
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+cd backend && go test ./...
+cd frontend && ./node_modules/.bin/vue-tsc --noEmit && ./node_modules/.bin/vitest run
+git diff --check
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
 
 ### 2026-07-25: 自动记录本地改动
 
@@ -1317,12 +1330,14 @@ TODO: 填写验证命令
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+cd backend && go test ./...
+cd frontend && ./node_modules/.bin/vue-tsc --noEmit && ./node_modules/.bin/vitest run
+git diff --check
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
 
 ### 2026-07-25: 账号管理进入页面自动刷新真实用量
 
@@ -1345,12 +1360,14 @@ TODO: 填写验证命令
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+cd backend && go test ./...
+cd frontend && ./node_modules/.bin/vue-tsc --noEmit && ./node_modules/.bin/vitest run
+git diff --check
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
 
 ### 2026-07-27: 自动记录本地改动
 
@@ -1383,12 +1400,14 @@ TODO: 填写验证命令
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+cd backend && go test ./...
+cd frontend && ./node_modules/.bin/vue-tsc --noEmit && ./node_modules/.bin/vitest run
+git diff --check
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
 
 ## 同步官方版本后的复查流程
 

@@ -351,20 +351,24 @@ def cmd_verify_after_upstream(args: argparse.Namespace) -> int:
         else:
             failures += 1
             print(f"[fail] {label}: pattern not found: {pattern} in {path}")
+    frontend_dir = ROOT / "frontend"
+    vitest = frontend_dir / "node_modules" / ".bin" / "vitest"
+    vite = frontend_dir / "node_modules" / ".bin" / "vite"
     test_cmds = []
+    vitest_cmd = [str(vitest)] if vitest.exists() else ["pnpm", "exec", "vitest"]
     favicon_spec = ROOT / "frontend" / "src" / "__tests__" / "app-favicon.spec.ts"
     if favicon_spec.exists():
-        test_cmds.append(["pnpm", "--dir", "frontend", "exec", "vitest", "run", "src/__tests__/app-favicon.spec.ts"])
+        test_cmds.append([*vitest_cmd, "run", "src/__tests__/app-favicon.spec.ts"])
     else:
         print("[skip] favicon test: frontend/src/__tests__/app-favicon.spec.ts not found")
     native_dialog_spec = ROOT / "frontend" / "src" / "components" / "common" / "__tests__" / "nativeDialogUsage.spec.ts"
     if native_dialog_spec.exists():
-        test_cmds.append(["pnpm", "--dir", "frontend", "exec", "vitest", "run", "src/components/common/__tests__/nativeDialogUsage.spec.ts"])
+        test_cmds.append([*vitest_cmd, "run", "src/components/common/__tests__/nativeDialogUsage.spec.ts"])
     if not args.skip_build:
-        test_cmds.append(["pnpm", "--dir", "frontend", "run", "build"])
+        test_cmds.append([str(vite), "build"] if vite.exists() else ["pnpm", "run", "build"])
     for cmd in test_cmds:
         print(f"[run] {' '.join(cmd)}")
-        proc = run(cmd, check=False, capture=False)
+        proc = run(cmd, cwd=frontend_dir, check=False, capture=False)
         if proc.returncode != 0:
             failures += 1
             print(f"[fail] {' '.join(cmd)}")
