@@ -86,6 +86,7 @@ func provideCleanup(
 	apiKeyService *service.APIKeyService,
 	authCacheInvalidationWorker *service.AuthCacheInvalidationWorker,
 	schedulerSnapshot *service.SchedulerSnapshotService,
+	accountPoolHealthNotify *service.AccountPoolHealthNotifyService,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
 	proxyExpiry *service.ProxyExpiryService,
@@ -201,6 +202,12 @@ func provideCleanup(
 			{"SchedulerSnapshotService", func() error {
 				if schedulerSnapshot != nil {
 					schedulerSnapshot.Stop()
+				}
+				return nil
+			}},
+			{"AccountPoolHealthNotifyService", func() error {
+				if accountPoolHealthNotify != nil {
+					accountPoolHealthNotify.Stop()
 				}
 				return nil
 			}},

@@ -32,6 +32,155 @@ VERIFY_SEARCHES = (
     ("fork record", "2026-05-31 线上 OAuth|favicon-20260531210858|bg-20260531", "docs/FORK_MAINTENANCE_CN.md"),
     ("account runtime-state refresh binding", '@runtime-state-updated="handleAccountRuntimeStateUpdated"', "frontend/src/views/admin/AccountsView.vue"),
     ("admin usage user notes mapping", "UserFromServiceAdmin\\(l\\.User\\)", "backend/internal/handler/dto/mappers.go"),
+    (
+        "reset-credit snapshot rehydration",
+        "JSON\\.stringify\\(props\\.account\\.extra\\?\\.codex_reset_credit_snapshot",
+        "frontend/src/components/account/OpenAIQuotaResetCell.vue",
+    ),
+    (
+        "partial-refund action matches backend",
+        "REFUNDABLE_STATUSES = \\['COMPLETED', 'REFUND_REQUESTED', 'REFUND_FAILED'\\]",
+        "frontend/src/components/payment/orderUtils.ts",
+    ),
+    (
+        "usage-log unsettled settlement condition",
+        "WHERE usage_logs\\.actual_cost = 0 AND EXCLUDED\\.actual_cost > 0",
+        "backend/internal/repository/usage_log_repo_insert.go",
+    ),
+    (
+        "positive usage settlement bypasses recent cache",
+        "ok && req\\.prepared\\.actualCost <= 0",
+        "backend/internal/repository/usage_log_repo_insert.go",
+    ),
+    (
+        "best-effort batch prefers settled usage",
+        "prepared\\.actualCost > 0 && group\\.prepared\\.actualCost <= 0",
+        "backend/internal/repository/usage_log_repo_insert.go",
+    ),
+    (
+        "usage-log settlement fallback",
+        "settlementWriter\\.CreateSettlement\\(fallbackCtx, usageLog\\)",
+        "backend/internal/service/gateway_usage_billing.go",
+    ),
+    (
+        "account-pool health notifier provider",
+        "ProvideAccountPoolHealthNotifyService",
+        "backend/internal/service/wire.go",
+    ),
+    (
+        "account-pool health notifier cleanup",
+        '\\{"AccountPoolHealthNotifyService", func\\(\\) error',
+        "backend/cmd/server/wire.go",
+    ),
+    (
+        "account action menu measured positioning",
+        'ref="menuContentRef"',
+        "frontend/src/components/admin/account/AccountActionMenu.vue",
+    ),
+    (
+        "user action menu measured positioning",
+        ':style="actionMenuStyle"',
+        "frontend/src/views/admin/UsersView.vue",
+    ),
+    (
+        "account tools viewport positioning",
+        ':style="accountToolsMenuStyle"',
+        "frontend/src/views/admin/AccountsView.vue",
+    ),
+    (
+        "test API origin health check",
+        "TEST_API_PUBLIC_HEALTH_URL",
+        "deploy/local-gzip-binary-deploy.sh",
+    ),
+    (
+        "ap1 API origin health check",
+        "AP1_API_PUBLIC_HEALTH_URL",
+        "deploy/local-gzip-binary-deploy.sh",
+    ),
+    (
+        "primary API origin health check",
+        "PRIMARY_API_PUBLIC_HEALTH_URL",
+        "deploy/local-gzip-binary-deploy.sh",
+    ),
+    (
+        "test production-state verification",
+        '127\\.0\\.0\\.1:8083/api/v1/settings/public',
+        "tools/fork-maintenance/fork_maintenance.py",
+    ),
+)
+
+VERIFY_OCCURRENCE_COUNTS = (
+    (
+        "group create web-search price control",
+        'v-model.number="createForm.web_search_price_per_call"',
+        "frontend/src/views/admin/GroupsView.vue",
+        1,
+    ),
+    (
+        "group edit web-search price control",
+        'v-model.number="editForm.web_search_price_per_call"',
+        "frontend/src/views/admin/GroupsView.vue",
+        1,
+    ),
+    (
+        "group reasoning policy controls",
+        "        <ReasoningEffortPolicyFields",
+        "frontend/src/views/admin/GroupsView.vue",
+        2,
+    ),
+    (
+        "shared group profit control",
+        't("admin.groups.profitControl.enable")',
+        "frontend/src/views/admin/GroupSharedConfigSections.vue",
+        1,
+    ),
+    (
+        "account synchronized-rate indicator",
+        'data-testid="account-rate-sync-indicator"',
+        "frontend/src/views/admin/AccountsView.vue",
+        1,
+    ),
+    (
+        "server-side account batch delete",
+        "adminAPI.accounts.batchDelete(accountIds)",
+        "frontend/src/views/admin/AccountsView.vue",
+        1,
+    ),
+    (
+        "custom home priority branch",
+        'v-if="hasHomeContent"',
+        "frontend/src/views/HomeView.vue",
+        1,
+    ),
+    (
+        "compact home priority branch",
+        'v-else-if="compactHomeEnabled"',
+        "frontend/src/views/HomeView.vue",
+        1,
+    ),
+)
+
+VERIFY_ORDERED_TEXT = (
+    (
+        "staged rollout mutates each environment only after the previous health gate",
+        "deploy/local-gzip-binary-deploy.sh",
+        (
+            "cp '$TEST_COMPOSE_DIR/.env'",
+            "curl -fsS '$TEST_API_PUBLIC_HEALTH_URL'",
+            "cp '$AP1_COMPOSE_DIR/docker-compose.yml'",
+            "curl -fsS '$AP1_API_PUBLIC_HEALTH_URL'",
+            "cp '$PRIMARY_COMPOSE_DIR/docker-compose.yml'",
+            "curl -fsS '$PRIMARY_API_PUBLIC_HEALTH_URL'",
+        ),
+    ),
+)
+
+VERIFY_FORBIDDEN_TEXT = (
+    (
+        "unfinished automatic fork-maintenance records",
+        "提交后请补充业务目的、验证结果和同步官方后的复查方式",
+        "docs/FORK_MAINTENANCE_CN.md",
+    ),
 )
 
 LOCAL_PATCH_RECORD_HEADING = "## 本地补丁记录"
@@ -351,6 +500,29 @@ def cmd_verify_after_upstream(args: argparse.Namespace) -> int:
         else:
             failures += 1
             print(f"[fail] {label}: pattern not found: {pattern} in {path}")
+    for label, needle, path, expected in VERIFY_OCCURRENCE_COUNTS:
+        source = (ROOT / path).read_text(encoding="utf-8")
+        actual = source.count(needle)
+        if actual == expected:
+            print(f"[ok] {label}: {actual}")
+        else:
+            failures += 1
+            print(f"[fail] {label}: expected {expected}, found {actual}: {needle} in {path}")
+    for label, path, needles in VERIFY_ORDERED_TEXT:
+        source = (ROOT / path).read_text(encoding="utf-8")
+        positions = [source.find(needle) for needle in needles]
+        if all(position >= 0 for position in positions) and positions == sorted(positions):
+            print(f"[ok] {label}")
+        else:
+            failures += 1
+            print(f"[fail] {label}: missing or out-of-order rollout markers in {path}")
+    for label, needle, path in VERIFY_FORBIDDEN_TEXT:
+        source = (ROOT / path).read_text(encoding="utf-8")
+        if needle not in source:
+            print(f"[ok] {label}")
+        else:
+            failures += 1
+            print(f"[fail] {label}: forbidden placeholder remains in {path}")
     frontend_dir = ROOT / "frontend"
     vitest = frontend_dir / "node_modules" / ".bin" / "vitest"
     vite = frontend_dir / "node_modules" / ".bin" / "vite"
@@ -515,6 +687,11 @@ done
 
     verify_cmd = f"""set -eu
 curl -fsS https://ai.upit.top/health
+curl -fsS https://api.upit.top/health
+curl -fsS https://a1.upit.top/health
+curl -fsS https://ap1.upit.top/health
+curl -fsS https://test.upit.top/health
+curl -fsS https://a2t.upit.top/health
 curl -k -fsS 'https://ai.upit.top/?v={version}' -o /tmp/fork-maintenance/home.html
 if grep -q 'favicon.ico\\|alternate icon' /tmp/fork-maintenance/home.html; then
   echo 'old favicon reference still present' >&2
@@ -523,6 +700,7 @@ fi
 grep -o '<link rel="[^"]*"[^>]*>' /tmp/fork-maintenance/home.html | grep -E 'icon|apple-touch'
 curl -fsS http://127.0.0.1:8081/api/v1/settings/public | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print("primary_docs", len(d.get("login_agreement_documents") or []), d.get("login_agreement_enabled"), d.get("login_agreement_mode"))'
 curl -fsS http://127.0.0.1:8082/api/v1/settings/public | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print("ap1_docs", len(d.get("login_agreement_documents") or []), d.get("login_agreement_enabled"), d.get("login_agreement_mode"))'
+curl -fsS http://127.0.0.1:8083/api/v1/settings/public | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print("test_docs", len(d.get("login_agreement_documents") or []), d.get("login_agreement_enabled"), d.get("login_agreement_mode"))'
 """
     remote(host, verify_cmd, apply=apply)
     return 0

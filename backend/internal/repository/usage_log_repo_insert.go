@@ -95,6 +95,66 @@ const (
 	usageLogBestEffortRecentTTL     = 30 * time.Second
 )
 
+// Billing failures intentionally leave actual_cost=0 placeholders. A later
+// successful settlement may upgrade that row, while settled rows stay immutable.
+const usageLogSettleUnsettledConflictClause = `
+		ON CONFLICT (request_id, api_key_id) DO UPDATE SET
+			account_id = EXCLUDED.account_id,
+			model = EXCLUDED.model,
+			requested_model = EXCLUDED.requested_model,
+			upstream_model = EXCLUDED.upstream_model,
+			group_id = EXCLUDED.group_id,
+			subscription_id = EXCLUDED.subscription_id,
+			input_tokens = EXCLUDED.input_tokens,
+			output_tokens = EXCLUDED.output_tokens,
+			cache_creation_tokens = EXCLUDED.cache_creation_tokens,
+			cache_read_tokens = EXCLUDED.cache_read_tokens,
+			cache_creation_5m_tokens = EXCLUDED.cache_creation_5m_tokens,
+			cache_creation_1h_tokens = EXCLUDED.cache_creation_1h_tokens,
+			image_output_tokens = EXCLUDED.image_output_tokens,
+			image_output_cost = EXCLUDED.image_output_cost,
+			image_input_tokens = EXCLUDED.image_input_tokens,
+			image_input_cost = EXCLUDED.image_input_cost,
+			input_cost = EXCLUDED.input_cost,
+			output_cost = EXCLUDED.output_cost,
+			cache_creation_cost = EXCLUDED.cache_creation_cost,
+			cache_read_cost = EXCLUDED.cache_read_cost,
+			total_cost = EXCLUDED.total_cost,
+			actual_cost = EXCLUDED.actual_cost,
+			rate_multiplier = EXCLUDED.rate_multiplier,
+			account_rate_multiplier = EXCLUDED.account_rate_multiplier,
+			billing_type = EXCLUDED.billing_type,
+			request_type = EXCLUDED.request_type,
+			stream = EXCLUDED.stream,
+			openai_ws_mode = EXCLUDED.openai_ws_mode,
+			duration_ms = EXCLUDED.duration_ms,
+			first_token_ms = EXCLUDED.first_token_ms,
+			user_agent = EXCLUDED.user_agent,
+			ip_address = EXCLUDED.ip_address,
+			image_count = EXCLUDED.image_count,
+			image_size = EXCLUDED.image_size,
+			image_input_size = EXCLUDED.image_input_size,
+			image_output_size = EXCLUDED.image_output_size,
+			image_size_source = EXCLUDED.image_size_source,
+			image_size_breakdown = EXCLUDED.image_size_breakdown,
+			video_count = EXCLUDED.video_count,
+			video_resolution = EXCLUDED.video_resolution,
+			video_duration_seconds = EXCLUDED.video_duration_seconds,
+			service_tier = EXCLUDED.service_tier,
+			reasoning_effort = EXCLUDED.reasoning_effort,
+			inbound_endpoint = EXCLUDED.inbound_endpoint,
+			upstream_endpoint = EXCLUDED.upstream_endpoint,
+			cache_ttl_overridden = EXCLUDED.cache_ttl_overridden,
+			long_context_billing_applied = EXCLUDED.long_context_billing_applied,
+			channel_id = EXCLUDED.channel_id,
+			model_mapping_chain = EXCLUDED.model_mapping_chain,
+			billing_tier = EXCLUDED.billing_tier,
+			billing_mode = EXCLUDED.billing_mode,
+			account_stats_cost = EXCLUDED.account_stats_cost,
+			session_id = EXCLUDED.session_id,
+			created_at = EXCLUDED.created_at
+		WHERE usage_logs.actual_cost = 0 AND EXCLUDED.actual_cost > 0`
+
 type usageLogCreateRequest struct {
 	log      *service.UsageLog
 	prepared usageLogInsertPrepared
@@ -116,6 +176,7 @@ type usageLogBestEffortRequest struct {
 type usageLogInsertPrepared struct {
 	createdAt      time.Time
 	requestID      string
+	actualCost     float64
 	rateMultiplier float64
 	requestType    int16
 	args           []any
@@ -167,12 +228,10 @@ func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.
 	}
 
 	if tx := dbent.TxFromContext(ctx); tx != nil {
-		_, err := r.createSingle(ctx, tx.Client(), log)
-		return err
+		return execUsageLogInsertNoResult(ctx, tx.Client(), prepareUsageLogInsert(log))
 	}
 	if r.db == nil {
-		_, err := r.createSingle(ctx, r.sql, log)
-		return err
+		return r.CreateSettlement(ctx, log)
 	}
 
 	r.ensureBestEffortBatcher()
@@ -186,7 +245,7 @@ func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.
 		apiKeyID: log.APIKeyID,
 		resultCh: make(chan error, 1),
 	}
-	if key, ok := r.bestEffortRecentKey(req.prepared.requestID, req.apiKeyID); ok {
+	if key, ok := r.bestEffortRecentKey(req.prepared.requestID, req.apiKeyID); ok && req.prepared.actualCost <= 0 {
 		if _, exists := r.bestEffortRecent.Get(key); exists {
 			return nil
 		}
@@ -207,6 +266,24 @@ func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.
 	case <-ctx.Done():
 		return service.MarkUsageLogCreateDropped(ctx.Err())
 	}
+}
+
+// CreateSettlement is the synchronous fallback for a charge that has already
+// succeeded. It must not reuse Create, whose inserted result controls billing.
+func (r *usageLogRepository) CreateSettlement(ctx context.Context, log *service.UsageLog) error {
+	if log == nil {
+		return nil
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return service.MarkUsageLogCreateNotPersisted(ctx.Err())
+	}
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		return execUsageLogInsertNoResult(ctx, tx.Client(), prepareUsageLogInsert(log))
+	}
+	if r == nil || r.sql == nil {
+		return service.MarkUsageLogCreateNotPersisted(errors.New("usage log SQL executor is unavailable"))
+	}
+	return execUsageLogInsertNoResult(ctx, r.sql, prepareUsageLogInsert(log))
 }
 
 func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor, log *service.UsageLog) (bool, error) {
@@ -555,10 +632,11 @@ func (r *usageLogRepository) flushBestEffortBatch(db *sql.DB, batch []usageLogBe
 	}
 
 	type bestEffortGroup struct {
-		prepared usageLogInsertPrepared
-		apiKeyID int64
-		key      string
-		reqs     []usageLogBestEffortRequest
+		prepared      usageLogInsertPrepared
+		preparedIndex int
+		apiKeyID      int64
+		key           string
+		reqs          []usageLogBestEffortRequest
 	}
 
 	groupsByKey := make(map[string]*bestEffortGroup, len(batch))
@@ -574,13 +652,17 @@ func (r *usageLogRepository) flushBestEffortBatch(db *sql.DB, batch []usageLogBe
 		group, exists := groupsByKey[key]
 		if !exists {
 			group = &bestEffortGroup{
-				prepared: prepared,
-				apiKeyID: req.apiKeyID,
-				key:      key,
+				prepared:      prepared,
+				preparedIndex: len(preparedList),
+				apiKeyID:      req.apiKeyID,
+				key:           key,
 			}
 			groupsByKey[key] = group
 			groupOrder = append(groupOrder, group)
 			preparedList = append(preparedList, prepared)
+		} else if prepared.actualCost > 0 && group.prepared.actualCost <= 0 {
+			group.prepared = prepared
+			preparedList[group.preparedIndex] = prepared
 		}
 		group.reqs = append(group.reqs, req)
 	}
@@ -1125,8 +1207,8 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			session_id,
 			created_at
 		FROM input
-		ON CONFLICT (request_id, api_key_id) DO NOTHING
 	`)
+	_, _ = query.WriteString(usageLogSettleUnsettledConflictClause)
 
 	return query.String(), args
 }
@@ -1199,8 +1281,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			$18, $19, $20, $21, $22, $23,
 			$24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57
 		)
-		ON CONFLICT (request_id, api_key_id) DO NOTHING
-	`, prepared.args...)
+	`+usageLogSettleUnsettledConflictClause, prepared.args...)
 	return err
 }
 
@@ -1253,6 +1334,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	return usageLogInsertPrepared{
 		createdAt:      createdAt,
 		requestID:      requestID,
+		actualCost:     log.ActualCost,
 		rateMultiplier: rateMultiplier,
 		requestType:    requestType,
 		args: []any{

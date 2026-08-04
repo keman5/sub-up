@@ -75,7 +75,7 @@ make fork-restore-dry-run
 # dry-run
 deploy/local-gzip-binary-deploy.sh
 
-# 执行构建、gzip 上传、远端原子解压、打镜像并滚动两个服务
+# 执行构建、gzip 上传、远端原子解压、打镜像并滚动 test、ap1、primary
 deploy/local-gzip-binary-deploy.sh --apply --deploy
 ```
 
@@ -114,7 +114,7 @@ tools/fork-maintenance/install-hooks.sh
 - 线上非 Git 状态：
   - `reapply-production-state` 可恢复 `/opt/51token-home` 静态首页 logo/favicon 覆盖。
   - `favicon.ico` 会由当前 `frontend/public/logo.png` 重新生成，不直接复用可能过期的本地 ICO。
-  - 可将 `tools/fork-maintenance/production-state/login-agreement.json` 中的登录条款写入共享 `sub2api-postgres` 内的 `sub2api`、`sub2api_ap1`、`sub2api_ap2` 数据库；`sub2api-ap1-postgres` 已在 2026-06-11 共享数据层迁移后废弃。
+  - 可将 `tools/fork-maintenance/production-state/login-agreement.json` 中的登录条款写入共享 `sub2api-postgres` 内的 `sub2api`、`sub2api_ap1`、`sub2api_test` 数据库；`sub2api-ap1-postgres` 已在 2026-06-11 共享数据层迁移后废弃。
   - 默认 dry-run；只有加 `--apply` 才会通过 SSH 修改远端。
 
 **2026-05-31 恢复测试结果：**
@@ -720,6 +720,7 @@ curl -k -sS -H 'Cache-Control: no-cache' 'https://ai.upit.top/?redeploy=20260601
 | --- | --- | --- |
 | 2026-06 | `docs/fork-maintenance/2026-06.md` | 2026-06-10 之后的本地补丁表格行、长篇专题记录、账号管理弹窗文案与 Compact 专属模型映射等明细。 |
 | 2026-07 | `docs/fork-maintenance/2026-07.md` | 上游拆分结构适配、部署拓扑、路由筛选同步、账号用量刷新及后续本地补丁明细。 |
+| 2026-08 | `docs/fork-maintenance/2026-08.md` | 上游同步冲突审计、分组表单重复控件修复，以及认证、OpenAI quota、reset-credit、退款状态和未结算 usage-log 兼容修复。 |
 
 ### 2026-07-06: 自动记录本地改动
 
@@ -749,12 +750,12 @@ tools/fork-maintenance/fork-maintenance.sh verify-after-upstream --skip-build
 - 同步官方后检查 `@runtime-state-updated="handleAccountRuntimeStateUpdated"`、`handleAccountRuntimeStateUpdated`、`UserFromServiceAdmin(l.User)` 和 `nativeDialogUsage.spec.ts`；账号实际用量查询成功后必须重新拉取当前行的运行态，且管理端备注不得出现在普通用户用量接口。
 - 两次复查必须同时覆盖主文档与 `docs/fork-maintenance/*.md`。只有上游提供等价的状态回写、管理员备注隔离和无原生弹窗保证，并由回归测试证明后，才可移除相应本地护栏。
 
-### 2026-07-13: 自动记录本地改动
+### 2026-07-13: 网关错误本地化与用户排行分项/备注恢复
 
-**自动记录：**
+**业务目的与预期行为：**
 
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 面向客户端的订阅、额度、余额、账号不可用和响应头超时错误必须按 `Accept-Language` 返回可操作文案；缺省语言保留英文并附中文说明，未知上游原文、协议 envelope 和流式 keepalive 不得被改写。
+- 普通管理员的用户排行必须按展示倍率返回输入、输出、缓存和总 Token，并显示管理员备注；超级管理员 raw 视图与实际计费保持原始值，普通用户接口不得泄露备注。
 
 **涉及文件：**
 
@@ -890,14 +891,14 @@ git diff --check
 
 **同步官方后的复查：**
 
-- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
+- 同步后检查 `ClientErrorMessageForAcceptLanguage`、`GetUserBreakdownStatsForView`、`users.notes` 和 `UserTokenRanking`。只有上游同时覆盖双语错误、未知错误透传、四类 Token 展示统计、管理员备注隔离及 raw 计费不变，并通过对应 handler/repository/frontend 测试时才可删除本地实现。
 
-### 2026-07-13: 自动记录本地改动
+### 2026-07-13: 上游同步冲突复核与重复计费控件防护
 
-**自动记录：**
+**业务目的与预期行为：**
 
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 本次提交的目的为同步上游并保留当时已登记的 fork 行为，不新增独立产品需求。合并必须以新上游结构为骨架，不能用旧文件整体覆盖并重复插入已有表单块。
+- 复查确认该提交曾把 Codex 网页搜索计费控件在创建和编辑表单中各复制一次，后续 first-parent 合并继续累积到各 6 处；当前已恢复为创建、编辑各 1 处，并由 occurrence-count 护栏阻止再次累积。共享图片/视频/利润配置也必须保持单一渲染入口。
 
 **涉及文件：**
 
@@ -1016,14 +1017,14 @@ git diff --check
 
 **同步官方后的复查：**
 
-- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
+- 同步后运行 `verify-after-upstream`，确认 `createForm.web_search_price_per_call` 与 `editForm.web_search_price_per_call` 各出现 1 次、reasoning 控件创建/编辑各 1 份、`GroupSharedConfigSections` 不被复制。上游只有在提供行为等价且同样有唯一渲染计数测试时才可替代这些护栏。
 
-### 2026-07-16: 自动记录本地改动
+### 2026-07-16: 订阅分配用户选择器清除按钮定位
 
-**自动记录：**
+**业务目的与预期行为：**
 
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 分配订阅弹窗展开用户搜索结果后，输入框清除按钮仍必须相对输入框垂直居中，不能因结果列表进入同一个 `relative` 容器而漂移到整块列表中部。
+- `data-assign-user-search` 继续包住输入和结果列表用于点击外部判断；只有输入与清除按钮的内层容器使用 `relative`，结果列表保持正常文档流和可滚动高度。
 
 **涉及文件：**
 
@@ -1039,14 +1040,14 @@ git diff --check
 
 **同步官方后的复查：**
 
-- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
+- 同步后检查 `data-assign-user-search` 下必须存在独立的输入框 `relative` 容器，并在分配弹窗展开结果时验证清除按钮仍锚定输入框。若上游改用统一 Combobox，只有同时保留搜索、清除、结果滚动和点击外部关闭行为时才算等价。
 
-### 2026-07-20: 自动记录本地改动
+### 2026-07-20: 上游同步与非 fork 接口兼容复核
 
-**自动记录：**
+**业务目的与预期行为：**
 
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 本节是一次大范围上游同步的文件清单，不单独创设新的 fork 产品需求。同步引入的环境可达性校验、图片存储、Codex 身份导入、Grok quota、备份、step-up、通知邮件和网关兼容实现必须保持上游语义并可完整编译。
+- 同步验收同时受本文件和 `docs/fork-maintenance/*.md` 中当时尚未废止的本地需求约束；Wire 必须从 provider 源文件重新生成，不能靠陈旧 `wire_gen.go` 掩盖依赖图错误。
 
 **涉及文件：**
 
@@ -1245,14 +1246,14 @@ git diff --check
 
 **同步官方后的复查：**
 
-- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
+- 后续同步重新比对上游父提交、运行 Wire 生成、完整后端测试、前端 typecheck/build 和非 fork 护栏。该同步清单本身无需由上游“替代”；只有对应月度需求明确废止或被上游逐项等价覆盖时，才能删除相关本地代码。
 
-### 2026-07-21: 自动记录本地改动
+### 2026-07-21: 账号分组选择器保留全选/清除
 
-**自动记录：**
+**业务目的与预期行为：**
 
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 创建和编辑账号时，管理员需要在筛选后的分组列表中一键全选或清除可见分组，避免逐项勾选；两个入口都必须显式向公共 `GroupSelector` 传入 `show-select-all=true`。
+- 全选只作用于当前筛选可见分组，不能清除已选择但当前不可见的其他分组；混合调度和平台过滤规则保持不变。
 
 **涉及文件：**
 
@@ -1269,14 +1270,14 @@ git diff --check
 
 **同步官方后的复查：**
 
-- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
+- 同步后检查 `CreateAccountModal.vue` 与 `EditAccountModal.vue` 均保留 `:show-select-all="true"`，并验证公共选择器按筛选结果切换全选/清除。上游若用新的分组选择组件，必须提供同等的筛选内批量选择且不破坏隐藏选择项。
 
-### 2026-07-23: 自动记录本地改动
+### 2026-07-23: 同步组合分组能力并保留 fork 行为
 
-**自动记录：**
+**业务目的与预期行为：**
 
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 合并上游组合分组、reasoning policy、Ollama Cloud 用量和新订阅字段时，Ent schema/生成代码、HTTP 路由、Wire 图和管理端账号响应必须来自同一版本，不能只恢复 UI 或只更新数据库字段。
+- 管理端账号列表/详情继续解析并回填 Ollama Cloud 用量状态；Grok prompt cache 优先使用 Claude Code 会话或显式 OpenAI 会话标识；本文件和月度记录中的展示倍率、Spark、配额接力、备注隔离等 fork 行为同时保留。
 
 **涉及文件：**
 
@@ -1309,14 +1310,14 @@ git diff --check
 
 **同步官方后的复查：**
 
-- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
+- 同步后必须重新生成 Ent（仅 schema 变化时）和 Wire，编译完整后端，并运行组合路由、Ollama Cloud、Grok cache identity 及非 fork 专项测试。只有上游的数据模型、API、状态回填和调度语义全部等价时，才可删除对应兼容代码。
 
-### 2026-07-25: 自动记录本地改动
+### 2026-07-25: 账号真实用量状态回写与非 fork 审计强化
 
-**自动记录：**
+**业务目的与预期行为：**
 
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 初次进入账号管理和用户显式刷新时，当前页账号会串行读取真实上游用量；成功刷新 quota 后必须把运行态事件回写父列表，不能只更新单元格而让异常状态继续滞留。
+- 非 fork 流程的两次复查必须覆盖月度明细、原生弹窗禁用、管理员备注隔离和状态回写入口；维护脚本只作静态护栏，不能替代逐项人工表。
 
 **涉及文件：**
 
@@ -1337,19 +1338,19 @@ git diff --check
 
 **同步官方后的复查：**
 
-- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
+- 同步后检查 `usageManualRefreshToken`、`runtime-state-updated`、`handleAccountRuntimeStateUpdated`、`nativeDialogUsage.spec.ts` 及两份独立审查表。只有上游同时实现主动真实用量刷新、合并式运行态回写且无原生弹窗回归时才算等价。
 
 ### 2026-07-25: 账号管理进入页面自动刷新真实用量
 
 - 初次进入账号管理及顶部刷新列表都会为当前页可查询账号串行读取真实上游用量窗口，OpenAI OAuth 先刷新 quota 快照再读取窗口；自动轮询不触发逐行上游请求。
 - 用量读取成功后合并刷新外层账号运行态，避免额度恢复后的异常状态滞留。完整说明、验证命令和同步复查点见 `docs/fork-maintenance/2026-07.md` 的 2026-07-25 记录。
 
-### 2026-07-27: 自动记录本地改动
+### 2026-07-27: 组合路由管理与用户搜索竞态兼容
 
-**自动记录：**
+**业务目的与预期行为：**
 
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 上游合并后的组合分组必须在管理端提供路由 CRUD、优先级、endpoint、目标平台和预览决策；普通分组行为不变，缺少 capability API 的旧后端应安全降级。
+- 用量筛选的异步用户搜索必须以递增 revision 丢弃旧请求结果，清空关键词时立即清空候选，避免慢响应覆盖较新的搜索；英文审计文案保持合法引号。
 
 **涉及文件：**
 
@@ -1367,14 +1368,14 @@ git diff --check
 
 **同步官方后的复查：**
 
-- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
+- 同步后检查 `userSearchSequence`、`getUserSearchRevision`、组合路由 CRUD/preview API 和 `composite` 平台入口，并运行 UsageView/GroupsView 相关测试。上游改用新搜索或路由组件时，仍须证明旧响应不会覆盖新查询且组合路由可完整管理。
 
-### 2026-07-27: 自动记录本地改动
+### 2026-07-27: 网关/通知链路兼容与账号池巡检生命周期
 
-**自动记录：**
+**业务目的与预期行为：**
 
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- OpenAI 模型路由、Spark 窗口、usage 落库和 passthrough 必须沿用合并后的拆分结构，同时保留套餐接力、Spark 不支持字段清理、raw 计费和客户端展示隔离。
+- 账号池全不可调度时每个故障周期只发送一次管理员告警，任一账号恢复后重置；服务必须由 Wire provider 启动并进入 server cleanup 停止。通知模板继续按收件人语言解析，缺少自定义翻译时允许回退到已自定义的默认模板。
 
 **涉及文件：**
 
@@ -1407,7 +1408,7 @@ git diff --check
 
 **同步官方后的复查：**
 
-- 逐一核对本节列出的入口与对应测试；仅当上游实现覆盖相同 API、状态回写和前端交互时，才删除重复本地补丁。
+- 同步后检查 `ProvideAccountPoolHealthNotifyService`、`AccountPoolHealthNotifyService` cleanup、`openai_model_router`、Spark quota/window 和通知模板 locale fallback，并运行对应 service/server 测试。仅保留服务文件或单元测试而没有生产 wiring 视为失败；上游必须覆盖完整启动、巡检、一次性告警、恢复重置和停止生命周期才算等价。
 
 ## 同步官方版本后的复查流程
 

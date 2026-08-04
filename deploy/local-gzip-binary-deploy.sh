@@ -19,6 +19,9 @@ TEST_HEALTH_URL="${TEST_HEALTH_URL:-http://127.0.0.1:8083/health}"
 PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-https://ai.upit.top/health}"
 AP1_PUBLIC_HEALTH_URL="${AP1_PUBLIC_HEALTH_URL:-https://a1.upit.top/health}"
 TEST_PUBLIC_HEALTH_URL="${TEST_PUBLIC_HEALTH_URL:-https://test.upit.top/health}"
+PRIMARY_API_PUBLIC_HEALTH_URL="${PRIMARY_API_PUBLIC_HEALTH_URL:-https://api.upit.top/health}"
+AP1_API_PUBLIC_HEALTH_URL="${AP1_API_PUBLIC_HEALTH_URL:-https://ap1.upit.top/health}"
+TEST_API_PUBLIC_HEALTH_URL="${TEST_API_PUBLIC_HEALTH_URL:-https://a2t.upit.top/health}"
 OUTPUT="${OUTPUT:-/tmp/sub2api-build-output/sub2api}"
 BASE_IMAGE="${BASE_IMAGE:-}"
 IMAGE_TAG="${IMAGE_TAG:-}"
@@ -58,6 +61,8 @@ Environment overrides:
   SERVICE_NAME, TEST_SERVICE_NAME, PRIMARY_CONTAINER, AP1_CONTAINER,
   TEST_CONTAINER, PRIMARY_HEALTH_URL, AP1_HEALTH_URL, TEST_HEALTH_URL,
   PUBLIC_HEALTH_URL, AP1_PUBLIC_HEALTH_URL, TEST_PUBLIC_HEALTH_URL,
+  PRIMARY_API_PUBLIC_HEALTH_URL, AP1_API_PUBLIC_HEALTH_URL,
+  TEST_API_PUBLIC_HEALTH_URL,
   BASE_IMAGE, IMAGE_TAG, VERSION, TAG_SUFFIX, OUTPUT, UPLOAD_CHUNK_SIZE
 
 Compatibility:
@@ -279,28 +284,9 @@ EOF
 docker build -f '$REMOTE_DIR/Dockerfile.replace-binary' -t '$IMAGE_TAG' '$REMOTE_DIR'"
 }
 
-update_compose_image() {
-  [[ "$DEPLOY" -eq 1 ]] || return 0
-  [[ "$SKIP_IMAGE" -eq 0 ]] || die "--deploy cannot be used with --skip-image-build"
-  ssh_run "set -eu
-TS=\$(date +%Y%m%d%H%M%S)
-for f in '$PRIMARY_COMPOSE_DIR/docker-compose.yml' '$AP1_COMPOSE_DIR/docker-compose.yml'; do
-  cp \"\$f\" \"\$f.bak-gzip-\$TS\"
-  sed -i -E '0,/image: sub2api:subapi-/s#image: sub2api:subapi-[^[:space:]]+#image: $IMAGE_TAG#' \"\$f\"
-done
-cp '$TEST_COMPOSE_DIR/.env' '$TEST_COMPOSE_DIR/.env.bak-gzip-'\$TS
-cp '$TEST_COMPOSE_DIR/docker-compose.yml' '$TEST_COMPOSE_DIR/docker-compose.yml.bak-gzip-'\$TS
-if grep -q '^IMAGE_TAG=' '$TEST_COMPOSE_DIR/.env'; then
-  sed -i 's#^IMAGE_TAG=.*#IMAGE_TAG=$IMAGE_TAG#' '$TEST_COMPOSE_DIR/.env'
-else
-  printf '\\nIMAGE_TAG=%s\\n' '$IMAGE_TAG' >> '$TEST_COMPOSE_DIR/.env'
-fi
-grep -R '^ *image:' '$PRIMARY_COMPOSE_DIR/docker-compose.yml' '$AP1_COMPOSE_DIR/docker-compose.yml'
-grep '^IMAGE_TAG=' '$TEST_COMPOSE_DIR/.env'"
-}
-
 rollout() {
   [[ "$DEPLOY" -eq 1 ]] || return 0
+  [[ "$SKIP_IMAGE" -eq 0 ]] || die "--deploy cannot be used with --skip-image-build"
   ssh_run "set -eu
 wait_healthy() {
   container=\"\$1\"
@@ -312,21 +298,43 @@ wait_healthy() {
   done
   return 1
 }
+
+TS=\$(date +%Y%m%d%H%M%S)
+
+cp '$TEST_COMPOSE_DIR/.env' '$TEST_COMPOSE_DIR/.env.bak-gzip-'\$TS
+cp '$TEST_COMPOSE_DIR/docker-compose.yml' '$TEST_COMPOSE_DIR/docker-compose.yml.bak-gzip-'\$TS
+if grep -q '^IMAGE_TAG=' '$TEST_COMPOSE_DIR/.env'; then
+  sed -i 's#^IMAGE_TAG=.*#IMAGE_TAG=$IMAGE_TAG#' '$TEST_COMPOSE_DIR/.env'
+else
+  printf '\\nIMAGE_TAG=%s\\n' '$IMAGE_TAG' >> '$TEST_COMPOSE_DIR/.env'
+fi
+grep '^IMAGE_TAG=' '$TEST_COMPOSE_DIR/.env'
 cd '$TEST_COMPOSE_DIR'
 docker compose up -d '$TEST_SERVICE_NAME'
 wait_healthy '$TEST_CONTAINER'
 curl -fsS '$TEST_HEALTH_URL'
 curl -fsS '$TEST_PUBLIC_HEALTH_URL'
+curl -fsS '$TEST_API_PUBLIC_HEALTH_URL'
+
+cp '$AP1_COMPOSE_DIR/docker-compose.yml' '$AP1_COMPOSE_DIR/docker-compose.yml.bak-gzip-'\$TS
+sed -i -E '0,/image: sub2api:subapi-/s#image: sub2api:subapi-[^[:space:]]+#image: $IMAGE_TAG#' '$AP1_COMPOSE_DIR/docker-compose.yml'
+grep '^ *image:' '$AP1_COMPOSE_DIR/docker-compose.yml'
 cd '$AP1_COMPOSE_DIR'
 docker compose up -d '$SERVICE_NAME'
 wait_healthy '$AP1_CONTAINER'
 curl -fsS '$AP1_HEALTH_URL'
 curl -fsS '$AP1_PUBLIC_HEALTH_URL'
+curl -fsS '$AP1_API_PUBLIC_HEALTH_URL'
+
+cp '$PRIMARY_COMPOSE_DIR/docker-compose.yml' '$PRIMARY_COMPOSE_DIR/docker-compose.yml.bak-gzip-'\$TS
+sed -i -E '0,/image: sub2api:subapi-/s#image: sub2api:subapi-[^[:space:]]+#image: $IMAGE_TAG#' '$PRIMARY_COMPOSE_DIR/docker-compose.yml'
+grep '^ *image:' '$PRIMARY_COMPOSE_DIR/docker-compose.yml'
 cd '$PRIMARY_COMPOSE_DIR'
 docker compose up -d '$SERVICE_NAME'
 wait_healthy '$PRIMARY_CONTAINER'
 curl -fsS '$PRIMARY_HEALTH_URL'
-curl -fsS '$PUBLIC_HEALTH_URL'"
+curl -fsS '$PUBLIC_HEALTH_URL'
+curl -fsS '$PRIMARY_API_PUBLIC_HEALTH_URL'"
 }
 
 main() {
@@ -339,7 +347,6 @@ main() {
   show_size_plan
   upload_gzip
   build_remote_image
-  update_compose_image
   rollout
 }
 

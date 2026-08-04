@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import AccountActionMenu from '../AccountActionMenu.vue'
 import type { Account } from '@/types'
 
@@ -48,7 +48,61 @@ const position = { top: 100, left: 100 }
 const getBodyText = () => document.body.textContent ?? ''
 const getBodyButtons = () => Array.from(document.body.querySelectorAll('button'))
 
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  document.body.innerHTML = ''
+})
+
 describe('AccountActionMenu — spark shadow 按钮可见性', () => {
+
+  it('按真实高度夹紧到短视口并允许滚动', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      if ((this as HTMLElement).classList.contains('action-menu-content')) {
+        return {
+          top: 300,
+          right: 308,
+          bottom: 1000,
+          left: 100,
+          width: 208,
+          height: 700,
+          x: 100,
+          y: 300,
+          toJSON: () => ({})
+        }
+      }
+      return {
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        width: 0,
+        height: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({})
+      }
+    })
+    vi.stubGlobal('innerWidth', 390)
+    vi.stubGlobal('innerHeight', 360)
+
+    const wrapper = mount(AccountActionMenu, {
+      props: {
+        show: true,
+        account: makeAccount({ platform: 'openai', type: 'oauth' }),
+        position: { top: 300, left: 100 }
+      },
+      attachTo: document.body
+    })
+
+    await flushPromises()
+    const menu = document.body.querySelector<HTMLElement>('.action-menu-content')
+    expect(menu?.style.top).toBe('8px')
+    expect(menu?.style.maxHeight).toBe('344px')
+    expect(menu?.style.overflowY).toBe('auto')
+    wrapper.unmount()
+  })
+
   it('普通账号显示「复制账号」按钮', () => {
     const account = makeAccount({ platform: 'anthropic', type: 'apikey', parent_account_id: null })
     const wrapper = mount(AccountActionMenu, {

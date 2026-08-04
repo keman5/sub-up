@@ -264,6 +264,55 @@
     </div>
   </div>
 
+  <div v-if="isProfitControlPlatform(form.platform)" class="border-t pt-4">
+    <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+      <input
+        v-model="form.profit_control_enabled"
+        type="checkbox"
+        class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+      />
+      <span>{{ t("admin.groups.profitControl.enable") }}</span>
+    </label>
+    <p class="mb-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+      {{
+        form.profit_control_enabled
+          ? t("admin.groups.profitControl.enabledHint")
+          : t("admin.groups.profitControl.disabledHint")
+      }}
+    </p>
+    <div
+      v-if="form.profit_control_enabled"
+      class="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2"
+    >
+      <div>
+        <label class="input-label">{{ t("admin.groups.profitControl.minMargin") }}</label>
+        <input
+          v-model.number="form.profit_min_margin_percent"
+          type="number"
+          step="0.1"
+          min="0"
+          max="99.99"
+          class="input"
+          placeholder="0"
+          :title="t('admin.groups.profitControl.minMarginHint')"
+        />
+      </div>
+      <div>
+        <label class="input-label">{{ t("admin.groups.profitControl.safetyBuffer") }}</label>
+        <input
+          v-model.number="form.profit_safety_buffer_percent"
+          type="number"
+          step="0.1"
+          min="0"
+          max="99.99"
+          class="input"
+          placeholder="0"
+          :title="t('admin.groups.profitControl.safetyBufferHint')"
+        />
+      </div>
+    </div>
+  </div>
+
   <!-- 支持的模型系列（仅 antigravity 平台） -->
   <div v-if="form.platform === 'antigravity'" class="border-t pt-4">
     <div class="mb-1.5 flex items-center gap-1">
@@ -430,6 +479,7 @@ import {
   supportsImagePricingPlatform,
   supportsVideoPricingPlatform,
 } from "./groupsImagePricing";
+import { isProfitControlPlatform } from "./groupsProfitControl";
 
 type ImageFinalPricePreviewItem = {
   label: string;
@@ -462,6 +512,9 @@ export type GroupSharedConfigForm = {
   peak_start: string;
   peak_end: string;
   peak_rate_multiplier: number;
+  profit_control_enabled: boolean;
+  profit_min_margin_percent: number | string | null;
+  profit_safety_buffer_percent: number | string | null;
   supported_model_scopes: string[];
   mcp_xml_inject: boolean;
   claude_code_only: boolean;

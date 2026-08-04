@@ -63,12 +63,9 @@
               </div>
 
               <!-- More Tools Dropdown -->
-              <div class="relative" ref="accountToolsDropdownRef">
+              <div ref="accountToolsDropdownRef">
                 <button
-                  @click="
-                    showAccountToolsDropdown = !showAccountToolsDropdown;
-                    showAutoRefreshDropdown = false
-                  "
+                  @click="toggleAccountToolsDropdown"
                   class="btn btn-secondary px-2 md:px-3"
                   :title="t('admin.accounts.moreActions')"
                 >
@@ -78,7 +75,9 @@
                 </button>
                 <div
                   v-if="showAccountToolsDropdown"
-                  class="absolute right-0 z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] origin-top-right overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-dark-700 dark:bg-dark-800"
+                  ref="accountToolsMenuRef"
+                  class="fixed z-50 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-dark-700 dark:bg-dark-800"
+                  :style="accountToolsMenuStyle"
                 >
                   <div class="max-h-[70vh] overflow-y-auto p-2">
                     <div class="px-2 py-2">
@@ -316,6 +315,7 @@
               :today-stats-loading="todayStatsLoading"
               :manual-refresh-token="usageManualRefreshToken"
               @runtime-state-updated="handleAccountRuntimeStateUpdated"
+              @account-updated="handleAccountUpdated"
             />
           </template>
           <template #cell-proxy="{ row }">
@@ -340,8 +340,17 @@
             </div>
           </template>
           <template #cell-rate_multiplier="{ row }">
-            <span class="text-sm font-mono text-gray-700 dark:text-gray-300">
-              {{ (row.rate_multiplier ?? 1).toFixed(2) }}x
+            <span class="inline-flex items-center gap-1 text-sm font-mono text-gray-700 dark:text-gray-300">
+              <span>{{ formatMultiplier(row.rate_multiplier ?? 1) }}x</span>
+              <span
+                v-if="row.extra?.upstream_billing_rate_sync_enabled === true"
+                class="inline-flex cursor-help text-emerald-600 dark:text-emerald-400"
+                :aria-label="t('admin.accounts.upstreamBilling.syncedRateTooltip')"
+                :title="t('admin.accounts.upstreamBilling.syncedRateTooltip')"
+                data-testid="account-rate-sync-indicator"
+              >
+                <Icon name="sync" size="xs" />
+              </span>
             </span>
           </template>
           <template #header-upstream_billing_rate="{ column }">
@@ -469,7 +478,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, nextTick, onMounted, onUnmounted, toRaw, watch } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted, toRaw, watch, type CSSProperties } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -480,6 +489,7 @@ import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/us
 import { useTableSelection } from '@/composables/useTableSelection'
 import { useAppDialog } from '@/composables/useAppDialog'
 import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
+import { clampFloatingMenuPosition, getActionMenuPosition } from '@/utils/floatingMenuPosition'
 import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -511,6 +521,7 @@ import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfil
 import { fetchAllAccountIds } from '@/utils/accountSelection'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
+import { formatMultiplier } from '@/utils/formatters'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
@@ -602,6 +613,20 @@ useIntervalFn(() => { upstreamBillingNow.value = Date.now() }, 60_000)
 // Account tools dropdown
 const showAccountToolsDropdown = ref(false)
 const accountToolsDropdownRef = ref<HTMLElement | null>(null)
+const accountToolsMenuRef = ref<HTMLElement | null>(null)
+const accountToolsTriggerRef = ref<HTMLElement | null>(null)
+const accountToolsMenuPosition = ref<{ top: number; left: number; maxHeight: number } | null>(null)
+const accountToolsMenuStyle = computed<CSSProperties>(() => {
+  const position = accountToolsMenuPosition.value
+  if (!position) return {}
+
+  return {
+    top: `${position.top}px`,
+    left: `${position.left}px`,
+    maxHeight: `${position.maxHeight}px`,
+    overflowY: 'auto'
+  }
+})
 const hiddenColumns = reactive<Set<string>>(new Set())
 const DEFAULT_HIDDEN_COLUMNS = [
   'proxy',
@@ -1268,6 +1293,55 @@ const loadUpstreamBillingProbeGlobalState = async () => {
 
 const closeAccountToolsDropdown = () => {
   showAccountToolsDropdown.value = false
+  accountToolsMenuPosition.value = null
+  accountToolsTriggerRef.value = null
+}
+
+const adjustAccountToolsMenuPosition = () => {
+  if (!showAccountToolsDropdown.value || !accountToolsTriggerRef.value) return
+
+  nextTick(() => {
+    const triggerRect = accountToolsTriggerRef.value?.getBoundingClientRect()
+    const menuRect = accountToolsMenuRef.value?.getBoundingClientRect()
+    if (!triggerRect || !menuRect) return
+
+    const viewport = { width: window.innerWidth, height: window.innerHeight }
+    const padding = 8
+    let top = triggerRect.bottom + 8
+    if (top + menuRect.height > viewport.height - padding) {
+      top = triggerRect.top - menuRect.height - 8
+    }
+
+    accountToolsMenuPosition.value = clampFloatingMenuPosition(
+      { top, left: triggerRect.right - menuRect.width },
+      { width: menuRect.width, height: menuRect.height },
+      viewport,
+      padding
+    )
+  })
+}
+
+const toggleAccountToolsDropdown = (event: MouseEvent) => {
+  if (showAccountToolsDropdown.value) {
+    closeAccountToolsDropdown()
+    return
+  }
+
+  const trigger = event.currentTarget as HTMLElement | null
+  if (!trigger) return
+
+  showAutoRefreshDropdown.value = false
+  accountToolsTriggerRef.value = trigger
+  const triggerRect = trigger.getBoundingClientRect()
+  const viewport = { width: window.innerWidth, height: window.innerHeight }
+  const estimatedWidth = Math.min(320, Math.max(0, viewport.width - 16))
+  accountToolsMenuPosition.value = clampFloatingMenuPosition(
+    { top: triggerRect.bottom + 8, left: triggerRect.right - estimatedWidth },
+    { width: estimatedWidth, height: 0 },
+    viewport
+  )
+  showAccountToolsDropdown.value = true
+  adjustAccountToolsMenuPosition()
 }
 
 const openSyncFromCrs = () => {
@@ -1497,50 +1571,16 @@ const openMenu = (a: Account, e: MouseEvent) => {
   menu.acc = a
 
   const target = e.currentTarget as HTMLElement
-  if (target) {
-    const rect = target.getBoundingClientRect()
-    const menuWidth = 200
-    const menuHeight = 240
-    const padding = 8
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
+  const rect = target?.getBoundingClientRect()
+  const position = getActionMenuPosition({
+    triggerRect: rect ?? { top: e.clientY, right: e.clientX, bottom: e.clientY, left: e.clientX, width: 0 },
+    pointerX: e.clientX,
+    pointerY: e.clientY,
+    menuSize: { width: 208, height: 240 },
+    viewport: { width: window.innerWidth, height: window.innerHeight }
+  })
 
-    let left: number
-    let top: number
-
-    if (viewportWidth < 768) {
-      // 居中显示,水平位置
-      left = Math.max(padding, Math.min(
-        rect.left + rect.width / 2 - menuWidth / 2,
-        viewportWidth - menuWidth - padding
-      ))
-
-      // 优先显示在按钮下方
-      top = rect.bottom + 4
-
-      // 如果下方空间不够,显示在上方
-      if (top + menuHeight > viewportHeight - padding) {
-        top = rect.top - menuHeight - 4
-        // 如果上方也不够,就贴在视口顶部
-        if (top < padding) {
-          top = padding
-        }
-      }
-    } else {
-      left = Math.max(padding, Math.min(
-        e.clientX - menuWidth,
-        viewportWidth - menuWidth - padding
-      ))
-      top = e.clientY
-      if (top + menuHeight > viewportHeight - padding) {
-        top = viewportHeight - menuHeight - padding
-      }
-    }
-
-    menu.pos = { top, left }
-  } else {
-    menu.pos = { top: e.clientY, left: e.clientX - 200 }
-  }
+  menu.pos = { top: position.top, left: position.left }
 
   menu.show = true
 }
@@ -1555,12 +1595,23 @@ const handleBulkDelete = async () => {
     confirmText: t('admin.accounts.bulkActions.delete'),
     danger: true,
   }))) return
+  const accountIds = [...selIds.value]
   try {
-    await Promise.all(selIds.value.map(id => adminAPI.accounts.delete(id)))
-    clearSelection()
-    reload()
+    const result = await adminAPI.accounts.batchDelete(accountIds)
+    if (result.failed > 0) {
+      appStore.showError(t('admin.accounts.bulkActions.partialSuccess', {
+        success: result.success,
+        failed: result.failed
+      }))
+      setSelectedIds(result.failed_ids?.length ? result.failed_ids : accountIds)
+    } else {
+      appStore.showSuccess(t('admin.accounts.bulkActions.deleteSuccess', { count: result.success }))
+      clearSelection()
+    }
+    await reload()
   } catch (error) {
     console.error('Failed to bulk delete accounts:', error)
+    appStore.showError(String(error))
   }
 }
 const handleBulkResetStatus = async () => {
@@ -2178,6 +2229,7 @@ const proxyExpiryText = (p: AccountProxy): string => {
 // 滚动时关闭操作菜单（不关闭列设置下拉菜单）
 const handleScroll = () => {
   menu.show = false
+  adjustAccountToolsMenuPosition()
 }
 
 // 点击外部关闭顶部下拉菜单
@@ -2209,6 +2261,7 @@ onMounted(async () => {
     console.error('Failed to load proxies/groups:', error)
   }
   window.addEventListener('scroll', handleScroll, true)
+  window.addEventListener('resize', adjustAccountToolsMenuPosition)
   document.addEventListener('click', handleClickOutside)
 
   if (autoRefreshEnabled.value) {
@@ -2221,6 +2274,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll, true)
+  window.removeEventListener('resize', adjustAccountToolsMenuPosition)
   document.removeEventListener('click', handleClickOutside)
 })
 </script>

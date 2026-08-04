@@ -151,10 +151,10 @@ deploy/local-gzip-binary-deploy.sh --apply --deploy --skip-frontend-build
 - gzip 上传后远端先拼接并 `gzip -t` 校验，再解压。
 - 默认分块大小为 `UPLOAD_CHUNK_SIZE=1m`，可按链路情况覆盖。
 - 解压到 `sub2api.<timestamp>.tmp`，校验权限后再 `mv` 覆盖正式二进制。
-- compose/env 更新前会备份为 `docker-compose.yml.bak-gzip-<timestamp>` / `.env.bak-gzip-<timestamp>`。
-- `--deploy` 默认更新三套线上后端环境：先更新 `sub2api-test`，确认 healthy 后更新 `sub2api-ap1`，最后更新 `sub2api`。
+- 每套 compose/env 只在轮到该环境时备份为 `docker-compose.yml.bak-gzip-<timestamp>` / `.env.bak-gzip-<timestamp>`；test 门禁失败时不得提前修改 ap1/primary 配置。
+- `--deploy` 默认更新三套线上后端环境：先更新 `sub2api-test`，确认容器、本机端口、`test.upit.top` 与 `a2t.upit.top` 后再更新 `sub2api-ap1`；确认 `a1.upit.top` 与 `ap1.upit.top` 后才更新 `sub2api`。
 - primary/ap1 通过 compose `image:` 切换镜像；test 通过 `/opt/sub2api-test-deploy/.env` 的 `IMAGE_TAG` 切换镜像。
-- 最后验证 test、ap1、primary 和公开 `/health`。
+- 最后验证 test、ap1、primary 容器与本机端口，并检查 `test/a2t`、`a1/ap1`、`ai/api` 六个公开 `/health`。
 
 ### 3.2 动态模型路由上线核对
 
