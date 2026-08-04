@@ -85,6 +85,9 @@ func (r *fallbackSubRepo) GetByID(_ context.Context, id int64) (*service.UserSub
 	}
 	return nil, service.ErrSubscriptionNotFound
 }
+func (r *fallbackSubRepo) GetByIDForUpdate(ctx context.Context, id int64) (*service.UserSubscription, error) {
+	return r.GetByID(ctx, id)
+}
 func (r *fallbackSubRepo) GetByIDIncludeDeleted(ctx context.Context, id int64) (*service.UserSubscription, error) {
 	return r.GetByID(ctx, id)
 }
