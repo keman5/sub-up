@@ -79,6 +79,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
 		return
 	}
+	reqModel, body = applyGroupModelPolicyToBody(apiKey.Group, reqModel, body)
 	if cappedBody, changed := applyOpenAIReasoningEffortPolicyForRequest(c, apiKey, body); changed {
 		body = cappedBody
 	}
@@ -133,6 +134,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	if !billingOK {
 		return
 	}
+	reqModel, body = applyGroupModelPolicyToBody(apiKey.Group, reqModel, body)
+	requestPlatform = openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
+	channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	setOpsRequestContext(c, reqModel, reqStream)
 
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)

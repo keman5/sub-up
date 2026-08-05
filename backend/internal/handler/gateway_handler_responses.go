@@ -80,10 +80,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by composite groups")
 		return
 	}
-	if policyModel, forced := service.ResolveGroupModelPolicyModel(apiKey.Group, reqModel); forced {
-		reqModel = policyModel
-		body = h.gatewayService.ReplaceModelInBody(body, policyModel)
-	}
+	reqModel, body = applyGroupModelPolicyToBody(apiKey.Group, reqModel, body)
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
 		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)

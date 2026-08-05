@@ -126,3 +126,26 @@ func TestBillingErrorDetails_T10_QuotaExhaustedReturns429WithRetryAfter(t *testi
 		})
 	}
 }
+
+func TestBillingErrorDetails_SubscriptionQuotaExhaustedReturns429WithRealReason(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		part string
+	}{
+		{"daily", service.ErrDailyLimitExceeded, "daily"},
+		{"weekly", service.ErrWeeklyLimitExceeded, "weekly"},
+		{"monthly", service.ErrMonthlyLimitExceeded, "monthly"},
+		{"total", service.ErrTotalLimitExceeded, "total"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			status, code, message, retryAfter := billingErrorDetails(tc.err)
+			require.Equal(t, http.StatusTooManyRequests, status)
+			require.Equal(t, "rate_limit_exceeded", code)
+			require.Contains(t, message, tc.part)
+			require.Equal(t, 60, retryAfter, "subscription errors without reset metadata use the bounded fallback")
+		})
+	}
+}

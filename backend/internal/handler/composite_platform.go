@@ -59,6 +59,17 @@ func effectiveAPIKeyPlatform(c *gin.Context, apiKey *service.APIKey) string {
 	return apiKey.Group.Platform
 }
 
+// applyGroupModelPolicyToBody applies the effective group's model policy to
+// both the routing model and the JSON sent upstream. It is also called after
+// quota fallback, because fallback replaces the active group after parsing.
+func applyGroupModelPolicyToBody(group *service.Group, requestedModel string, body []byte) (string, []byte) {
+	policyModel, forced := service.ResolveGroupModelPolicyModel(group, requestedModel)
+	if !forced {
+		return requestedModel, body
+	}
+	return policyModel, service.ReplaceModelInBody(body, policyModel)
+}
+
 func openAIReasoningEffortPolicyForRequest(c *gin.Context, apiKey *service.APIKey) (string, []service.ReasoningEffortMapping, bool) {
 	if apiKey == nil || apiKey.Group == nil {
 		return "", nil, false

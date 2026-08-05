@@ -192,6 +192,8 @@ func TestEnforceBillingEligibilityWithFallback_AppliesQuotaFallback(t *testing.T
 		Hydrated:         true,
 		SubscriptionType: service.SubscriptionTypeSubscription,
 		DailyLimitUSD:    ptrFloat64(100),
+		ModelPolicyMode:  service.GroupModelPolicyModeForce,
+		ModelPolicyModel: "gpt-5.3-codex-spark",
 	}
 
 	subscriptionRepo := &fallbackSubRepo{subscriptions: map[string]*service.UserSubscription{}}
@@ -260,6 +262,9 @@ func TestEnforceBillingEligibilityWithFallback_AppliesQuotaFallback(t *testing.T
 	require.Equal(t, int64(22), activeSub.ID)
 	require.NotNil(t, activeAPIKey)
 	require.Equal(t, fallbackGroupID, *activeAPIKey.GroupID)
+	model, body := applyGroupModelPolicyToBody(activeAPIKey.Group, "gpt-5.5", []byte(`{"model":"gpt-5.5"}`))
+	require.Equal(t, "gpt-5.3-codex-spark", model)
+	require.JSONEq(t, `{"model":"gpt-5.3-codex-spark"}`, string(body))
 	groupFromCtx, ok := ctx.Request.Context().Value(ctxkey.Group).(*service.Group)
 	require.True(t, ok)
 	require.Equal(t, fallbackGroupID, groupFromCtx.ID)
@@ -333,6 +338,8 @@ func TestEnforceBillingEligibilityWithFallback_WithoutUsableFallbackRejects(t *t
 
 	calledHandle := false
 	gotStatus := 0
+	gotCode := ""
+	gotMessage := ""
 	activeSub, activeAPIKey, ok := h.enforceBillingEligibilityWithFallback(
 		testOpenAIContext(http.MethodPost, "/openai/v1/chat/completions"),
 		apiKey,
@@ -343,12 +350,16 @@ func TestEnforceBillingEligibilityWithFallback_WithoutUsableFallbackRejects(t *t
 		func(_ *gin.Context, status int, code, message string, _ bool) {
 			calledHandle = true
 			gotStatus = status
+			gotCode = code
+			gotMessage = message
 		},
 	)
 
 	require.False(t, ok)
 	require.True(t, calledHandle)
-	require.Equal(t, http.StatusForbidden, gotStatus)
+	require.Equal(t, http.StatusTooManyRequests, gotStatus)
+	require.Equal(t, "rate_limit_exceeded", gotCode)
+	require.Contains(t, gotMessage, "usage limit exceeded")
 	require.Equal(t, sourceSub, activeSub)
 	require.Equal(t, apiKey, activeAPIKey)
 }

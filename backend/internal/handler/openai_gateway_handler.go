@@ -403,6 +403,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
 		return
 	}
+	reqModel, body = applyGroupModelPolicyToBody(apiKey.Group, reqModel, body)
 	if cappedBody, changed := applyOpenAIReasoningEffortPolicyForRequest(c, apiKey, body); changed {
 		body = cappedBody
 	}
@@ -502,6 +503,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	if !billingOK {
 		return
 	}
+	// Quota fallback replaces the active group after request parsing. Apply
+	// the final group's model policy before account selection and forwarding.
+	reqModel, body = applyGroupModelPolicyToBody(apiKey.Group, reqModel, body)
+	requestPlatform = openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
+	channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	forwardBody = openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
+	setOpsRequestContext(c, reqModel, reqStream)
 
 	// Generate session hash (header first; fallback to prompt_cache_key)
 	sessionHash := h.gatewayService.GenerateSessionHash(c, sessionHashBody)
@@ -1037,6 +1045,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
 		return
 	}
+	reqModel, body = applyGroupModelPolicyToBody(apiKey.Group, reqModel, body)
 	bindOpenAIReasoningEffortPolicyForMessagesRequest(c, apiKey, body)
 	routingModel := service.NormalizeOpenAICompatRequestedModel(reqModel)
 	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)
@@ -1082,6 +1091,14 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	if !billingOK {
 		return
 	}
+	reqModel, body = applyGroupModelPolicyToBody(apiKey.Group, reqModel, body)
+	bindOpenAIReasoningEffortPolicyForMessagesRequest(c, apiKey, body)
+	routingModel = service.NormalizeOpenAICompatRequestedModel(reqModel)
+	preferredMappedModel = resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)
+	channelMappingMsg, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	mappedBodyForMessages = newOpenAIModelMappedBodyCache(body, h.gatewayService.ReplaceModelInBody)
+	requestPlatform = openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
+	setOpsRequestContext(c, reqModel, reqStream)
 
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
@@ -1791,6 +1808,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return
 		}
 	}
+	reqModel, firstMessage = applyGroupModelPolicyToBody(apiKey.Group, reqModel, firstMessage)
 	previousResponseID := strings.TrimSpace(gjson.GetBytes(firstMessage, "previous_response_id").String())
 	previousResponseIDKind := service.ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
 	if previousResponseID != "" && previousResponseIDKind == service.OpenAIPreviousResponseIDKindMessageID {
@@ -1901,6 +1919,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	if !billingOK {
 		return
 	}
+	reqModel, firstMessage = applyGroupModelPolicyToBody(apiKey.Group, reqModel, firstMessage)
+	ctx = c.Request.Context()
+	requestPlatform = openAICompatibleRequestPlatform(ctx, apiKey)
+	channelMappingWS, _ = h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
+	setOpsRequestContext(c, reqModel, true)
 
 	sessionHash := h.gatewayService.GenerateSessionHashWithFallback(
 		c,

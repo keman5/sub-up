@@ -77,6 +77,26 @@ func TestCompositeTargetPlatformResolvedAllowsConcreteGroupWithoutResolution(t *
 	require.True(t, compositeTargetPlatformResolved(c, apiKey, "llama-4-maverick"))
 }
 
+func TestApplyGroupModelPolicyToBodyUsesEffectiveGroup(t *testing.T) {
+	group := &service.Group{
+		ModelPolicyMode:  service.GroupModelPolicyModeForce,
+		ModelPolicyModel: "gpt-5.3-codex-spark",
+	}
+
+	model, body := applyGroupModelPolicyToBody(group, "gpt-5.5", []byte(`{"model":"gpt-5.5","input":"hello"}`))
+
+	require.Equal(t, "gpt-5.3-codex-spark", model)
+	require.JSONEq(t, `{"model":"gpt-5.3-codex-spark","input":"hello"}`, string(body))
+}
+
+func TestApplyGroupModelPolicyToBodyPreservesNonForcedRequest(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.5"}`)
+	model, got := applyGroupModelPolicyToBody(&service.Group{}, "gpt-5.5", body)
+
+	require.Equal(t, "gpt-5.5", model)
+	require.Equal(t, string(body), string(got))
+}
+
 func TestOpenAIReasoningEffortPolicyForCompositeTarget(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	group := &service.Group{

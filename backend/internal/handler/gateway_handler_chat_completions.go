@@ -80,10 +80,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by composite groups")
 		return
 	}
-	if policyModel, forced := service.ResolveGroupModelPolicyModel(apiKey.Group, reqModel); forced {
-		reqModel = policyModel
-		body = h.gatewayService.ReplaceModelInBody(body, policyModel)
-	}
+	reqModel, body = applyGroupModelPolicyToBody(apiKey.Group, reqModel, body)
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
 		h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)

@@ -2356,6 +2356,12 @@ func billingErrorDetails(err error) (status int, code, message string, retryAfte
 		msg := pkgerrors.Message(err)
 		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, extractQuotaResetSeconds(err)
 	}
+	if service.IsSubscriptionLimitError(err) {
+		// Subscription quota errors are typed as 429. Preserve the concrete
+		// daily/weekly/monthly/total reason instead of returning generic 403.
+		msg := pkgerrors.Message(err)
+		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, extractQuotaResetSeconds(err)
+	}
 	msg := pkgerrors.Message(err)
 	if msg == "" {
 		logger.L().With(
