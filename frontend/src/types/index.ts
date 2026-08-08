@@ -220,6 +220,7 @@ export interface PublicSettings {
   turnstile_enabled: boolean
   tencent_captcha_enabled?: boolean
   tencent_captcha_app_id?: string
+  tencent_captcha_region?: string
   passkey_enabled?: boolean
   turnstile_site_key: string
   aliyun_captcha_enabled?: boolean
@@ -1696,6 +1697,8 @@ export interface AdminUsageLog extends Omit<UsageLog, 'user'> {
   user?: User & { notes?: string | null }
 
   upstream_model?: string | null
+  upstream_response_model?: string | null
+  upstream_model_mismatch?: boolean | null
   model_mapping_chain?: string | null
 
   // 账号计费倍率（仅管理员可见）

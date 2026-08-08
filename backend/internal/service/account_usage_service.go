@@ -15,6 +15,7 @@ import (
 	"time"
 
 	httppool "github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
+	openaipkg "github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -1222,7 +1223,7 @@ func (s *AccountUsageService) probeOpenAICodexSnapshotForModel(ctx context.Conte
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("OpenAI-Beta", "responses=experimental")
-	req.Header.Set("Originator", "codex_cli_rs")
+	req.Header.Set("Originator", openaipkg.CodexDefaultOriginator)
 	req.Header.Set("Version", openAICodexProbeVersion)
 	req.Header.Set("User-Agent", codexCLIUserAgent)
 	if s.identityCache != nil {

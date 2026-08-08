@@ -736,14 +736,18 @@ func UsageLogFromServiceAdminWithViewer(l *service.UsageLog, mode service.UsageV
 	usageLog := usageLogFromServiceUser(l, mode)
 	usageLog.UpstreamEndpoint = l.UpstreamEndpoint
 	out := &AdminUsageLog{
-		UsageLog:          usageLog,
-		User:              UserFromServiceAdmin(l.User),
-		UpstreamModel:     l.UpstreamModel,
-		ChannelID:         l.ChannelID,
-		ModelMappingChain: l.ModelMappingChain,
-		BillingTier:       l.BillingTier,
-		IPAddress:         l.IPAddress,
-		Account:           AccountSummaryFromService(l.Account),
+		UsageLog:              usageLog,
+		User:                  UserFromServiceAdmin(l.User),
+		UpstreamModel:         l.UpstreamModel,
+		UpstreamResponseModel: l.UpstreamResponseModel,
+		UpstreamModelMismatch: l.UpstreamModelMismatch,
+		ChannelID:             l.ChannelID,
+		ModelMappingChain:     l.ModelMappingChain,
+		BillingTier:           l.BillingTier,
+		AccountRateMultiplier: l.AccountRateMultiplier,
+		AccountStatsCost:      l.AccountStatsCost,
+		IPAddress:             l.IPAddress,
+		Account:               AccountSummaryFromService(l.Account),
 	}
 	if mode == service.UsageViewRaw {
 		out.AccountRateMultiplier = l.AccountRateMultiplier
