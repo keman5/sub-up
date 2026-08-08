@@ -49,7 +49,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -58,6 +58,7 @@ import AvailableChannelsTable from '@/components/channels/AvailableChannelsTable
 import userChannelsAPI, { type UserAvailableChannel } from '@/api/channels'
 import userGroupsAPI from '@/api/groups'
 import { useAppStore } from '@/stores/app'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { extractApiErrorMessage } from '@/utils/apiError'
 
 const { t } = useI18n()
@@ -67,6 +68,12 @@ const channels = ref<UserAvailableChannel[]>([])
 const userGroupRates = ref<Record<number, number>>({})
 const loading = ref(false)
 const searchQuery = ref('')
+
+const channelsRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'search', get: () => searchQuery.value, set: (value) => { searchQuery.value = value }, defaultValue: '' },
+  ],
+})
 
 const columnLabels = computed(() => ({
   name: t('availableChannels.columns.name'),
@@ -123,5 +130,12 @@ async function loadChannels() {
   }
 }
 
-onMounted(loadChannels)
+watch(searchQuery, () => {
+  void channelsRouteQuerySync.syncToRoute()
+})
+
+onMounted(() => {
+  channelsRouteQuerySync.restoreFromRoute()
+  loadChannels()
+})
 </script>

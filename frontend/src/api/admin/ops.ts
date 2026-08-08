@@ -124,6 +124,9 @@ export interface OpsRequestDetail {
   severity?: string
   message?: string
 
+  subscription_id?: number | null
+  subscription_group_name?: string
+
   user_id?: number | null
   api_key_id?: number | null
   account_id?: number | null
@@ -244,6 +247,45 @@ export interface OpsOpenAITokenStatsParams {
   top_n?: number
 }
 
+export interface OpsHostHealthSnapshot {
+  available: boolean
+  status: string
+  message?: string
+  collected_at?: string
+  age_seconds?: number
+  stale: boolean
+  load_average?: {
+    one?: number
+    five?: number
+    fifteen?: number
+  }
+  cpu?: {
+    usage_percent?: number
+    high?: boolean
+  }
+  memory?: {
+    available_mb?: number
+    swap_used_mb?: number
+  }
+  top_containers?: OpsHostTopContainer[]
+  top_processes?: OpsHostTopProcess[]
+  diagnosis?: string
+}
+
+export interface OpsHostTopContainer {
+  name: string
+  cpu_percent: number
+  memory?: string
+  pids?: number
+}
+
+export interface OpsHostTopProcess {
+  pid: number
+  command: string
+  cpu_percent: number
+  rss_mb?: number
+}
+
 export interface OpsSystemMetricsSnapshot {
   id: number
   created_at: string
@@ -253,6 +295,9 @@ export interface OpsSystemMetricsSnapshot {
   memory_used_mb?: number | null
   memory_total_mb?: number | null
   memory_usage_percent?: number | null
+  disk_used_gb?: number | null
+  disk_total_gb?: number | null
+  disk_usage_percent?: number | null
 
   db_ok?: boolean | null
   redis_ok?: boolean | null
@@ -448,6 +493,11 @@ export async function getRealtimeTrafficSummary(
   }
 
   const { data } = await apiClient.get<OpsRealtimeTrafficSummaryResponse>('/admin/ops/realtime-traffic', { params })
+  return data
+}
+
+export async function getHostHealth(): Promise<OpsHostHealthSnapshot> {
+  const { data } = await apiClient.get<OpsHostHealthSnapshot>('/admin/ops/host-health')
   return data
 }
 
@@ -679,6 +729,7 @@ export type MetricType =
   | 'upstream_error_rate'
   | 'cpu_usage_percent'
   | 'memory_usage_percent'
+  | 'disk_usage_percent'
   | 'concurrency_queue_depth'
   | 'group_available_accounts'
   | 'group_available_ratio'
@@ -1317,6 +1368,7 @@ export const opsAPI = {
   getUserConcurrencyStats,
   getAccountAvailabilityStats,
   getRealtimeTrafficSummary,
+  getHostHealth,
   subscribeQPS,
 
   // Legacy unified endpoints

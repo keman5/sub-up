@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,14 +16,20 @@ import (
 type AnnouncementService struct {
 	announcementRepo AnnouncementRepository
 	readRepo         AnnouncementReadRepository
-	userRepo         UserRepository
+	userRepo         AnnouncementUserRepository
 	userSubRepo      UserSubscriptionRepository
+	emailService     *NotificationEmailService
+}
+
+type AnnouncementUserRepository interface {
+	GetByID(ctx context.Context, id int64) (*User, error)
+	ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters UserListFilters) ([]User, *pagination.PaginationResult, error)
 }
 
 func NewAnnouncementService(
 	announcementRepo AnnouncementRepository,
 	readRepo AnnouncementReadRepository,
-	userRepo UserRepository,
+	userRepo AnnouncementUserRepository,
 	userSubRepo UserSubscriptionRepository,
 ) *AnnouncementService {
 	return &AnnouncementService{
@@ -32,26 +40,34 @@ func NewAnnouncementService(
 	}
 }
 
+func (s *AnnouncementService) SetNotificationEmailService(emailService *NotificationEmailService) {
+	s.emailService = emailService
+}
+
 type CreateAnnouncementInput struct {
-	Title      string
-	Content    string
-	Status     string
-	NotifyMode string
-	Targeting  AnnouncementTargeting
-	StartsAt   *time.Time
-	EndsAt     *time.Time
-	ActorID    *int64 // 管理员用户ID
+	Title            string
+	Content          string
+	Status           string
+	NotifyMode       string
+	Targeting        AnnouncementTargeting
+	StartsAt         *time.Time
+	EndsAt           *time.Time
+	EmailPushMode    string
+	EmailPushUserIDs []int64
+	ActorID          *int64 // 管理员用户ID
 }
 
 type UpdateAnnouncementInput struct {
-	Title      *string
-	Content    *string
-	Status     *string
-	NotifyMode *string
-	Targeting  *AnnouncementTargeting
-	StartsAt   **time.Time
-	EndsAt     **time.Time
-	ActorID    *int64 // 管理员用户ID
+	Title            *string
+	Content          *string
+	Status           *string
+	NotifyMode       *string
+	Targeting        *AnnouncementTargeting
+	StartsAt         **time.Time
+	EndsAt           **time.Time
+	EmailPushMode    string
+	EmailPushUserIDs []int64
+	ActorID          *int64 // 管理员用户ID
 }
 
 type UserAnnouncement struct {
@@ -126,6 +142,7 @@ func (s *AnnouncementService) Create(ctx context.Context, input *CreateAnnouncem
 	if err := s.announcementRepo.Create(ctx, a); err != nil {
 		return nil, fmt.Errorf("create announcement: %w", err)
 	}
+	s.sendAnnouncementEmailPush(ctx, a, input.EmailPushMode, input.EmailPushUserIDs)
 	return a, nil
 }
 
@@ -197,7 +214,101 @@ func (s *AnnouncementService) Update(ctx context.Context, id int64, input *Updat
 	if err := s.announcementRepo.Update(ctx, a); err != nil {
 		return nil, fmt.Errorf("update announcement: %w", err)
 	}
+	s.sendAnnouncementEmailPush(ctx, a, input.EmailPushMode, input.EmailPushUserIDs)
 	return a, nil
+}
+
+func (s *AnnouncementService) sendAnnouncementEmailPush(ctx context.Context, a *Announcement, mode string, selectedUserIDs []int64) {
+	if s == nil || s.emailService == nil || s.userRepo == nil || a == nil {
+		return
+	}
+	mode = normalizeAnnouncementEmailPushMode(mode)
+	if mode == AnnouncementEmailPushModeNone {
+		return
+	}
+
+	switch mode {
+	case AnnouncementEmailPushModeSelected:
+		seen := make(map[int64]struct{}, len(selectedUserIDs))
+		for _, userID := range selectedUserIDs {
+			if userID <= 0 {
+				continue
+			}
+			if _, ok := seen[userID]; ok {
+				continue
+			}
+			seen[userID] = struct{}{}
+			user, err := s.userRepo.GetByID(ctx, userID)
+			if err != nil {
+				log.Printf("[Announcement] Skip selected email push user=%d err=%v", userID, err)
+				continue
+			}
+			s.sendAnnouncementEmailToUser(ctx, a, user)
+		}
+	case AnnouncementEmailPushModeAll:
+		for page := 1; ; page++ {
+			users, result, err := s.userRepo.ListWithFilters(ctx, pagination.PaginationParams{
+				Page:      page,
+				PageSize:  200,
+				SortBy:    "id",
+				SortOrder: "asc",
+			}, UserListFilters{Status: StatusActive})
+			if err != nil {
+				log.Printf("[Announcement] List users for email push failed: page=%d err=%v", page, err)
+				return
+			}
+			for i := range users {
+				s.sendAnnouncementEmailToUser(ctx, a, &users[i])
+			}
+			if result == nil || page >= result.Pages || len(users) == 0 {
+				return
+			}
+		}
+	}
+}
+
+func (s *AnnouncementService) sendAnnouncementEmailToUser(ctx context.Context, a *Announcement, user *User) {
+	if user == nil || user.Status != StatusActive || strings.TrimSpace(user.Email) == "" {
+		return
+	}
+	if err := s.emailService.Send(ctx, NotificationEmailSendInput{
+		Event:          NotificationEmailEventAnnouncementPublish,
+		RecipientEmail: user.Email,
+		RecipientName:  firstNonEmpty(user.Username, user.Email),
+		UserID:         user.ID,
+		SourceType:     "announcement",
+		SourceID:       strconv.FormatInt(a.ID, 10),
+		ReminderKey:    strconv.FormatInt(user.ID, 10),
+		Variables: map[string]string{
+			"announcement_id":      strconv.FormatInt(a.ID, 10),
+			"announcement_title":   a.Title,
+			"announcement_content": a.Content,
+			"announcement_url":     announcementURL(s.emailService.baseURL(ctx)),
+		},
+	}); err != nil {
+		log.Printf("[Announcement] Send email push failed: announcement=%d user=%d err=%v", a.ID, user.ID, err)
+	}
+}
+
+func normalizeAnnouncementEmailPushMode(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case AnnouncementEmailPushModeAll:
+		return AnnouncementEmailPushModeAll
+	case AnnouncementEmailPushModeSelected:
+		return AnnouncementEmailPushModeSelected
+	default:
+		return AnnouncementEmailPushModeNone
+	}
+}
+
+func announcementURL(baseURL string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	baseURL = strings.TrimSuffix(baseURL, "/v1")
+	baseURL = strings.TrimSuffix(baseURL, "/51Token")
+	if baseURL == "" {
+		return ""
+	}
+	return baseURL + "/announcements"
 }
 
 func (s *AnnouncementService) Delete(ctx context.Context, id int64) error {

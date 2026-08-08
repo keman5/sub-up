@@ -409,23 +409,7 @@ func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int,
 	s.lastListAccounts.sortBy = sortBy
 	s.lastListAccounts.sortOrder = sortOrder
 	s.lastListAccounts.calls++
-	accounts := s.accounts
-	total := len(accounts)
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 {
-		pageSize = total
-	}
-	start := (page - 1) * pageSize
-	if start >= total {
-		return []service.Account{}, int64(total), nil
-	}
-	end := start + pageSize
-	if end > total {
-		end = total
-	}
-	return accounts[start:end], int64(total), nil
+	return s.accounts, int64(len(s.accounts)), nil
 }
 
 func (s *stubAdminService) ListAccountsForSchedulerScoreFilter(_ context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
@@ -442,25 +426,7 @@ func (s *stubAdminService) ListOpenAISchedulableAccountsForSchedulerScore(_ cont
 	if accounts == nil {
 		accounts = s.accounts
 	}
-	out := make([]service.Account, 0, len(accounts))
-	for _, account := range accounts {
-		if account.Platform != service.PlatformOpenAI || !account.IsSchedulable() {
-			continue
-		}
-		if groupID == nil {
-			if len(account.AccountGroups) == 0 && len(account.GroupIDs) == 0 {
-				out = append(out, account)
-			}
-			continue
-		}
-		for _, accountGroup := range account.AccountGroups {
-			if accountGroup.GroupID == *groupID {
-				out = append(out, account)
-				break
-			}
-		}
-	}
-	return out, nil
+	return accounts, nil
 }
 
 func (s *stubAdminService) GetAccount(ctx context.Context, id int64) (*service.Account, error) {

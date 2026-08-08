@@ -71,6 +71,27 @@ func TestIsImageGenerationIntent(t *testing.T) {
 			want:     false,
 		},
 		{
+			name:     "input image block in input array",
+			endpoint: "/v1/responses",
+			model:    "gpt-5.4",
+			body:     []byte(`{"model":"gpt-5.4","input":[{"type":"message","content":[{"type":"input_image","image_url":"data:image/png;base64,abc"}]}]}`),
+			want:     false,
+		},
+		{
+			name:     "image_url object in content",
+			endpoint: "/v1/responses",
+			model:    "gpt-5.4",
+			body:     []byte(`{"model":"gpt-5.4","input":[{"type":"message","content":[{"type":"image_url","image_url":{"url":"https://example.com/img.png"}}]}]}`),
+			want:     false,
+		},
+		{
+			name:     "inline image data",
+			endpoint: "/v1/responses",
+			model:    "gpt-5.4",
+			body:     []byte(`{"model":"gpt-5.4","input":[{"type":"message","content":[{"type":"input_text","text":"hi"},{"type":"input_image","inline_data":{"mime_type":"image/png","data":"aGVsbG8="}}]}]}`),
+			want:     false,
+		},
+		{
 			name:     "namespace image_gen tool in top-level tools",
 			endpoint: "/v1/responses",
 			model:    "gpt-5.5",

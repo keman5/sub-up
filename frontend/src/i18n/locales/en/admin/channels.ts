@@ -63,6 +63,8 @@ export default {
       deleteError: 'Failed to delete channel',
       nameRequired: 'Please enter a channel name',
       duplicateModels: 'Model "{0}" appears in multiple pricing entries',
+      noGroupsSelected: 'Please select at least one group for {platform}',
+      emptyModelsInPricing: 'Please configure at least one model for {platform} pricing',
       modelConflict: "Model patterns '{model1}' and '{model2}' conflict: overlapping match range. Model names are matched case-insensitively, so an existing entry already covers all case variants — no need to add the variant separately.",
       mappingConflict: "Mapping source patterns '{model1}' and '{model2}' conflict: overlapping match range. Source patterns are matched case-insensitively, so an existing entry already covers all case variants.",
       intervalValidation: {
@@ -615,6 +617,7 @@ export default {
       daily: 'Daily',
       weekly: 'Weekly',
       monthly: 'Monthly',
+      total: 'Total',
       noLimits: 'No limits configured',
       unlimited: 'Unlimited',
       resetNow: 'Resetting soon',
@@ -665,13 +668,30 @@ export default {
       revoke: 'Revoke',
       restore: 'Restore',
       resetQuota: 'Reset Quota',
+      assignToUsers: 'Assign to {count} users',
       resetQuotaTitle: 'Reset Usage Quota',
       resetQuotaConfirm: "Reset the daily, weekly, and monthly usage quota for '{user}'? Usage will be zeroed and windows restarted from today.",
+      resetQuotaFor: 'Reset quota for',
+      resetQuotaScope: 'Reset scope',
+      resetQuotaHint: 'Selected usage will be zeroed and its window restarted from today.',
+      resetQuotaScopes: {
+        daily: 'Daily quota',
+        weekly: 'Weekly quota',
+        monthly: 'Monthly quota',
+        all: 'Daily, weekly, and monthly'
+      },
+      resetQuotaScopeDescriptions: {
+        daily: "Only reset today's usage counter.",
+        weekly: 'Only reset the current weekly usage counter.',
+        monthly: 'Only reset the current monthly usage counter.',
+        all: 'Reset all three usage counters together.'
+      },
       quotaResetSuccess: 'Quota reset successfully',
       failedToResetQuota: 'Failed to reset quota',
       noSubscriptionsYet: 'No subscriptions yet',
       assignFirstSubscription: 'Assign a subscription to get started.',
       subscriptionAssigned: 'Subscription assigned successfully',
+      subscriptionsAssigned: 'Assigned subscriptions to {count} users',
       subscriptionAdjusted: 'Subscription adjusted successfully',
       subscriptionRevoked: 'Subscription revoked successfully',
       subscriptionRestored: 'Subscription restored successfully',
@@ -685,6 +705,18 @@ export default {
       pleaseSelectUser: 'Please select a user',
       pleaseSelectGroup: 'Please select a group',
       validityDaysRequired: 'Please enter a valid number of days (at least 1)',
+      duplicateConfirmTitle: 'Confirm existing subscription overwrite',
+      duplicateConfirmMessage: 'User {user} already has a "{group}" subscription. Continuing will overwrite the old subscription period with this assignment, resetting the start time, expiration time, and usage counters. The system will not create a second subscription record for the same user and package. Continue?',
+      duplicateConfirmAction: 'Confirm overwrite',
+      userPicker: {
+        recentUsers: 'Recently registered users',
+        searchResults: 'Search results',
+        selectedUsers: 'Selected users',
+        selectAllCurrent: 'Select current results',
+        clearSelected: 'Clear selected',
+        emptySelected: 'Select users in bulk from recent registrations or search results',
+        noRecentUsers: 'No recent users'
+      },
       revokeConfirm:
         "Are you sure you want to revoke the subscription for '{user}'? You can restore it later from the revoked list.",
       restoreConfirm:

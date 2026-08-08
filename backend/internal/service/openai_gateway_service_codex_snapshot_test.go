@@ -1,6 +1,7 @@
 package service
 
 import (
+	"net/http"
 	"testing"
 	"time"
 )
@@ -134,6 +135,139 @@ func TestBuildCodexUsageExtraUpdates_FreshAccountUsedPercentNotInverted_Issue299
 	}
 	if got := updates["codex_7d_used_percent"]; got != 2.0 {
 		t.Fatalf("codex_7d_used_percent = %v, want 2.0 (direct used%%, NOT inverted to 98)", got)
+	}
+}
+
+func TestParseCodexRateLimitHeadersForModel_UsesActiveSparkLimitHeaders(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("x-codex-active-limit", "codex_bengalfox")
+	headers.Set("x-codex-primary-used-percent", "13")
+	headers.Set("x-codex-primary-window-minutes", "300")
+	headers.Set("x-codex-secondary-used-percent", "29")
+	headers.Set("x-codex-secondary-window-minutes", "10080")
+	headers.Set("x-codex-bengalfox-primary-used-percent", "0")
+	headers.Set("x-codex-bengalfox-primary-window-minutes", "300")
+	headers.Set("x-codex-bengalfox-secondary-used-percent", "0")
+	headers.Set("x-codex-bengalfox-secondary-window-minutes", "10080")
+
+	sparkSnapshot := ParseCodexRateLimitHeadersForModel(headers, "gpt-5.3-codex-spark")
+	if sparkSnapshot == nil {
+		t.Fatal("expected Spark snapshot")
+	}
+	sparkUpdates := buildCodexUsageExtraUpdatesForFamily(sparkSnapshot, time.Date(2026, 6, 13, 14, 0, 0, 0, time.UTC), "gpt-5.3-codex-spark")
+	if got := sparkUpdates["codex_5h_used_percent"]; got != 0.0 {
+		t.Fatalf("spark codex_5h_used_percent = %v, want active limit 0", got)
+	}
+	if got := sparkUpdates["codex_7d_used_percent"]; got != 0.0 {
+		t.Fatalf("spark codex_7d_used_percent = %v, want active limit 0", got)
+	}
+
+	mainSnapshot := ParseCodexRateLimitHeadersForModel(headers, "gpt-5.3-codex")
+	if mainSnapshot == nil {
+		t.Fatal("expected main snapshot")
+	}
+	mainUpdates := buildCodexUsageExtraUpdatesForFamily(mainSnapshot, time.Date(2026, 6, 13, 14, 0, 0, 0, time.UTC), "gpt-5.3-codex")
+	if got := mainUpdates["codex_main_5h_used_percent"]; got != 13.0 {
+		t.Fatalf("main codex_main_5h_used_percent = %v, want generic 13", got)
+	}
+	if got := mainUpdates["codex_main_7d_used_percent"]; got != 29.0 {
+		t.Fatalf("main codex_main_7d_used_percent = %v, want generic 29", got)
+	}
+}
+
+func TestParseCodexRateLimitHeadersForModel_SparkFallsBackToGenericHeaders(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "12")
+	headers.Set("x-codex-primary-window-minutes", "300")
+	headers.Set("x-codex-secondary-used-percent", "34")
+	headers.Set("x-codex-secondary-window-minutes", "10080")
+
+	snapshot := ParseCodexRateLimitHeadersForModel(headers, "gpt-5.3-codex-spark")
+	if snapshot == nil {
+		t.Fatal("expected fallback snapshot")
+	}
+	updates := buildCodexUsageExtraUpdatesForFamily(snapshot, time.Date(2026, 6, 13, 14, 0, 0, 0, time.UTC), "gpt-5.3-codex-spark")
+	if got := updates["codex_5h_used_percent"]; got != 12.0 {
+		t.Fatalf("codex_5h_used_percent = %v, want fallback generic 12", got)
+	}
+	if got := updates["codex_7d_used_percent"]; got != 34.0 {
+		t.Fatalf("codex_7d_used_percent = %v, want fallback generic 34", got)
+	}
+}
+
+func TestBuildCodexUsageExtraUpdatesForFamily_SeparatesMainFromSpark(t *testing.T) {
+	primaryUsed := 73.0
+	primaryWindow := 10080
+	secondaryUsed := 11.0
+	secondaryWindow := 300
+	snapshot := &OpenAICodexUsageSnapshot{
+		PrimaryUsedPercent:     &primaryUsed,
+		PrimaryWindowMinutes:   &primaryWindow,
+		SecondaryUsedPercent:   &secondaryUsed,
+		SecondaryWindowMinutes: &secondaryWindow,
+		UpdatedAt:              "2026-02-16T10:00:00Z",
+	}
+
+	mainUpdates := buildCodexUsageExtraUpdatesForFamily(snapshot, time.Date(2026, 2, 16, 10, 0, 0, 0, time.UTC), "gpt-5.3-codex")
+	if mainUpdates == nil {
+		t.Fatal("expected non-nil main updates")
+	}
+	if _, ok := mainUpdates["codex_5h_used_percent"]; ok {
+		t.Fatalf("main model updates must not overwrite spark codex_5h_used_percent: %v", mainUpdates)
+	}
+	if _, ok := mainUpdates["codex_primary_used_percent"]; ok {
+		t.Fatalf("main model updates must not overwrite raw spark primary snapshot: %v", mainUpdates)
+	}
+	if _, ok := mainUpdates["codex_secondary_used_percent"]; ok {
+		t.Fatalf("main model updates must not overwrite raw spark secondary snapshot: %v", mainUpdates)
+	}
+	if got := mainUpdates["codex_main_5h_used_percent"]; got != 11.0 {
+		t.Fatalf("codex_main_5h_used_percent = %v, want 11", got)
+	}
+	if got := mainUpdates["codex_main_7d_used_percent"]; got != 73.0 {
+		t.Fatalf("codex_main_7d_used_percent = %v, want 73", got)
+	}
+
+	sparkUpdates := buildCodexUsageExtraUpdatesForFamily(snapshot, time.Date(2026, 2, 16, 10, 0, 0, 0, time.UTC), "gpt-5.3-codex-spark")
+	if sparkUpdates == nil {
+		t.Fatal("expected non-nil spark updates")
+	}
+	if _, ok := sparkUpdates["codex_main_5h_used_percent"]; ok {
+		t.Fatalf("spark model updates must not overwrite main codex_main_5h_used_percent: %v", sparkUpdates)
+	}
+	if got := sparkUpdates["codex_5h_used_percent"]; got != 11.0 {
+		t.Fatalf("codex_5h_used_percent = %v, want 11", got)
+	}
+	if got := sparkUpdates["codex_7d_used_percent"]; got != 73.0 {
+		t.Fatalf("codex_7d_used_percent = %v, want 73", got)
+	}
+}
+
+func TestBuildCodexUsageExtraUpdatesForFamily_WritesSparkFieldsForSparkModel(t *testing.T) {
+	primaryUsed := 22.0
+	primaryWindow := 10080
+	secondaryUsed := 1.0
+	secondaryWindow := 300
+	snapshot := &OpenAICodexUsageSnapshot{
+		PrimaryUsedPercent:     &primaryUsed,
+		PrimaryWindowMinutes:   &primaryWindow,
+		SecondaryUsedPercent:   &secondaryUsed,
+		SecondaryWindowMinutes: &secondaryWindow,
+		UpdatedAt:              "2026-06-13T08:06:05Z",
+	}
+
+	updates := buildCodexUsageExtraUpdatesForFamily(snapshot, time.Date(2026, 6, 13, 8, 0, 0, 0, time.UTC), "gpt-5.3-codex-spark")
+	if updates == nil {
+		t.Fatal("expected non-nil updates")
+	}
+	if _, ok := updates["codex_main_7d_used_percent"]; ok {
+		t.Fatalf("spark model probe must not write main fields from x-codex headers: %v", updates)
+	}
+	if got := updates["codex_5h_used_percent"]; got != 1.0 {
+		t.Fatalf("codex_5h_used_percent = %v, want 1", got)
+	}
+	if got := updates["codex_7d_used_percent"]; got != 22.0 {
+		t.Fatalf("codex_7d_used_percent = %v, want 22", got)
 	}
 }
 

@@ -1,0 +1,12 @@
+[Unit]
+Description=Collect Sub2API host health snapshot
+Documentation=file:/opt/sub2api-ops/sub2api-host-health-collector.py
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=SUB2API_HOST_HEALTH_OUTPUT=/run/sub2api-ops/host-health.json
+ExecStart=/usr/bin/python3 /opt/sub2api-ops/sub2api-host-health-collector.py
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

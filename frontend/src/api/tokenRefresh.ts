@@ -143,6 +143,14 @@ function persistTokenPair(tokens: RefreshTokenResponse): void {
   localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token)
 }
 
+function notifyTokenRefreshed(tokens: RefreshTokenResponse): void {
+  try {
+    window.dispatchEvent(new CustomEvent('auth-token-refreshed', { detail: tokens }))
+  } catch {
+    // Browser event dispatch is best effort.
+  }
+}
+
 async function requestTokenPair(
   snapshot: AuthSnapshot,
   failedAccessToken?: string | null,
@@ -229,7 +237,10 @@ export function refreshAuthTokens(
     return inFlightRefresh
   }
 
-  const pending = runRefresh(options)
+  const pending = runRefresh(options).then((tokens) => {
+    notifyTokenRefreshed(tokens)
+    return tokens
+  })
   inFlightRefresh = pending
   const clearPending = (): void => {
     if (inFlightRefresh === pending) {

@@ -49,6 +49,10 @@ func (r *stubQuotaAccountRepo) UpdateCredentials(_ context.Context, id int64, cr
 	return nil
 }
 
+func (r *stubQuotaAccountRepo) ClearRateLimit(_ context.Context, _ int64) error {
+	return nil
+}
+
 func (r *stubQuotaAccountRepo) UpdateExtra(_ context.Context, id int64, updates map[string]any) error {
 	if r.extraUpdateErr != nil {
 		return r.extraUpdateErr

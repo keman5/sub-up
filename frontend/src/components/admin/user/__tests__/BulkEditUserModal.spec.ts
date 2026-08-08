@@ -3,10 +3,11 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import BulkEditUserModal from '../BulkEditUserModal.vue'
 
-const { batchUpdateLimits, showSuccess, showError } = vi.hoisted(() => ({
+const { batchUpdateLimits, showSuccess, showError, appDialogConfirm } = vi.hoisted(() => ({
   batchUpdateLimits: vi.fn(),
   showSuccess: vi.fn(),
-  showError: vi.fn()
+  showError: vi.fn(),
+  appDialogConfirm: vi.fn(),
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -22,6 +23,12 @@ vi.mock('@/stores/app', () => ({
     showSuccess,
     showError
   })
+}))
+
+vi.mock('@/composables/useAppDialog', () => ({
+  useAppDialog: () => ({
+    confirm: appDialogConfirm,
+  }),
 }))
 
 vi.mock('vue-i18n', () => ({
@@ -52,6 +59,8 @@ describe('BulkEditUserModal', () => {
     batchUpdateLimits.mockReset()
     showSuccess.mockReset()
     showError.mockReset()
+    appDialogConfirm.mockReset()
+    appDialogConfirm.mockResolvedValue(true)
     batchUpdateLimits.mockResolvedValue({ affected: 2 })
   })
 
@@ -82,7 +91,6 @@ describe('BulkEditUserModal', () => {
   })
 
   it('submits only the enabled RPM field and preserves zero as unlimited', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const wrapper = mountModal()
 
     await wrapper.get('[data-test="enable-rpm-limit"]').trigger('click')
@@ -96,14 +104,13 @@ describe('BulkEditUserModal', () => {
       all: false,
       rpm_limit: 0
     })
-    expect(confirm).toHaveBeenCalledWith(
+    expect(appDialogConfirm).toHaveBeenCalledWith(
       expect.stringContaining('admin.users.bulkLimits.rpmUnlimitedValue')
     )
     expect(wrapper.emitted('success')).toEqual([[2]])
   })
 
   it('omits disabled fields from the request', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     const wrapper = mountModal()
 
     await wrapper.get('[data-test="enable-concurrency"]').trigger('click')
@@ -119,7 +126,7 @@ describe('BulkEditUserModal', () => {
   })
 
   it('does not call the API when overwrite confirmation is cancelled', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    appDialogConfirm.mockResolvedValue(false)
     const wrapper = mountModal()
 
     await wrapper.get('[data-test="enable-concurrency"]').trigger('click')

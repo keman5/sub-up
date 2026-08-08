@@ -4,7 +4,7 @@
       <!-- Filters -->
       <div class="card p-4">
         <div class="flex flex-wrap items-center gap-3">
-          <Select v-model="currentFilter" :options="statusFilters" class="w-36" @change="fetchOrders" />
+          <Select v-model="currentFilter" :options="statusFilters" class="w-36" @change="handleFilterChange" />
           <div class="flex flex-1 items-center justify-end gap-2">
             <button @click="fetchOrders" :disabled="loading" class="btn btn-secondary" :title="t('common.refresh')">
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
@@ -85,6 +85,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import type { PaymentOrder } from '@/types/payment'
@@ -104,6 +105,11 @@ const actionLoading = ref(false)
 const orders = ref<PaymentOrder[]>([])
 const refundEligibleProviders = ref<Set<string>>(new Set())
 const currentFilter = ref('')
+const orderRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'status', get: () => currentFilter.value, set: (value) => { currentFilter.value = value }, defaultValue: '', defaultQueryValue: 'all' },
+  ],
+})
 const cancelTargetId = ref<number | null>(null)
 const refundTarget = ref<PaymentOrder | null>(null)
 const refundReason = ref('')
@@ -118,6 +124,7 @@ const statusFilters = computed(() => [
 ])
 
 async function fetchOrders() {
+  void orderRouteQuerySync.syncToRoute()
   loading.value = true
   try {
     const res = await paymentAPI.getMyOrders({
@@ -132,6 +139,11 @@ async function fetchOrders() {
   } finally {
     loading.value = false
   }
+}
+
+function handleFilterChange() {
+  pagination.page = 1
+  fetchOrders()
 }
 
 function handlePageChange(page: number) { pagination.page = page; fetchOrders() }
@@ -185,5 +197,9 @@ async function loadRefundEligibility() {
   } catch { /* ignore — default to hiding refund button */ }
 }
 
-onMounted(() => { fetchOrders(); loadRefundEligibility() })
+onMounted(() => {
+  orderRouteQuerySync.restoreFromRoute()
+  fetchOrders()
+  loadRefundEligibility()
+})
 </script>

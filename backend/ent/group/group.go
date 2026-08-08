@@ -28,6 +28,12 @@ const (
 	FieldDescription = "description"
 	// FieldRateMultiplier holds the string denoting the rate_multiplier field in the database.
 	FieldRateMultiplier = "rate_multiplier"
+	// FieldDisplayRateMultiplier holds the string denoting the display_rate_multiplier field in the database.
+	FieldDisplayRateMultiplier = "display_rate_multiplier"
+	// FieldUsageMultiplierEnabled holds the string denoting the usage_multiplier_enabled field in the database.
+	FieldUsageMultiplierEnabled = "usage_multiplier_enabled"
+	// FieldUsageMultiplier holds the string denoting the usage_multiplier field in the database.
+	FieldUsageMultiplier = "usage_multiplier"
 	// FieldPeakRateEnabled holds the string denoting the peak_rate_enabled field in the database.
 	FieldPeakRateEnabled = "peak_rate_enabled"
 	// FieldPeakStart holds the string denoting the peak_start field in the database.
@@ -52,6 +58,8 @@ const (
 	FieldWeeklyLimitUsd = "weekly_limit_usd"
 	// FieldMonthlyLimitUsd holds the string denoting the monthly_limit_usd field in the database.
 	FieldMonthlyLimitUsd = "monthly_limit_usd"
+	// FieldTotalLimitUsd holds the string denoting the total_limit_usd field in the database.
+	FieldTotalLimitUsd = "total_limit_usd"
 	// FieldDefaultValidityDays holds the string denoting the default_validity_days field in the database.
 	FieldDefaultValidityDays = "default_validity_days"
 	// FieldAllowImageGeneration holds the string denoting the allow_image_generation field in the database.
@@ -90,6 +98,10 @@ const (
 	FieldFallbackGroupID = "fallback_group_id"
 	// FieldFallbackGroupIDOnInvalidRequest holds the string denoting the fallback_group_id_on_invalid_request field in the database.
 	FieldFallbackGroupIDOnInvalidRequest = "fallback_group_id_on_invalid_request"
+	// FieldQuotaFallbackGroupID holds the string denoting the quota_fallback_group_id field in the database.
+	FieldQuotaFallbackGroupID = "quota_fallback_group_id"
+	// FieldQuotaFallbackModel holds the string denoting the quota_fallback_model field in the database.
+	FieldQuotaFallbackModel = "quota_fallback_model"
 	// FieldModelRouting holds the string denoting the model_routing field in the database.
 	FieldModelRouting = "model_routing"
 	// FieldModelRoutingEnabled holds the string denoting the model_routing_enabled field in the database.
@@ -114,6 +126,10 @@ const (
 	FieldMessagesDispatchModelConfig = "messages_dispatch_model_config"
 	// FieldModelsListConfig holds the string denoting the models_list_config field in the database.
 	FieldModelsListConfig = "models_list_config"
+	// FieldModelPolicyMode holds the string denoting the model_policy_mode field in the database.
+	FieldModelPolicyMode = "model_policy_mode"
+	// FieldModelPolicyModel holds the string denoting the model_policy_model field in the database.
+	FieldModelPolicyModel = "model_policy_model"
 	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
 	FieldRpmLimit = "rpm_limit"
 	// FieldMaxReasoningEffort holds the string denoting the max_reasoning_effort field in the database.
@@ -207,6 +223,9 @@ var Columns = []string{
 	FieldName,
 	FieldDescription,
 	FieldRateMultiplier,
+	FieldDisplayRateMultiplier,
+	FieldUsageMultiplierEnabled,
+	FieldUsageMultiplier,
 	FieldPeakRateEnabled,
 	FieldPeakStart,
 	FieldPeakEnd,
@@ -219,6 +238,7 @@ var Columns = []string{
 	FieldDailyLimitUsd,
 	FieldWeeklyLimitUsd,
 	FieldMonthlyLimitUsd,
+	FieldTotalLimitUsd,
 	FieldDefaultValidityDays,
 	FieldAllowImageGeneration,
 	FieldAllowBatchImageGeneration,
@@ -238,6 +258,8 @@ var Columns = []string{
 	FieldClaudeCodeOnly,
 	FieldFallbackGroupID,
 	FieldFallbackGroupIDOnInvalidRequest,
+	FieldQuotaFallbackGroupID,
+	FieldQuotaFallbackModel,
 	FieldModelRouting,
 	FieldModelRoutingEnabled,
 	FieldMcpXMLInject,
@@ -250,6 +272,8 @@ var Columns = []string{
 	FieldDefaultMappedModel,
 	FieldMessagesDispatchModelConfig,
 	FieldModelsListConfig,
+	FieldModelPolicyMode,
+	FieldModelPolicyModel,
 	FieldRpmLimit,
 	FieldMaxReasoningEffort,
 	FieldReasoningEffortMappings,
@@ -295,6 +319,12 @@ var (
 	NameValidator func(string) error
 	// DefaultRateMultiplier holds the default value on creation for the "rate_multiplier" field.
 	DefaultRateMultiplier float64
+	// DefaultDisplayRateMultiplier holds the default value on creation for the "display_rate_multiplier" field.
+	DefaultDisplayRateMultiplier float64
+	// DefaultUsageMultiplierEnabled holds the default value on creation for the "usage_multiplier_enabled" field.
+	DefaultUsageMultiplierEnabled bool
+	// DefaultUsageMultiplier holds the default value on creation for the "usage_multiplier" field.
+	DefaultUsageMultiplier float64
 	// DefaultPeakRateEnabled holds the default value on creation for the "peak_rate_enabled" field.
 	DefaultPeakRateEnabled bool
 	// DefaultPeakStart holds the default value on creation for the "peak_start" field.
@@ -343,6 +373,10 @@ var (
 	DefaultVideoRateMultiplier float64
 	// DefaultClaudeCodeOnly holds the default value on creation for the "claude_code_only" field.
 	DefaultClaudeCodeOnly bool
+	// DefaultQuotaFallbackModel holds the default value on creation for the "quota_fallback_model" field.
+	DefaultQuotaFallbackModel string
+	// QuotaFallbackModelValidator is a validator for the "quota_fallback_model" field. It is called by the builders before save.
+	QuotaFallbackModelValidator func(string) error
 	// DefaultModelRoutingEnabled holds the default value on creation for the "model_routing_enabled" field.
 	DefaultModelRoutingEnabled bool
 	// DefaultMcpXMLInject holds the default value on creation for the "mcp_xml_inject" field.
@@ -367,6 +401,14 @@ var (
 	DefaultMessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig
 	// DefaultModelsListConfig holds the default value on creation for the "models_list_config" field.
 	DefaultModelsListConfig domain.GroupModelsListConfig
+	// DefaultModelPolicyMode holds the default value on creation for the "model_policy_mode" field.
+	DefaultModelPolicyMode string
+	// ModelPolicyModeValidator is a validator for the "model_policy_mode" field. It is called by the builders before save.
+	ModelPolicyModeValidator func(string) error
+	// DefaultModelPolicyModel holds the default value on creation for the "model_policy_model" field.
+	DefaultModelPolicyModel string
+	// ModelPolicyModelValidator is a validator for the "model_policy_model" field. It is called by the builders before save.
+	ModelPolicyModelValidator func(string) error
 	// DefaultRpmLimit holds the default value on creation for the "rpm_limit" field.
 	DefaultRpmLimit int
 	// DefaultMaxReasoningEffort holds the default value on creation for the "max_reasoning_effort" field.
@@ -419,6 +461,21 @@ func ByDescription(opts ...sql.OrderTermOption) OrderOption {
 // ByRateMultiplier orders the results by the rate_multiplier field.
 func ByRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRateMultiplier, opts...).ToFunc()
+}
+
+// ByDisplayRateMultiplier orders the results by the display_rate_multiplier field.
+func ByDisplayRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDisplayRateMultiplier, opts...).ToFunc()
+}
+
+// ByUsageMultiplierEnabled orders the results by the usage_multiplier_enabled field.
+func ByUsageMultiplierEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUsageMultiplierEnabled, opts...).ToFunc()
+}
+
+// ByUsageMultiplier orders the results by the usage_multiplier field.
+func ByUsageMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUsageMultiplier, opts...).ToFunc()
 }
 
 // ByPeakRateEnabled orders the results by the peak_rate_enabled field.
@@ -479,6 +536,11 @@ func ByWeeklyLimitUsd(opts ...sql.OrderTermOption) OrderOption {
 // ByMonthlyLimitUsd orders the results by the monthly_limit_usd field.
 func ByMonthlyLimitUsd(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMonthlyLimitUsd, opts...).ToFunc()
+}
+
+// ByTotalLimitUsd orders the results by the total_limit_usd field.
+func ByTotalLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTotalLimitUsd, opts...).ToFunc()
 }
 
 // ByDefaultValidityDays orders the results by the default_validity_days field.
@@ -576,6 +638,16 @@ func ByFallbackGroupIDOnInvalidRequest(opts ...sql.OrderTermOption) OrderOption 
 	return sql.OrderByField(FieldFallbackGroupIDOnInvalidRequest, opts...).ToFunc()
 }
 
+// ByQuotaFallbackGroupID orders the results by the quota_fallback_group_id field.
+func ByQuotaFallbackGroupID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldQuotaFallbackGroupID, opts...).ToFunc()
+}
+
+// ByQuotaFallbackModel orders the results by the quota_fallback_model field.
+func ByQuotaFallbackModel(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldQuotaFallbackModel, opts...).ToFunc()
+}
+
 // ByModelRoutingEnabled orders the results by the model_routing_enabled field.
 func ByModelRoutingEnabled(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldModelRoutingEnabled, opts...).ToFunc()
@@ -614,6 +686,16 @@ func ByRequirePrivacySet(opts ...sql.OrderTermOption) OrderOption {
 // ByDefaultMappedModel orders the results by the default_mapped_model field.
 func ByDefaultMappedModel(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDefaultMappedModel, opts...).ToFunc()
+}
+
+// ByModelPolicyMode orders the results by the model_policy_mode field.
+func ByModelPolicyMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldModelPolicyMode, opts...).ToFunc()
+}
+
+// ByModelPolicyModel orders the results by the model_policy_model field.
+func ByModelPolicyModel(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldModelPolicyModel, opts...).ToFunc()
 }
 
 // ByRpmLimit orders the results by the rpm_limit field.

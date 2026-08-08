@@ -525,7 +525,31 @@ const DataTableStubWithUser = {
 }
 
 describe('admin UsageTable deleted-user badge', () => {
-  it('renders deleted badge for a soft-deleted user row', () => {
+  it('renders an administrator note beneath the usage record owner', () => {
+    const row = {
+      request_id: 'req-user-note-1',
+      model: 'claude-3',
+      user_id: 1,
+      user: { id: 1, email: 'customer@test.com', notes: 'VIP customer', deleted_at: null },
+      actual_cost: 0,
+      total_cost: 0,
+      input_cost: 0,
+      output_cost: 0,
+      rate_multiplier: 1,
+      input_tokens: 1,
+      output_tokens: 1,
+    }
+
+    const wrapper = mount(UsageTable, {
+      props: { data: [row], loading: false, columns: [{ key: 'user', label: 'User' }] },
+      global: { stubs: { DataTable: DataTableStubWithUser, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+    expect(wrapper.text()).toContain('customer@test.com')
+    expect(wrapper.text()).toContain('VIP customer')
+  })
+
+	it('renders deleted badge for a soft-deleted user row', () => {
     const row = {
       request_id: 'req-deleted-user-1',
       model: 'claude-3',

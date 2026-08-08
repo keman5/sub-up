@@ -31,6 +31,20 @@ func ImageGenerationPermissionMessage() string {
 	return imageGenerationPermissionMessage
 }
 
+func ImageGenerationPermissionMessageForAcceptLanguage(acceptLanguage string) string {
+	raw := strings.ToLower(strings.TrimSpace(acceptLanguage))
+	for _, part := range strings.Split(raw, ",") {
+		tag := strings.TrimSpace(part)
+		if semi := strings.IndexByte(tag, ';'); semi >= 0 {
+			tag = strings.TrimSpace(tag[:semi])
+		}
+		if tag == "zh" || strings.HasPrefix(tag, "zh-") || strings.HasPrefix(tag, "zh_") || tag == "cn" {
+			return "当前分组未启用图片生成"
+		}
+	}
+	return ImageGenerationPermissionMessage()
+}
+
 // GroupAllowsImageGeneration preserves ungrouped-key behavior and enforces the flag when a group is present.
 func GroupAllowsImageGeneration(group *Group) bool {
 	return group == nil || group.AllowImageGeneration

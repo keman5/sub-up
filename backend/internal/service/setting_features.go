@@ -953,6 +953,7 @@ func (s *SettingService) GetOpenAIFastPolicySettings(ctx context.Context) (*Open
 			"key", SettingKeyOpenAIFastPolicySettings)
 		return DefaultOpenAIFastPolicySettings(), nil
 	}
+	migrateLegacyOpenAIFastPolicySettings([]byte(value), &settings)
 
 	return &settings, nil
 }
@@ -999,6 +1000,18 @@ func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settin
 			}
 			seenUserIDs[userID] = struct{}{}
 		}
+		if err := validatePositiveUniqueInt64Slice(rule.AccountAllowlist, fmt.Sprintf("rule[%d]: account_allowlist", i)); err != nil {
+			return err
+		}
+		if err := validatePositiveUniqueInt64Slice(rule.OpenAIAccountAllowlist, fmt.Sprintf("rule[%d]: openai_account_allowlist", i)); err != nil {
+			return err
+		}
+		if settings.Rules[i].AccountAllowlist == nil {
+			settings.Rules[i].AccountAllowlist = []int64{}
+		}
+		if settings.Rules[i].OpenAIAccountAllowlist == nil {
+			settings.Rules[i].OpenAIAccountAllowlist = []int64{}
+		}
 		for j, pattern := range rule.ModelWhitelist {
 			trimmed := strings.TrimSpace(pattern)
 			if trimmed == "" {
@@ -1017,6 +1030,46 @@ func (s *SettingService) SetOpenAIFastPolicySettings(ctx context.Context, settin
 	}
 
 	return s.settingRepo.Set(ctx, SettingKeyOpenAIFastPolicySettings, string(data))
+}
+
+func migrateLegacyOpenAIFastPolicySettings(raw []byte, settings *OpenAIFastPolicySettings) {
+	if settings == nil || len(settings.Rules) == 0 || len(raw) == 0 {
+		return
+	}
+	var root struct {
+		Rules []map[string]json.RawMessage `json:"rules"`
+	}
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return
+	}
+	for i := range settings.Rules {
+		if i >= len(root.Rules) {
+			continue
+		}
+		ruleRaw := root.Rules[i]
+		if _, hasOpenAIAccountAllowlist := ruleRaw["openai_account_allowlist"]; hasOpenAIAccountAllowlist {
+			continue
+		}
+		if _, hasLegacyAccountAllowlist := ruleRaw["account_allowlist"]; !hasLegacyAccountAllowlist {
+			continue
+		}
+		settings.Rules[i].OpenAIAccountAllowlist = append([]int64(nil), settings.Rules[i].AccountAllowlist...)
+		settings.Rules[i].AccountAllowlist = []int64{}
+	}
+}
+
+func validatePositiveUniqueInt64Slice(values []int64, field string) error {
+	seen := make(map[int64]struct{}, len(values))
+	for i, value := range values {
+		if value <= 0 {
+			return fmt.Errorf("%s[%d] must be positive", field, i)
+		}
+		if _, exists := seen[value]; exists {
+			return fmt.Errorf("%s[%d] duplicates id %d", field, i, value)
+		}
+		seen[value] = struct{}{}
+	}
+	return nil
 }
 
 // SetStreamTimeoutSettings 设置流超时处理配置

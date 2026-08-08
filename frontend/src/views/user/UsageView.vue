@@ -230,6 +230,7 @@ import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UserErrorRequestsTable from '@/components/user/UserErrorRequestsTable.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { formatReasoningEffort } from '@/utils/format'
 import { BILLING_MODE_IMAGE, getBillingModeLabel } from '@/utils/billingMode'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
@@ -316,6 +317,7 @@ const errorStatusOptions = computed<SelectOption[]>(() => [
 
 const applyErrorFilters = () => {
   errorPage.value = 1
+  void usageRouteQuerySync.syncToRoute()
   void loadErrors()
 }
 
@@ -357,6 +359,40 @@ const filters = ref<UsageQueryParams>({
   request_type: undefined,
   billing_type: null,
   billing_mode: null,
+})
+
+const usageRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'tab', get: () => activeTab.value, set: (value) => { activeTab.value = value === 'errors' ? 'errors' : 'usage' }, defaultValue: 'usage' },
+    {
+      queryKey: 'start_date',
+      get: () => startDate.value,
+      set: (value) => {
+        startDate.value = value
+        filters.value.start_date = value
+      },
+      defaultValue: defaultRange.start
+    },
+    {
+      queryKey: 'end_date',
+      get: () => endDate.value,
+      set: (value) => {
+        endDate.value = value
+        filters.value.end_date = value
+      },
+      defaultValue: defaultRange.end
+    },
+    { queryKey: 'api_key_id', get: () => filters.value.api_key_id, set: (value) => { filters.value.api_key_id = value }, parse: 'number', defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'model', get: () => filters.value.model, set: (value) => { filters.value.model = value }, defaultValue: '', defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'group_id', get: () => filters.value.group_id, set: (value) => { filters.value.group_id = value }, parse: 'number', defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'request_type', get: () => filters.value.request_type, set: (value) => { filters.value.request_type = value }, defaultValue: '', defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'billing_type', get: () => filters.value.billing_type as any, set: (value) => { filters.value.billing_type = value }, parse: 'number', defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'billing_mode', get: () => filters.value.billing_mode, set: (value) => { filters.value.billing_mode = value }, defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'err_model', get: () => errorFilter.value.model, set: (value) => { errorFilter.value.model = value }, defaultValue: '', defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'err_category', get: () => errorFilter.value.category, set: (value) => { errorFilter.value.category = value }, defaultValue: '', defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'err_api_key_id', get: () => errorFilter.value.api_key_id, set: (value) => { errorFilter.value.api_key_id = value }, parse: 'number', defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'err_status_code', get: () => errorFilter.value.status_code, set: (value) => { errorFilter.value.status_code = value }, parse: 'number', defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+  ],
 })
 
 const pagination = reactive({
@@ -528,6 +564,7 @@ const refreshModelOptions = (models: ModelStat[]) => {
 
 const applyFilters = () => {
   pagination.page = 1
+  void usageRouteQuerySync.syncToRoute()
   void loadLogs()
   void loadStats()
   void loadModelStats()
@@ -870,10 +907,14 @@ const onErrorPageSize = (pageSize: number) => {
 
 const switchToErrors = () => {
   activeTab.value = 'errors'
+  void usageRouteQuerySync.syncToRoute()
   if (errorRows.value.length === 0) void loadErrors()
 }
 
 onMounted(() => {
+  usageRouteQuerySync.restoreFromRoute()
+  void usageRouteQuerySync.syncToRoute()
+  granularity.value = getGranularityForRange(startDate.value, endDate.value)
   loadSavedColumns()
   loadSavedErrColumns()
   document.addEventListener('click', handleColumnClickOutside)

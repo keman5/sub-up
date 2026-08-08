@@ -68,6 +68,10 @@ func (UserSubscription) Fields() []ent.Field {
 		field.Float("monthly_usage_usd").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
 			Default(0),
+		field.Float("total_usage_usd").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
+			Default(0).
+			Comment("订阅周期内总用量，不随日/周/月窗口重置"),
 
 		field.Int64("assigned_by").
 			Optional().

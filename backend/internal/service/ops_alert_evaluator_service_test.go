@@ -183,10 +183,12 @@ func TestComputeRuleMetricNewIndicators(t *testing.T) {
 	start := time.Now().UTC().Add(-5 * time.Minute)
 	end := time.Now().UTC()
 	ctx := context.Background()
+	diskPct := 92.5
 
 	tests := []struct {
 		name       string
 		metricType string
+		system     *OpsSystemMetricsSnapshot
 		groupID    *int64
 		wantValue  float64
 		wantOK     bool
@@ -194,6 +196,7 @@ func TestComputeRuleMetricNewIndicators(t *testing.T) {
 		{
 			name:       "group_available_accounts",
 			metricType: "group_available_accounts",
+			system:     nil,
 			groupID:    &groupID,
 			wantValue:  8,
 			wantOK:     true,
@@ -201,6 +204,7 @@ func TestComputeRuleMetricNewIndicators(t *testing.T) {
 		{
 			name:       "group_available_ratio",
 			metricType: "group_available_ratio",
+			system:     nil,
 			groupID:    &groupID,
 			wantValue:  80.0,
 			wantOK:     true,
@@ -208,6 +212,7 @@ func TestComputeRuleMetricNewIndicators(t *testing.T) {
 		{
 			name:       "account_rate_limited_count",
 			metricType: "account_rate_limited_count",
+			system:     nil,
 			groupID:    nil,
 			wantValue:  2,
 			wantOK:     true,
@@ -215,13 +220,25 @@ func TestComputeRuleMetricNewIndicators(t *testing.T) {
 		{
 			name:       "account_error_count",
 			metricType: "account_error_count",
+			system:     nil,
 			groupID:    nil,
 			wantValue:  1,
 			wantOK:     true,
 		},
 		{
+			name:       "disk_usage_percent from system metrics",
+			metricType: "disk_usage_percent",
+			system: &OpsSystemMetricsSnapshot{
+				DiskUsagePercent: &diskPct,
+			},
+			groupID:   nil,
+			wantValue: 92.5,
+			wantOK:    true,
+		},
+		{
 			name:       "group_available_accounts without group_id returns false",
 			metricType: "group_available_accounts",
+			system:     nil,
 			groupID:    nil,
 			wantValue:  0,
 			wantOK:     false,
@@ -229,6 +246,7 @@ func TestComputeRuleMetricNewIndicators(t *testing.T) {
 		{
 			name:       "group_available_ratio without group_id returns false",
 			metricType: "group_available_ratio",
+			system:     nil,
 			groupID:    nil,
 			wantValue:  0,
 			wantOK:     false,
@@ -243,7 +261,7 @@ func TestComputeRuleMetricNewIndicators(t *testing.T) {
 			rule := &OpsAlertRule{
 				MetricType: tt.metricType,
 			}
-			gotValue, gotOK := svc.computeRuleMetric(ctx, rule, nil, start, end, platform, tt.groupID)
+			gotValue, gotOK := svc.computeRuleMetric(ctx, rule, tt.system, start, end, platform, tt.groupID)
 			require.Equal(t, tt.wantOK, gotOK)
 			if !tt.wantOK {
 				return

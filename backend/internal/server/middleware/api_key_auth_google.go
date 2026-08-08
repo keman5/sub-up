@@ -3,9 +3,11 @@ package middleware
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -178,23 +180,25 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			}
 
 			needsMaintenance, err := subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
-			if needsMaintenance {
+			if needsMaintenance && err == nil {
 				refreshed, maintenanceErr := subscriptionService.EnsureWindowMaintenance(c.Request.Context(), subscription)
 				if maintenanceErr != nil {
-					abortWithGoogleError(c, 500, "Failed to maintain subscription usage windows")
+					abortWithGoogleError(c, http.StatusServiceUnavailable, "Failed to maintain subscription usage windows")
 					return
 				}
 				subscription = refreshed
 				_, err = subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
 			}
 			if err != nil {
-				status := 403
-				if errors.Is(err, service.ErrDailyLimitExceeded) ||
-					errors.Is(err, service.ErrWeeklyLimitExceeded) ||
-					errors.Is(err, service.ErrMonthlyLimitExceeded) {
-					status = 429
+				status := pkgerrors.Code(err)
+				if status < http.StatusBadRequest {
+					status = http.StatusForbidden
 				}
-				abortWithGoogleError(c, status, err.Error())
+				message := pkgerrors.Message(err)
+				if message == "" {
+					message = "Subscription is not available"
+				}
+				abortWithGoogleError(c, status, message)
 				return
 			}
 
@@ -258,6 +262,7 @@ func allowGoogleQueryKey(path string) bool {
 }
 
 func abortWithGoogleError(c *gin.Context, status int, message string) {
+	message = service.ClientErrorMessageForAcceptLanguage(c.GetHeader("Accept-Language"), message)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    status,

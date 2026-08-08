@@ -37,7 +37,12 @@ export default {
       maxResultsTooltipExample: 'For example, 100 means keeping at most the latest 100 test results. When the 101st result is saved, the oldest one is removed.',
       maxResultsTooltipRange: 'Recommended range: usually 20 to 200. Use 20-50 when you only care about recent health status, or 100-200 if you want a longer trend history.',
       autoRecover: 'Auto Recover',
-      autoRecoverHelp: 'Automatically recover account from error/rate-limited state on successful test'
+      autoRecoverHelp: 'Automatically recover account from error/rate-limited state on successful test',
+      loadPlansFailed: 'Failed to load scheduled test plans',
+      loadResultsFailed: 'Failed to load scheduled test results',
+      createPlanFailed: 'Failed to create scheduled test plan',
+      updatePlanFailed: 'Failed to update scheduled test plan',
+      deletePlanFailed: 'Failed to delete scheduled test plan'
     },
 
     // Proxies
@@ -399,6 +404,11 @@ export default {
         silent: 'Silent',
         popup: 'Popup'
       },
+      emailPushModeLabels: {
+        none: 'Do not email',
+        all: 'Email all users',
+        selected: 'Email selected users'
+      },
       form: {
         title: 'Title',
         content: 'Content (Markdown supported)',
@@ -412,6 +422,9 @@ export default {
         targetingMode: 'Targeting',
         targetingAll: 'All users',
         targetingCustom: 'Custom rules',
+        emailPush: 'Email Push',
+        emailPushHint: 'Email push is a one-time action when saving the announcement. Editing defaults to no email.',
+        emailPushUserPlaceholder: 'Search user email or name',
         addOrGroup: 'Add OR group',
         addAndCondition: 'Add AND condition',
         conditionType: 'Condition type',

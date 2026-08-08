@@ -182,22 +182,25 @@ func (h *UsageHandler) List(c *gin.Context) {
 		SortBy:    c.DefaultQuery("sort_by", "created_at"),
 		SortOrder: c.DefaultQuery("sort_order", "desc"),
 	}
+	role, _ := middleware.GetUserRoleFromContext(c)
+	viewMode := service.UsageViewModeForRole(role)
 	filters := usagestats.UsageLogFilters{
-		UserID:                userID,
-		APIKeyID:              apiKeyID,
-		AccountID:             accountID,
-		GroupID:               groupID,
-		RequestID:             requestID,
-		Model:                 model,
-		ModelFilterSource:     usagestats.ModelSourceRequested,
-		RequestType:           requestType,
-		Stream:                stream,
-		BillingType:           billingType,
-		BillingMode:           billingMode,
-		UpstreamModelMismatch: upstreamModelMismatch,
-		StartTime:             startTime,
-		EndTime:               endTime,
-		ExactTotal:            exactTotal,
+		UserID:                    userID,
+		APIKeyID:                  apiKeyID,
+		AccountID:                 accountID,
+		GroupID:                   groupID,
+		RequestID:                 requestID,
+		Model:                     model,
+		ModelFilterSource:         usagestats.ModelSourceRequested,
+		RequestType:               requestType,
+		Stream:                    stream,
+		BillingType:               billingType,
+		BillingMode:               billingMode,
+		StartTime:                 startTime,
+		EndTime:                   endTime,
+		UsePresentationMultiplier: viewMode == service.UsageViewPresentation,
+		ExactTotal:                exactTotal,
+		UpstreamModelMismatch:     upstreamModelMismatch,
 	}
 
 	records, result, err := h.usageService.ListWithFilters(c.Request.Context(), params, filters)
@@ -208,7 +211,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 
 	out := make([]dto.AdminUsageLog, 0, len(records))
 	for i := range records {
-		out = append(out, *dto.UsageLogFromServiceAdmin(&records[i]))
+		out = append(out, *dto.UsageLogFromServiceAdminWithViewer(&records[i], viewMode))
 	}
 	response.Paginated(c, out, result.Total, page, pageSize)
 }
@@ -335,20 +338,23 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 	}
 
 	// Build filters and call GetStatsWithFilters
+	role, _ := middleware.GetUserRoleFromContext(c)
+	viewMode := service.UsageViewModeForRole(role)
 	filters := usagestats.UsageLogFilters{
-		UserID:                userID,
-		APIKeyID:              apiKeyID,
-		AccountID:             accountID,
-		GroupID:               groupID,
-		Model:                 model,
-		ModelFilterSource:     usagestats.ModelSourceRequested,
-		RequestType:           requestType,
-		Stream:                stream,
-		BillingType:           billingType,
-		BillingMode:           billingMode,
-		UpstreamModelMismatch: upstreamModelMismatch,
-		StartTime:             &startTime,
-		EndTime:               &endTime,
+		UserID:                    userID,
+		APIKeyID:                  apiKeyID,
+		AccountID:                 accountID,
+		GroupID:                   groupID,
+		Model:                     model,
+		ModelFilterSource:         usagestats.ModelSourceRequested,
+		RequestType:               requestType,
+		Stream:                    stream,
+		BillingType:               billingType,
+		BillingMode:               billingMode,
+		StartTime:                 &startTime,
+		EndTime:                   &endTime,
+		UsePresentationMultiplier: viewMode == service.UsageViewPresentation,
+		UpstreamModelMismatch:     upstreamModelMismatch,
 	}
 
 	var stats *usagestats.UsageStats
@@ -371,38 +377,59 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		c.Header("X-Usage-Stats-Cache", cacheStatusValue(hit))
 	}
 
-	response.Success(c, stats)
+	response.Success(c, usageStatsForView(stats, viewMode))
+}
+
+func usageStatsForView(stats *usagestats.UsageStats, viewMode service.UsageViewMode) *usagestats.UsageStats {
+	if stats == nil || viewMode == service.UsageViewRaw {
+		return stats
+	}
+	out := *stats
+	out.TotalAccountCost = nil
+	return &out
 }
 
 // SearchUsers handles searching users by email keyword
 // GET /api/v1/admin/usage/search-users
 func (h *UsageHandler) SearchUsers(c *gin.Context) {
 	keyword := c.Query("q")
-	if keyword == "" {
-		response.Success(c, []any{})
-		return
-	}
+	includeSubscriptions := false
 
 	// Limit to 30 results
-	users, _, err := h.adminService.ListUsers(c.Request.Context(), 1, 30, service.UserListFilters{Search: keyword, IncludeDeleted: true}, "email", "asc")
+	users, _, err := h.adminService.ListUsers(
+		c.Request.Context(),
+		1,
+		30,
+		service.UserListFilters{
+			Search:               keyword,
+			IncludeDeleted:       true,
+			IncludeSubscriptions: &includeSubscriptions,
+		},
+		"email",
+		"asc",
+	)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	// Return simplified user list (only id, email and deleted flag)
+	// Return simplified user list for admin search suggestions.
 	type SimpleUser struct {
-		ID      int64  `json:"id"`
-		Email   string `json:"email"`
-		Deleted bool   `json:"deleted"`
+		ID       int64  `json:"id"`
+		Email    string `json:"email"`
+		Username string `json:"username,omitempty"`
+		Notes    string `json:"notes,omitempty"`
+		Deleted  bool   `json:"deleted"`
 	}
 
 	result := make([]SimpleUser, len(users))
 	for i, u := range users {
 		result[i] = SimpleUser{
-			ID:      u.ID,
-			Email:   u.Email,
-			Deleted: u.DeletedAt != nil,
+			ID:       u.ID,
+			Email:    u.Email,
+			Username: u.Username,
+			Notes:    u.Notes,
+			Deleted:  u.DeletedAt != nil,
 		}
 	}
 

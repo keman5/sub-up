@@ -48,6 +48,19 @@ func TestEnsureCodexIdentityHeaders(t *testing.T) {
 		require.Equal(t, codexCLIVersion, h.Get("version"))
 		require.Equal(t, "responses=experimental", h.Get("OpenAI-Beta"))
 	})
+
+	t.Run("降载身份归一化后使用规范身份", func(t *testing.T) {
+		h := make(http.Header)
+		h.Set("user-agent", "codex-tui/9.9.9 (Mac OS X 14.0; arm64) iTerm (codex-tui; 9.9.9)")
+		h.Set("version", "9.9.9")
+
+		ensureCodexIdentityHeaders(h)
+		enforceCodexIdentityHeaders(h)
+
+		require.Equal(t, openai.CodexDefaultOriginator, h.Get("originator"))
+		require.Equal(t, codexCLIUserAgent, h.Get("user-agent"))
+		require.Equal(t, codexCLIVersion, h.Get("version"))
+	})
 }
 
 func TestEnforceCodexIdentityHeaders(t *testing.T) {

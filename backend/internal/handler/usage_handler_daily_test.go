@@ -19,12 +19,14 @@ type dailyUsageRepoStub struct {
 	service.UsageLogRepository
 	trend []usagestats.TrendDataPoint
 
-	called      bool
-	startTime   time.Time
-	endTime     time.Time
-	granularity string
-	userID      int64
-	apiKeyID    int64
+	called          bool
+	viewCalled      bool
+	usePresentation bool
+	startTime       time.Time
+	endTime         time.Time
+	granularity     string
+	userID          int64
+	apiKeyID        int64
 }
 
 func (s *dailyUsageRepoStub) GetUsageTrendWithFilters(
@@ -44,6 +46,22 @@ func (s *dailyUsageRepoStub) GetUsageTrendWithFilters(
 	s.userID = userID
 	s.apiKeyID = apiKeyID
 	return s.trend, nil
+}
+
+func (s *dailyUsageRepoStub) GetUsageTrendWithFiltersForView(
+	ctx context.Context,
+	startTime, endTime time.Time,
+	granularity string,
+	userID, apiKeyID, accountID, groupID int64,
+	model string,
+	requestType *int16,
+	stream *bool,
+	billingType *int8,
+	usePresentation bool,
+) ([]usagestats.TrendDataPoint, error) {
+	s.viewCalled = true
+	s.usePresentation = usePresentation
+	return s.GetUsageTrendWithFilters(ctx, startTime, endTime, granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, billingType)
 }
 
 type dailyUsageAPIKeyRepoStub struct {
@@ -175,6 +193,8 @@ func TestGetMyAPIKeyDailyUsageAggregatesByDayForOwnedKey(t *testing.T) {
 	require.Equal(t, "day", usageRepo.granularity)
 	require.Equal(t, int64(42), usageRepo.userID)
 	require.Equal(t, int64(7), usageRepo.apiKeyID)
+	require.True(t, usageRepo.viewCalled)
+	require.True(t, usageRepo.usePresentation)
 	require.True(t, usageRepo.startTime.Before(usageRepo.endTime))
 
 	var got dailyUsageHandlerResponse

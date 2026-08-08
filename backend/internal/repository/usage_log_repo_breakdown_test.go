@@ -62,18 +62,22 @@ func TestGetUserBreakdownStatsRequestTypeIncludesLegacyFallback(t *testing.T) {
 	requestType := int16(service.RequestTypeStream)
 
 	legacyFilter := `(ul.request_type = $3 OR (ul.request_type = 0 AND ul.stream = TRUE AND ul.openai_ws_mode = FALSE))`
-	mock.ExpectQuery(regexp.QuoteMeta(legacyFilter)).
+	mock.ExpectQuery(`(?s)`+regexp.QuoteMeta("COALESCE(u.notes, '') as notes")+`.*`+regexp.QuoteMeta(legacyFilter)).
 		WithArgs(start, end, requestType).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"user_id", "email", "requests", "input_tokens", "output_tokens",
+			"user_id", "email", "notes", "requests", "input_tokens", "output_tokens",
 			"cache_tokens", "total_tokens", "cost", "actual_cost", "account_cost",
-		}))
+		}).AddRow(int64(9), "raw@example.com", "raw note", int64(3), int64(100), int64(50), int64(25), int64(175), 1.5, 1.25, 1.0))
 
 	rows, err := repo.GetUserBreakdownStats(context.Background(), start, end, usagestats.UserBreakdownDimension{
 		RequestType: &requestType,
 	}, 0)
 
 	require.NoError(t, err)
-	require.Empty(t, rows)
+	require.Equal(t, []usagestats.UserBreakdownItem{{
+		UserID: 9, Email: "raw@example.com", Notes: "raw note", Requests: 3,
+		InputTokens: 100, OutputTokens: 50, CacheTokens: 25, TotalTokens: 175,
+		Cost: 1.5, ActualCost: 1.25, AccountCost: 1.0,
+	}}, rows)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

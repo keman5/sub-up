@@ -209,15 +209,18 @@ type AdminBoundAuthIdentityChannel struct {
 }
 
 type CreateGroupInput struct {
-	Name             string
-	Description      string
-	Platform         string
-	RateMultiplier   float64
-	IsExclusive      bool
-	SubscriptionType string   // standard/subscription
-	DailyLimitUSD    *float64 // 日限额 (USD)
-	WeeklyLimitUSD   *float64 // 周限额 (USD)
-	MonthlyLimitUSD  *float64 // 月限额 (USD)
+	Name                   string
+	Description            string
+	Platform               string
+	RateMultiplier         float64
+	UsageMultiplierEnabled bool
+	UsageMultiplier        float64
+	IsExclusive            bool
+	SubscriptionType       string   // standard/subscription
+	DailyLimitUSD          *float64 // 日限额 (USD)
+	WeeklyLimitUSD         *float64 // 周限额 (USD)
+	MonthlyLimitUSD        *float64 // 月限额 (USD)
+	TotalLimitUSD          *float64 // 总限额 (USD)
 	// 图片生成计费配置（仅 antigravity 平台使用）
 	AllowImageGeneration         bool
 	AllowBatchImageGeneration    bool
@@ -244,6 +247,7 @@ type CreateGroupInput struct {
 	FallbackGroupID       *int64 // 降级分组 ID
 	// 无效请求兜底分组 ID（仅 anthropic 平台使用）
 	FallbackGroupIDOnInvalidRequest *int64
+	QuotaFallbackGroupID            *int64
 	// 模型路由配置（仅 anthropic 平台使用）
 	ModelRouting        map[string][]int64
 	ModelRoutingEnabled bool // 是否启用模型路由
@@ -258,6 +262,8 @@ type CreateGroupInput struct {
 	RequirePrivacySet           bool
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
 	ModelsListConfig            GroupModelsListConfig
+	ModelPolicyMode             string
+	ModelPolicyModel            string
 	// RPMLimit 分组 RPM 上限（0 = 不限制）
 	RPMLimit int
 	// MaxReasoningEffort OpenAI/Codex 请求的推理强度上限，空字符串表示不限制。
@@ -273,16 +279,19 @@ type CreateGroupInput struct {
 }
 
 type UpdateGroupInput struct {
-	Name             string
-	Description      *string
-	Platform         string
-	RateMultiplier   *float64 // 使用指针以支持设置为0
-	IsExclusive      *bool
-	Status           string
-	SubscriptionType string   // standard/subscription
-	DailyLimitUSD    *float64 // 日限额 (USD)
-	WeeklyLimitUSD   *float64 // 周限额 (USD)
-	MonthlyLimitUSD  *float64 // 月限额 (USD)
+	Name                   string
+	Description            *string
+	Platform               string
+	RateMultiplier         *float64 // 使用指针以支持设置为0
+	UsageMultiplierEnabled *bool
+	UsageMultiplier        *float64
+	IsExclusive            *bool
+	Status                 string
+	SubscriptionType       string   // standard/subscription
+	DailyLimitUSD          *float64 // 日限额 (USD)
+	WeeklyLimitUSD         *float64 // 周限额 (USD)
+	MonthlyLimitUSD        *float64 // 月限额 (USD)
+	TotalLimitUSD          *float64 // 总限额 (USD)
 	// 图片生成计费配置（仅 antigravity 平台使用）
 	AllowImageGeneration         *bool
 	AllowBatchImageGeneration    *bool
@@ -309,6 +318,7 @@ type UpdateGroupInput struct {
 	FallbackGroupID       *int64 // 降级分组 ID
 	// 无效请求兜底分组 ID（仅 anthropic 平台使用）
 	FallbackGroupIDOnInvalidRequest *int64
+	QuotaFallbackGroupID            *int64
 	// 模型路由配置（仅 anthropic 平台使用）
 	ModelRouting        map[string][]int64
 	ModelRoutingEnabled *bool // 是否启用模型路由
@@ -323,6 +333,8 @@ type UpdateGroupInput struct {
 	RequirePrivacySet           *bool
 	MessagesDispatchModelConfig *OpenAIMessagesDispatchModelConfig
 	ModelsListConfig            *GroupModelsListConfig
+	ModelPolicyMode             *string
+	ModelPolicyModel            *string
 	// RPMLimit 分组 RPM 上限（0 = 不限制），nil 表示未提供不改动。
 	RPMLimit *int
 	// MaxReasoningEffort 空字符串表示清除上限；nil 表示未提供不改动。

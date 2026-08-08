@@ -691,6 +691,7 @@ type pathParseError struct{ msg string }
 func (e *pathParseError) Error() string { return e.msg }
 
 func googleError(c *gin.Context, status int, message string) {
+	message = service.ClientErrorMessageForAcceptLanguage(c.GetHeader("Accept-Language"), message)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    status,

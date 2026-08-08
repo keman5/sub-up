@@ -2,9 +2,36 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sub2API - AI API Gateway</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>51token 算力</title>
+    <meta
+      name="description"
+      content="51token 算力提供兼容 OpenAI 协议的 AI API 网关与算力分发服务。"
+    />
+    <style>
+      html.home-scroll-restoring body {
+        visibility: hidden;
+      }
+    </style>
+    <script nonce="__CSP_NONCE_VALUE__">
+      ;(function () {
+        try {
+          var path = window.location.pathname
+          if (path !== '/' && path !== '/home') return
+          if (window.location.hash) return
+
+          if ('scrollRestoration' in history) {
+            history.scrollRestoration = 'manual'
+          }
+          document.documentElement.classList.add('home-scroll-restoring')
+        } catch (_) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

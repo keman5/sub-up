@@ -1097,6 +1097,47 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingStillCollectsUsageAf
 	require.Equal(t, 5, result.usage.OutputTokens)
 }
 
+func TestGatewayService_AnthropicAPIKeyPassthrough_RewritesClientUsageForPresentation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	svc := &GatewayService{
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{
+				MaxLineSize: defaultMaxLineSize,
+			},
+		},
+		rateLimitService: &RateLimitService{},
+	}
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"message_delta","usage":{"input_tokens":600,"output_tokens":500,"cache_read_input_tokens":100}}`,
+			"",
+			"data: [DONE]",
+			"",
+		}, "\n"))),
+	}
+
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "claude-3-7-sonnet-20250219")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.usage)
+	require.Equal(t, 600, result.usage.InputTokens)
+	require.Equal(t, 500, result.usage.OutputTokens)
+	require.Equal(t, 100, result.usage.CacheReadInputTokens)
+
+	body := rec.Body.String()
+	require.Contains(t, body, `"input_tokens":1200`)
+	require.Contains(t, body, `"output_tokens":1000`)
+	require.Contains(t, body, `"cache_read_input_tokens":200`)
+}
+
 func TestGatewayService_AnthropicAPIKeyPassthrough_MissingTerminalEventReturnsError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1258,11 +1299,12 @@ func TestExtractAnthropicSSEDataLine(t *testing.T) {
 func TestGatewayService_ParseSSEUsagePassthrough_MessageStartFallbacks(t *testing.T) {
 	svc := &GatewayService{}
 	usage := &ClaudeUsage{}
-	data := `{"type":"message_start","message":{"usage":{"input_tokens":12,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cached_tokens":9,"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":4}}}}`
+	data := `{"type":"message_start","message":{"usage":{"input_tokens":12,"image_output_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cached_tokens":9,"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":4}}}}`
 
 	svc.parseSSEUsagePassthrough(data, usage)
 
 	require.Equal(t, 12, usage.InputTokens)
+	require.Equal(t, 2, usage.ImageOutputTokens)
 	require.Equal(t, 9, usage.CacheReadInputTokens, "应兼容 cached_tokens 字段")
 	require.Equal(t, 7, usage.CacheCreationInputTokens, "聚合字段为空时应从 5m/1h 明细回填")
 	require.Equal(t, 3, usage.CacheCreation5mTokens)
@@ -1276,12 +1318,13 @@ func TestGatewayService_ParseSSEUsagePassthrough_MessageDeltaSelectiveOverwrite(
 		CacheCreation5mTokens: 2,
 		CacheCreation1hTokens: 6,
 	}
-	data := `{"type":"message_delta","usage":{"input_tokens":0,"output_tokens":5,"cache_creation_input_tokens":8,"cache_read_input_tokens":0,"cached_tokens":11,"cache_creation":{"ephemeral_5m_input_tokens":1,"ephemeral_1h_input_tokens":0}}}`
+	data := `{"type":"message_delta","usage":{"input_tokens":0,"output_tokens":5,"image_output_tokens":3,"cache_creation_input_tokens":8,"cache_read_input_tokens":0,"cached_tokens":11,"cache_creation":{"ephemeral_5m_input_tokens":1,"ephemeral_1h_input_tokens":0}}}`
 
 	svc.parseSSEUsagePassthrough(data, usage)
 
 	require.Equal(t, 10, usage.InputTokens, "message_delta 中 0 值不应覆盖已有 input_tokens")
 	require.Equal(t, 5, usage.OutputTokens)
+	require.Equal(t, 3, usage.ImageOutputTokens)
 	require.Equal(t, 8, usage.CacheCreationInputTokens)
 	require.Equal(t, 11, usage.CacheReadInputTokens, "cache_read_input_tokens 为空时应回退到 cached_tokens")
 	require.Equal(t, 1, usage.CacheCreation5mTokens)
@@ -1328,10 +1371,11 @@ func TestParseClaudeUsageFromResponseBody(t *testing.T) {
 	})
 
 	t.Run("parse all usage fields and fallback", func(t *testing.T) {
-		body := []byte(`{"usage":{"input_tokens":21,"output_tokens":34,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cached_tokens":13,"cache_creation":{"ephemeral_5m_input_tokens":5,"ephemeral_1h_input_tokens":8}}}`)
+		body := []byte(`{"usage":{"input_tokens":21,"output_tokens":34,"image_output_tokens":7,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cached_tokens":13,"cache_creation":{"ephemeral_5m_input_tokens":5,"ephemeral_1h_input_tokens":8}}}`)
 		got := parseClaudeUsageFromResponseBody(body)
 		require.Equal(t, 21, got.InputTokens)
 		require.Equal(t, 34, got.OutputTokens)
+		require.Equal(t, 7, got.ImageOutputTokens)
 		require.Equal(t, 13, got.CacheReadInputTokens, "cache_read_input_tokens 为空时应回退 cached_tokens")
 		require.Equal(t, 13, got.CacheCreationInputTokens, "聚合字段为空时应由 5m/1h 回填")
 		require.Equal(t, 5, got.CacheCreation5mTokens)

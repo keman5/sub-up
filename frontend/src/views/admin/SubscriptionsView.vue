@@ -7,61 +7,20 @@
           <!-- Left: Fuzzy user search + filters (wrap to multiple lines) -->
           <div class="flex flex-1 flex-wrap items-center gap-3">
             <!-- User Search -->
-            <div
-              class="relative w-full sm:w-64"
-              data-filter-user-search
-            >
-              <Icon
-                name="search"
-                size="md"
-                class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-              />
-              <input
+            <div class="w-full sm:w-64" data-filter-user-search>
+              <SearchSuggestInput
                 v-model="filterUserKeyword"
-                type="text"
                 :placeholder="t('admin.users.searchUsers')"
-                class="input pl-10 pr-8"
-                @input="debounceSearchFilterUsers"
-                @focus="showFilterUserDropdown = true"
+                :suggestions="filterUserSuggestions"
+                :open="showFilterUserDropdown"
+                :loading="filterUserLoading"
+                :empty-text="filterUserKeyword ? t('common.noOptionsFound') : ''"
+                @search="handleFilterUserSearch"
+                @focus="onFilterUserFocus"
+                @blur="onFilterUserBlur"
+                @select="selectFilterUserOption"
+                @clear="clearFilterUser"
               />
-              <button
-                v-if="selectedFilterUser"
-                @click="clearFilterUser"
-                type="button"
-                class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                :title="t('common.clear')"
-              >
-                <Icon name="x" size="sm" :stroke-width="2" />
-              </button>
-
-              <!-- User Dropdown -->
-              <div
-                v-if="showFilterUserDropdown && (filterUserResults.length > 0 || filterUserKeyword)"
-                class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-dark-700 dark:bg-dark-800"
-              >
-                <div
-                  v-if="filterUserLoading"
-                  class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                >
-                  {{ t('common.loading') }}
-                </div>
-                <div
-                  v-else-if="filterUserResults.length === 0 && filterUserKeyword"
-                  class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-                >
-                  {{ t('common.noOptionsFound') }}
-                </div>
-                <button
-                  v-for="user in filterUserResults"
-                  :key="user.id"
-                  type="button"
-                  @click="selectFilterUser(user)"
-                  class="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-dark-700"
-                >
-                  <span class="font-medium text-gray-900 dark:text-white">{{ user.email }}</span>
-                  <span class="ml-2 text-gray-500 dark:text-gray-400">#{{ user.id }}</span>
-                </button>
-              </div>
             </div>
 
             <!-- Filters -->
@@ -159,7 +118,7 @@
             >
               <Icon name="questionCircle" size="md" />
             </button>
-            <button @click="showAssignModal = true" class="btn btn-primary">
+            <button @click="openAssignModal" class="btn btn-primary">
               <Icon name="plus" size="md" class="mr-2" />
               {{ t('admin.subscriptions.assignSubscription') }}
             </button>
@@ -190,11 +149,16 @@
                   }}
                 </span>
               </div>
-              <span class="font-medium text-gray-900 dark:text-white">
-                {{ userColumnMode === 'email'
-                  ? (row.user?.email || t('admin.redeem.userPrefix', { id: row.user_id }))
-                  : (row.user?.username || '-')
-                }}
+              <span class="min-w-0">
+                <span class="block truncate font-medium text-gray-900 dark:text-white">
+                  {{ getSubscriptionUserLabel(row, userColumnMode, t('admin.redeem.userPrefix', { id: row.user_id })) }}
+                </span>
+                <span
+                  v-if="getSubscriptionUserNotes(row)"
+                  class="block truncate text-xs text-gray-500 dark:text-gray-400"
+                >
+                  {{ getSubscriptionUserNotes(row) }}
+                </span>
               </span>
             </div>
           </template>
@@ -324,12 +288,34 @@
                 </div>
               </div>
 
+              <!-- Total Usage -->
+              <div v-if="row.group?.total_limit_usd" class="usage-row">
+                <div class="flex items-center gap-2">
+                  <span class="usage-label">{{ t('admin.subscriptions.total') }}</span>
+                  <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
+                    <div
+                      class="h-1.5 rounded-full transition-all"
+                      :class="getProgressClass(row.total_usage_usd, row.group?.total_limit_usd)"
+                      :style="{
+                        width: getProgressWidth(row.total_usage_usd, row.group?.total_limit_usd)
+                      }"
+                    ></div>
+                  </div>
+                  <span class="usage-amount">
+                    ${{ row.total_usage_usd?.toFixed(2) || '0.00' }}
+                    <span class="text-gray-400">/</span>
+                    ${{ row.group?.total_limit_usd?.toFixed(2) }}
+                  </span>
+                </div>
+              </div>
+
               <!-- No Limits - Unlimited badge -->
               <div
                 v-if="
                   !row.group?.daily_limit_usd &&
                   !row.group?.weekly_limit_usd &&
-                  !row.group?.monthly_limit_usd
+                  !row.group?.monthly_limit_usd &&
+                  !row.group?.total_limit_usd
                 "
                 class="flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-50 to-teal-50 px-3 py-2 dark:from-emerald-900/20 dark:to-teal-900/20"
               >
@@ -458,50 +444,127 @@
       >
         <div>
           <label class="input-label">{{ t('admin.subscriptions.form.user') }}</label>
-          <div class="relative" data-assign-user-search>
-            <input
-              v-model="userSearchKeyword"
-              type="text"
-              class="input pr-8"
-              :placeholder="t('admin.usage.searchUserPlaceholder')"
-              @input="debounceSearchUsers"
-              @focus="showUserDropdown = true"
-            />
-            <button
-              v-if="selectedUser"
-              @click="clearUserSelection"
-              type="button"
-              class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-            >
-              <Icon name="x" size="sm" :stroke-width="2" />
-            </button>
+          <div data-assign-user-search>
+            <div class="relative">
+              <input
+                v-model="userSearchKeyword"
+                type="text"
+                class="input pr-8"
+                :placeholder="t('admin.usage.searchUserPlaceholder')"
+                @input="debounceSearchUsers"
+                @focus="showUserDropdown = true"
+              />
+              <button
+                v-if="userSearchKeyword"
+                @click="clearUserSearch"
+                type="button"
+                class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <Icon name="x" size="sm" :stroke-width="2" />
+              </button>
+            </div>
             <!-- User Dropdown -->
             <div
-              v-if="showUserDropdown && (userSearchResults.length > 0 || userSearchKeyword)"
-              class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-dark-700 dark:bg-dark-800"
+              v-if="showAssignModal"
+              class="mt-1 max-h-60 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800"
             >
-              <div
-                v-if="userSearchLoading"
-                class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-              >
+              <div class="flex items-center justify-between border-b border-gray-100 px-3 py-2 dark:border-gray-700">
+                <span class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {{
+                    userSearchKeyword.trim()
+                      ? t('admin.subscriptions.userPicker.searchResults')
+                      : t('admin.subscriptions.userPicker.recentUsers')
+                  }}
+                </span>
+                <button
+                  v-if="userSearchResults.length > 0"
+                  type="button"
+                  class="text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                  @click.stop="selectAllVisibleAssignUsers"
+                >
+                  {{ t('admin.subscriptions.userPicker.selectAllCurrent') }}
+                </button>
+              </div>
+              <div v-if="userSearchLoading" class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                 {{ t('common.loading') }}
               </div>
-              <div
-                v-else-if="userSearchResults.length === 0 && userSearchKeyword"
-                class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400"
-              >
-                {{ t('common.noOptionsFound') }}
+              <div v-else-if="userSearchResults.length === 0" class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                {{
+                  userSearchKeyword.trim()
+                    ? t('common.noOptionsFound')
+                    : t('admin.subscriptions.userPicker.noRecentUsers')
+                }}
               </div>
+              <div v-else class="py-1">
+                <button
+                  v-for="user in userSearchResults"
+                  :key="user.id"
+                  type="button"
+                  @click="toggleAssignUser(user)"
+                  class="flex w-full items-center justify-between gap-3 px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <span class="min-w-0">
+                    <span class="block truncate font-medium text-gray-900 dark:text-white">{{ user.email }}</span>
+                    <span
+                      v-if="formatSimpleUserMeta(user)"
+                      class="block truncate text-xs text-gray-500 dark:text-gray-400"
+                    >
+                      {{ formatSimpleUserMeta(user) }}
+                    </span>
+                    <span class="block text-xs text-gray-400 dark:text-gray-500">#{{ user.id }}</span>
+                  </span>
+                  <span
+                    :class="[
+                      'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+                      isAssignUserSelected(user.id)
+                        ? 'border-primary-500 bg-primary-500 text-white'
+                        : 'border-gray-300 text-transparent dark:border-gray-600'
+                    ]"
+                  >
+                    <Icon name="check" size="xs" :stroke-width="3" />
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-dark-700/50">
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-200">
+                {{ t('admin.subscriptions.userPicker.selectedUsers') }}
+                <span class="text-gray-500 dark:text-gray-400">({{ selectedAssignUsers.length }})</span>
+              </span>
               <button
-                v-for="user in userSearchResults"
-                :key="user.id"
+                v-if="selectedAssignUsers.length > 0"
                 type="button"
-                @click="selectUser(user)"
-                class="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-dark-700"
+                class="text-xs font-medium text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400"
+                @click="clearSelectedAssignUsers"
               >
-                <span class="font-medium text-gray-900 dark:text-white">{{ user.email }}</span>
-                <span class="ml-2 text-gray-500 dark:text-gray-400">#{{ user.id }}</span>
+                {{ t('admin.subscriptions.userPicker.clearSelected') }}
               </button>
+            </div>
+            <div v-if="selectedAssignUsers.length === 0" class="text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.subscriptions.userPicker.emptySelected') }}
+            </div>
+            <div v-else class="flex max-h-28 flex-wrap gap-2 overflow-auto">
+              <span
+                v-for="user in selectedAssignUsers"
+                :key="user.id"
+                class="inline-flex max-w-full items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs text-gray-700 ring-1 ring-gray-200 dark:bg-dark-800 dark:text-gray-200 dark:ring-gray-600"
+              >
+                <span class="max-w-[220px] truncate">{{ user.email }}</span>
+                <span v-if="formatSimpleUserMeta(user)" class="max-w-[180px] truncate text-gray-500">
+                  {{ formatSimpleUserMeta(user) }}
+                </span>
+                <span class="text-gray-400">#{{ user.id }}</span>
+                <button
+                  type="button"
+                  class="text-gray-400 hover:text-red-500"
+                  :title="t('common.delete')"
+                  @click="removeAssignUser(user.id)"
+                >
+                  <Icon name="x" size="xs" />
+                </button>
+              </span>
             </div>
           </div>
         </div>
@@ -572,7 +635,13 @@
                 d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
               ></path>
             </svg>
-            {{ submitting ? t('admin.subscriptions.assigning') : t('admin.subscriptions.assign') }}
+            {{
+              submitting
+                ? t('admin.subscriptions.assigning')
+                : selectedAssignUsers.length > 1
+                  ? t('admin.subscriptions.assignToUsers', { count: selectedAssignUsers.length })
+                  : t('admin.subscriptions.assign')
+            }}
           </button>
         </div>
       </template>
@@ -671,14 +740,78 @@
 
     <!-- Reset Quota Confirmation Dialog -->
     <ConfirmDialog
+      :show="showRestoreDialog"
+      :title="t('admin.subscriptions.restoreSubscription')"
+      :message="t('admin.subscriptions.restoreConfirm', { user: restoringSubscription?.user?.email })"
+      :confirm-text="t('admin.subscriptions.restore')"
+      :cancel-text="t('common.cancel')"
+      @confirm="confirmRestore"
+      @cancel="showRestoreDialog = false"
+    />
+
+    <!-- Reset Quota Dialog -->
+    <BaseDialog
       :show="showResetQuotaConfirm"
       :title="t('admin.subscriptions.resetQuotaTitle')"
-      :message="t('admin.subscriptions.resetQuotaConfirm', { user: resettingSubscription?.user?.email })"
-      :confirm-text="t('admin.subscriptions.resetQuota')"
-      :cancel-text="t('common.cancel')"
-      @confirm="confirmResetQuota"
-      @cancel="showResetQuotaConfirm = false"
-    />
+      width="narrow"
+      @close="closeResetQuotaDialog"
+    >
+      <div v-if="resettingSubscription" class="space-y-5">
+        <div class="rounded-lg bg-gray-50 p-4 dark:bg-dark-700">
+          <p class="text-sm text-gray-600 dark:text-gray-400">
+            {{ t('admin.subscriptions.resetQuotaFor') }}
+            <span class="font-medium text-gray-900 dark:text-white">{{
+              resettingSubscription.user?.email
+            }}</span>
+          </p>
+          <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+            {{ t('admin.subscriptions.resetQuotaHint') }}
+          </p>
+        </div>
+
+        <fieldset class="space-y-2">
+          <legend class="input-label">{{ t('admin.subscriptions.resetQuotaScope') }}</legend>
+          <label
+            v-for="option in resetQuotaScopeOptions"
+            :key="option.value"
+            class="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 p-3 transition-colors hover:border-primary-300 hover:bg-primary-50/60 dark:border-dark-600 dark:hover:border-primary-700 dark:hover:bg-primary-900/15"
+            :class="resetQuotaScope === option.value ? 'border-primary-500 bg-primary-50 dark:border-primary-600 dark:bg-primary-900/20' : ''"
+          >
+            <input
+              v-model="resetQuotaScope"
+              type="radio"
+              name="reset-quota-scope"
+              :value="option.value"
+              class="mt-0.5 h-4 w-4 text-primary-600 focus:ring-primary-500"
+            />
+            <span>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                {{ option.label }}
+              </span>
+              <span class="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
+                {{ option.description }}
+              </span>
+            </span>
+          </label>
+        </fieldset>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <button @click="closeResetQuotaDialog" type="button" class="btn btn-secondary">
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            @click="confirmResetQuota"
+            type="button"
+            :disabled="resettingQuota"
+            class="btn btn-primary"
+          >
+            {{ resettingQuota ? t('common.loading') : t('admin.subscriptions.resetQuota') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
     <!-- Subscription Guide Modal -->
     <teleport to="body">
       <transition name="modal">
@@ -766,11 +899,17 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
-import type { UserSubscription, Group, GroupPlatform, SubscriptionType } from '@/types'
+import type { AdminUser, AssignSubscriptionRequest, UserSubscription, Group, GroupPlatform, SubscriptionType } from '@/types'
 import type { SimpleUser } from '@/api/admin/usage'
 import type { Column } from '@/components/common/types'
 import { formatDateTimeToMinute } from '@/utils/format'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useAppDialog } from '@/composables/useAppDialog'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
+import { getSubscriptionUserLabel, getSubscriptionUserNotes } from './subscriptionUserDisplay'
+import { mergeSubscriptionProgressById } from './subscriptionProgressMerge'
+import { filterRecentRegisteredUsers } from './subscriptionRecentUsers'
+import { extractApiErrorMessage } from '@/utils/apiError'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -779,6 +918,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Select from '@/components/common/Select.vue'
+import SearchSuggestInput, { type SearchSuggestOption } from '@/components/common/SearchSuggestInput.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -791,6 +931,8 @@ import {
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const appDialog = useAppDialog()
+const DUPLICATE_SUBSCRIPTION_CONFIRMATION_REASON = 'SUBSCRIPTION_DUPLICATE_CONFIRMATION_REQUIRED'
 
 interface GroupOption {
   value: number
@@ -800,6 +942,8 @@ interface GroupOption {
   subscriptionType: SubscriptionType
   rate: number
 }
+
+type ResetQuotaScope = 'daily' | 'weekly' | 'monthly' | 'all'
 
 // Guide modal state
 const showGuideModal = ref(false)
@@ -929,21 +1073,52 @@ const subscriptions = ref<UserSubscription[]>([])
 const groups = ref<Group[]>([])
 const loading = ref(false)
 let abortController: AbortController | null = null
+let progressRefreshRun = 0
+const PROGRESS_REFRESH_CONCURRENCY = 3
 
 // Toolbar user filter (fuzzy search -> select user_id)
 const filterUserKeyword = ref('')
-const filterUserResults = ref<SimpleUser[]>([])
+const filterUserSuggestions = ref<SearchSuggestOption<SimpleUser>[]>([])
 const filterUserLoading = ref(false)
 const showFilterUserDropdown = ref(false)
 const selectedFilterUser = ref<SimpleUser | null>(null)
 let filterUserSearchTimeout: ReturnType<typeof setTimeout> | null = null
+
+const syncFilterUserSuggestions = (users: SimpleUser[]) => {
+  const existingSuggestions = filterUserSuggestions.value
+  const existingById = new Map(existingSuggestions.map((suggestion) => [suggestion.id, suggestion]))
+  const nextSuggestions = users.map((user) => {
+    const existing = existingById.get(user.id)
+    const secondaryText = formatSimpleUserMeta(user) || `#${user.id}`
+    if (existing) {
+      existing.primaryText = user.email
+      existing.secondaryText = secondaryText
+      existing.value = user
+      return existing
+    }
+    return {
+      id: user.id,
+      primaryText: user.email,
+      secondaryText,
+      value: user
+    }
+  })
+
+  const unchanged =
+    existingSuggestions.length === nextSuggestions.length &&
+    existingSuggestions.every((suggestion, index) => suggestion === nextSuggestions[index])
+
+  if (!unchanged) {
+    existingSuggestions.splice(0, existingSuggestions.length, ...nextSuggestions)
+  }
+}
 
 // User search state
 const userSearchKeyword = ref('')
 const userSearchResults = ref<SimpleUser[]>([])
 const userSearchLoading = ref(false)
 const showUserDropdown = ref(false)
-const selectedUser = ref<SimpleUser | null>(null)
+const selectedAssignUsers = ref<SimpleUser[]>([])
 let userSearchTimeout: ReturnType<typeof setTimeout> | null = null
 
 const filters = reactive({
@@ -952,6 +1127,65 @@ const filters = reactive({
   platform: '',
   user_id: null as number | null
 })
+
+const subscriptionRouteQuerySync = useRouteQuerySync({
+  fields: [
+    {
+      queryKey: 'user_id',
+      // Legacy read-only query support. New links keep the visible email/search
+      // text in user_search so refresh never turns the input into a raw ID.
+      get: () => null,
+      set: (value) => {
+        filters.user_id = value
+      },
+      parse: 'number',
+      defaultValue: null
+    },
+    { queryKey: 'user_search', get: () => filterUserKeyword.value, set: (value) => { filterUserKeyword.value = value }, defaultValue: '' },
+    { queryKey: 'status', get: () => filters.status, set: (value) => { filters.status = value }, defaultValue: 'active', defaultQueryValue: 'active', emptyQueryValue: 'all' },
+    { queryKey: 'group_id', get: () => filters.group_id, set: (value) => { filters.group_id = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'platform', get: () => filters.platform, set: (value) => { filters.platform = value }, defaultValue: '', defaultQueryValue: 'all' },
+  ],
+})
+
+const restoreSubscriptionRouteQuery = () => {
+  subscriptionRouteQuerySync.restoreFromRoute()
+}
+
+const findFilterUserMatch = (users: SimpleUser[], keyword: string): SimpleUser | null => {
+  const normalizedKeyword = keyword.trim().toLowerCase()
+  if (!normalizedKeyword) return null
+
+  const exactEmail = users.find((user) => user.email.toLowerCase() === normalizedKeyword)
+  if (exactEmail) return exactEmail
+
+  const exactUsername = users.find((user) => user.username?.trim().toLowerCase() === normalizedKeyword)
+  if (exactUsername) return exactUsername
+
+  return normalizedKeyword.includes('@') && users.length === 1 ? users[0] : null
+}
+
+const restoreFilterUserSelectionFromSearch = async () => {
+  const keyword = filterUserKeyword.value.trim()
+  if (!keyword) return
+
+  filterUserLoading.value = true
+  try {
+    const users = await adminAPI.usage.searchUsers(keyword)
+    syncFilterUserSuggestions(users)
+    const matchedUser = findFilterUserMatch(users, keyword)
+    if (!matchedUser) return
+
+    selectedFilterUser.value = matchedUser
+    filterUserKeyword.value = matchedUser.email
+    filters.user_id = matchedUser.id
+  } catch (error) {
+    console.error('Failed to restore subscription user filter from route:', error)
+    syncFilterUserSuggestions([])
+  } finally {
+    filterUserLoading.value = false
+  }
+}
 
 // Sorting state
 const sortState = reactive({
@@ -974,12 +1208,12 @@ const showResetQuotaConfirm = ref(false)
 const submitting = ref(false)
 const resettingSubscription = ref<UserSubscription | null>(null)
 const resettingQuota = ref(false)
+const resetQuotaScope = ref<ResetQuotaScope>('daily')
 const extendingSubscription = ref<UserSubscription | null>(null)
 const revokingSubscription = ref<UserSubscription | null>(null)
 const restoringSubscription = ref<UserSubscription | null>(null)
 
 const assignForm = reactive({
-  user_id: null as number | null,
   group_id: null as number | null,
   validity_days: 30
 })
@@ -987,6 +1221,33 @@ const assignForm = reactive({
 const extendForm = reactive({
   days: 30
 })
+
+const resetQuotaScopeOptions = computed<Array<{
+  value: ResetQuotaScope
+  label: string
+  description: string
+}>>(() => [
+  {
+    value: 'daily',
+    label: t('admin.subscriptions.resetQuotaScopes.daily'),
+    description: t('admin.subscriptions.resetQuotaScopeDescriptions.daily')
+  },
+  {
+    value: 'weekly',
+    label: t('admin.subscriptions.resetQuotaScopes.weekly'),
+    description: t('admin.subscriptions.resetQuotaScopeDescriptions.weekly')
+  },
+  {
+    value: 'monthly',
+    label: t('admin.subscriptions.resetQuotaScopes.monthly'),
+    description: t('admin.subscriptions.resetQuotaScopeDescriptions.monthly')
+  },
+  {
+    value: 'all',
+    label: t('admin.subscriptions.resetQuotaScopes.all'),
+    description: t('admin.subscriptions.resetQuotaScopeDescriptions.all')
+  }
+])
 
 // Group options for filter (all groups)
 const groupOptions = computed(() => [
@@ -1018,13 +1279,51 @@ const subscriptionGroupOptions = computed(() =>
 
 const applyFilters = () => {
   pagination.page = 1
+  void subscriptionRouteQuerySync.syncToRoute()
   loadSubscriptions()
+}
+
+const refreshVisibleSubscriptionProgress = async (items: UserSubscription[]) => {
+  const run = ++progressRefreshRun
+  const queue = items
+    .filter(subscription =>
+      subscription.group?.daily_limit_usd ||
+      subscription.group?.weekly_limit_usd ||
+      subscription.group?.monthly_limit_usd ||
+      subscription.group?.total_limit_usd
+    )
+    .map(subscription => subscription.id)
+
+  let nextIndex = 0
+
+  const worker = async () => {
+    while (nextIndex < queue.length && run === progressRefreshRun) {
+      const subscriptionId = queue[nextIndex++]
+      try {
+        const progress = await adminAPI.subscriptions.getProgress(subscriptionId)
+        if (run !== progressRefreshRun) return
+        subscriptions.value = mergeSubscriptionProgressById(
+          subscriptions.value,
+          subscriptionId,
+          progress
+        )
+      } catch (error: any) {
+        if (run !== progressRefreshRun) return
+        console.error('Failed to refresh subscription progress:', error)
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(PROGRESS_REFRESH_CONCURRENCY, queue.length) }, worker)
+  )
 }
 
 const loadSubscriptions = async () => {
   if (abortController) {
     abortController.abort()
   }
+  progressRefreshRun++
   const requestController = new AbortController()
   abortController = requestController
   const { signal } = requestController
@@ -1050,6 +1349,7 @@ const loadSubscriptions = async () => {
     subscriptions.value = response.items
     pagination.total = response.total
     pagination.pages = response.pages
+    refreshVisibleSubscriptionProgress(response.items)
   } catch (error: any) {
     if (signal.aborted || error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') {
       return
@@ -1080,6 +1380,21 @@ const debounceSearchFilterUsers = () => {
   filterUserSearchTimeout = setTimeout(searchFilterUsers, 300)
 }
 
+const handleFilterUserSearch = (value: string) => {
+  filterUserKeyword.value = value
+  showFilterUserDropdown.value = true
+  debounceSearchFilterUsers()
+}
+
+const onFilterUserFocus = () => {
+  showFilterUserDropdown.value = true
+  debounceSearchFilterUsers()
+}
+
+const onFilterUserBlur = () => {
+  showFilterUserDropdown.value = false
+}
+
 const searchFilterUsers = async () => {
   const keyword = filterUserKeyword.value.trim()
 
@@ -1090,17 +1405,12 @@ const searchFilterUsers = async () => {
     applyFilters()
   }
 
-  if (!keyword) {
-    filterUserResults.value = []
-    return
-  }
-
   filterUserLoading.value = true
   try {
-    filterUserResults.value = await adminAPI.usage.searchUsers(keyword)
+    syncFilterUserSuggestions(await adminAPI.usage.searchUsers(keyword))
   } catch (error) {
     console.error('Failed to search users:', error)
-    filterUserResults.value = []
+    syncFilterUserSuggestions([])
   } finally {
     filterUserLoading.value = false
   }
@@ -1114,13 +1424,88 @@ const selectFilterUser = (user: SimpleUser) => {
   applyFilters()
 }
 
+const selectFilterUserOption = (option: SearchSuggestOption<SimpleUser>) => {
+  selectFilterUser(option.value)
+}
+
 const clearFilterUser = () => {
   selectedFilterUser.value = null
   filterUserKeyword.value = ''
-  filterUserResults.value = []
+  syncFilterUserSuggestions([])
   showFilterUserDropdown.value = false
   filters.user_id = null
   applyFilters()
+}
+
+const toSimpleUser = (user: Pick<AdminUser, 'id' | 'email' | 'username' | 'notes'>): SimpleUser => ({
+  id: user.id,
+  email: user.email,
+  deleted: false,
+  username: user.username,
+  notes: user.notes
+})
+
+const formatSimpleUserMeta = (user: SimpleUser) =>
+  [user.notes, user.username]
+    .map((value) => value?.trim())
+    .find(Boolean) || ''
+
+const openAssignModal = () => {
+  showAssignModal.value = true
+  showUserDropdown.value = true
+  loadRecentAssignUsers()
+}
+
+const loadRecentAssignUsers = async () => {
+  userSearchLoading.value = true
+  try {
+    const response = await adminAPI.users.list(1, 30, {
+      role: 'user',
+      sort_by: 'created_at',
+      sort_order: 'desc'
+    })
+    userSearchResults.value = filterRecentRegisteredUsers(response.items).map(toSimpleUser)
+  } catch (error) {
+    console.error('Failed to load recent users:', error)
+    userSearchResults.value = []
+  } finally {
+    userSearchLoading.value = false
+  }
+}
+
+const isAssignUserSelected = (userId: number) =>
+  selectedAssignUsers.value.some((user) => user.id === userId)
+
+const addAssignUser = (user: SimpleUser) => {
+  if (!isAssignUserSelected(user.id)) {
+    selectedAssignUsers.value.push(user)
+  }
+}
+
+const removeAssignUser = (userId: number) => {
+  selectedAssignUsers.value = selectedAssignUsers.value.filter((user) => user.id !== userId)
+}
+
+const toggleAssignUser = (user: SimpleUser) => {
+  if (isAssignUserSelected(user.id)) {
+    removeAssignUser(user.id)
+  } else {
+    addAssignUser(user)
+  }
+}
+
+const selectAllVisibleAssignUsers = () => {
+  userSearchResults.value.forEach(addAssignUser)
+}
+
+const clearSelectedAssignUsers = () => {
+  selectedAssignUsers.value = []
+}
+
+const clearUserSearch = () => {
+  userSearchKeyword.value = ''
+  showUserDropdown.value = true
+  loadRecentAssignUsers()
 }
 
 // User search with debounce
@@ -1134,14 +1519,8 @@ const debounceSearchUsers = () => {
 const searchUsers = async () => {
   const keyword = userSearchKeyword.value.trim()
 
-  // Clear selection if user modified the search keyword
-  if (selectedUser.value && keyword !== selectedUser.value.email) {
-    selectedUser.value = null
-    assignForm.user_id = null
-  }
-
   if (!keyword) {
-    userSearchResults.value = []
+    await loadRecentAssignUsers()
     return
   }
 
@@ -1154,20 +1533,6 @@ const searchUsers = async () => {
   } finally {
     userSearchLoading.value = false
   }
-}
-
-const selectUser = (user: SimpleUser) => {
-  selectedUser.value = user
-  userSearchKeyword.value = user.email
-  showUserDropdown.value = false
-  assignForm.user_id = user.id
-}
-
-const clearUserSelection = () => {
-  selectedUser.value = null
-  userSearchKeyword.value = ''
-  userSearchResults.value = []
-  assignForm.user_id = null
 }
 
 const handlePageChange = (page: number) => {
@@ -1190,18 +1555,18 @@ const handleSort = (key: string, order: 'asc' | 'desc') => {
 
 const closeAssignModal = () => {
   showAssignModal.value = false
-  assignForm.user_id = null
   assignForm.group_id = null
   assignForm.validity_days = 30
   // Clear user search state
-  selectedUser.value = null
+  selectedAssignUsers.value = []
   userSearchKeyword.value = ''
   userSearchResults.value = []
   showUserDropdown.value = false
 }
 
 const handleAssignSubscription = async () => {
-  if (!assignForm.user_id) {
+  const userIds = selectedAssignUsers.value.map((user) => user.id)
+  if (userIds.length === 0) {
     appStore.showError(t('admin.subscriptions.pleaseSelectUser'))
     return
   }
@@ -1214,23 +1579,95 @@ const handleAssignSubscription = async () => {
     return
   }
 
+  const assignment = {
+    group_id: assignForm.group_id,
+    validity_days: assignForm.validity_days
+  }
+
   submitting.value = true
   try {
-    await adminAPI.subscriptions.assign({
-      user_id: assignForm.user_id,
-      group_id: assignForm.group_id,
-      validity_days: assignForm.validity_days
-    })
-    appStore.showSuccess(t('admin.subscriptions.subscriptionAssigned'))
+    if (userIds.length === 1) {
+      await assignSingleSubscriptionWithDuplicateConfirmation(userIds[0], assignment)
+    } else {
+      await adminAPI.subscriptions.bulkAssign({
+        user_ids: userIds,
+        group_id: assignment.group_id,
+        validity_days: assignment.validity_days
+      })
+    }
+    appStore.showSuccess(
+      userIds.length > 1
+        ? t('admin.subscriptions.subscriptionsAssigned', { count: userIds.length })
+        : t('admin.subscriptions.subscriptionAssigned')
+    )
     closeAssignModal()
     loadSubscriptions()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToAssign'))
+    if (error instanceof DuplicateSubscriptionConfirmationCancelled) {
+      return
+    }
+    appStore.showError(extractApiErrorMessage(error, t('admin.subscriptions.failedToAssign')))
     console.error('Error assigning subscription:', error)
   } finally {
     submitting.value = false
   }
 }
+
+const assignSingleSubscriptionWithDuplicateConfirmation = async (
+  userId: number,
+  assignment: Pick<AssignSubscriptionRequest, 'group_id' | 'validity_days'>
+) => {
+  try {
+    await assignSingleSubscription(userId, assignment, false)
+  } catch (error: any) {
+    if (!isDuplicateSubscriptionConfirmation(error)) {
+      throw error
+    }
+
+    const selectedUser = selectedAssignUsers.value.find((user) => user.id === userId)
+    const selectedGroup = groups.value.find((group) => group.id === assignment.group_id)
+    const confirmed = await appDialog.confirm({
+      title: t('admin.subscriptions.duplicateConfirmTitle'),
+      message: t('admin.subscriptions.duplicateConfirmMessage', {
+        user: selectedUser?.email || `#${userId}`,
+        group: selectedGroup?.name || t('admin.subscriptions.selectGroup')
+      }),
+      confirmText: t('admin.subscriptions.duplicateConfirmAction'),
+      cancelText: t('common.cancel')
+    })
+
+    if (!confirmed) {
+      throw new DuplicateSubscriptionConfirmationCancelled()
+    }
+
+    await assignSingleSubscription(userId, assignment, true)
+  }
+}
+
+class DuplicateSubscriptionConfirmationCancelled extends Error {
+  constructor() {
+    super('duplicate subscription confirmation cancelled')
+  }
+}
+
+const assignSingleSubscription = (
+  userId: number,
+  assignment: Pick<AssignSubscriptionRequest, 'group_id' | 'validity_days'>,
+  confirmDuplicate: boolean
+) =>
+  adminAPI.subscriptions.assign(
+    {
+      user_id: userId,
+      group_id: assignment.group_id,
+      validity_days: assignment.validity_days,
+      confirm_duplicate: confirmDuplicate
+    },
+    { skipGlobalErrorToast: true }
+  )
+
+const isDuplicateSubscriptionConfirmation = (error: any) =>
+  error?.reason === DUPLICATE_SUBSCRIPTION_CONFIRMATION_REASON ||
+  error?.response?.data?.reason === DUPLICATE_SUBSCRIPTION_CONFIRMATION_REASON
 
 const handleExtend = (subscription: UserSubscription) => {
   extendingSubscription.value = subscription
@@ -1314,18 +1751,32 @@ const confirmRestore = async () => {
 
 const handleResetQuota = (subscription: UserSubscription) => {
   resettingSubscription.value = subscription
+  resetQuotaScope.value = 'daily'
   showResetQuotaConfirm.value = true
+}
+
+const closeResetQuotaDialog = () => {
+  if (resettingQuota.value) return
+  showResetQuotaConfirm.value = false
+  resettingSubscription.value = null
+  resetQuotaScope.value = 'daily'
 }
 
 const confirmResetQuota = async () => {
   if (!resettingSubscription.value) return
   if (resettingQuota.value) return
   resettingQuota.value = true
+  const scope = resetQuotaScope.value
   try {
-    await adminAPI.subscriptions.resetQuota(resettingSubscription.value.id, { daily: true, weekly: true, monthly: true })
+    await adminAPI.subscriptions.resetQuota(resettingSubscription.value.id, {
+      daily: scope === 'daily' || scope === 'all',
+      weekly: scope === 'weekly' || scope === 'all',
+      monthly: scope === 'monthly' || scope === 'all'
+    })
     appStore.showSuccess(t('admin.subscriptions.quotaResetSuccess'))
     showResetQuotaConfirm.value = false
     resettingSubscription.value = null
+    resetQuotaScope.value = 'daily'
     await loadSubscriptions()
   } catch (error: any) {
     appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToResetQuota'))
@@ -1449,15 +1900,23 @@ const handleClickOutside = (event: MouseEvent) => {
   }
 }
 
-onMounted(() => {
+const initializeSubscriptionsView = async () => {
+  restoreSubscriptionRouteQuery()
+  await restoreFilterUserSelectionFromSearch()
   loadUserColumnMode()
   loadSavedColumns()
+  void subscriptionRouteQuerySync.syncToRoute()
   loadSubscriptions()
   loadGroups()
   document.addEventListener('click', handleClickOutside)
+}
+
+onMounted(() => {
+  void initializeSubscriptionsView()
 })
 
 onUnmounted(() => {
+  progressRefreshRun++
   document.removeEventListener('click', handleClickOutside)
   if (filterUserSearchTimeout) {
     clearTimeout(filterUserSearchTimeout)

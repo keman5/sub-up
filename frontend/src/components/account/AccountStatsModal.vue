@@ -363,7 +363,15 @@
             <div class="space-y-2">
               <div class="flex items-center justify-between">
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{
-                  t('admin.accounts.stats.avgResponseTime')
+                  t('admin.accounts.stats.avgFirstTokenTime')
+                }}</span>
+                <span class="text-sm font-semibold text-gray-900 dark:text-white">{{
+                  formatDuration(stats.summary.avg_first_token_ms || 0)
+                }}</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{
+                  t('admin.accounts.stats.avgFullDuration')
                 }}</span>
                 <span class="text-sm font-semibold text-gray-900 dark:text-white">{{
                   formatDuration(stats.summary.avg_duration_ms)

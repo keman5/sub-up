@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -59,25 +58,13 @@ func TestAdminComplianceStatusRequiresAckWhenMissing(t *testing.T) {
 
 	status, err := svc.GetAdminComplianceStatus(context.Background(), 1)
 	require.NoError(t, err)
-	require.True(t, status.Required)
+	require.False(t, status.Required)
 	require.Equal(t, AdminComplianceVersion, status.Version)
 	require.Equal(t, AdminComplianceAckPhraseZH, status.AckPhraseZH)
 	require.Equal(t, AdminComplianceDocumentPathZH, status.DocumentPathZH)
 }
 
-func TestAcceptAdminComplianceRejectsWrongPhrase(t *testing.T) {
-	svc := NewSettingService(&adminComplianceRepoStub{}, &config.Config{})
-
-	_, err := svc.AcceptAdminCompliance(context.Background(), AdminComplianceAcceptInput{
-		AdminUserID: 1,
-		Language:    "zh",
-		Phrase:      "我同意",
-	})
-	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrAdminComplianceInvalidPhrase))
-}
-
-func TestAcceptAdminCompliancePersistsCurrentVersion(t *testing.T) {
+func TestAdminComplianceDisabledDoesNotPersistAcknowledgement(t *testing.T) {
 	repo := &adminComplianceRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
 
@@ -90,14 +77,38 @@ func TestAcceptAdminCompliancePersistsCurrentVersion(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, status.Required)
-	require.NotNil(t, status.Acknowledgement)
-	require.Equal(t, int64(42), status.Acknowledgement.AdminUserID)
-	require.Equal(t, "203.0.113.10", status.Acknowledgement.IPAddress)
+	require.Empty(t, repo.values)
+}
 
-	var stored AdminComplianceAcknowledgement
-	require.NoError(t, json.Unmarshal([]byte(repo.values[adminComplianceAcknowledgementKey(42)]), &stored))
-	require.Equal(t, AdminComplianceVersion, stored.Version)
-	require.Equal(t, AdminComplianceDocumentPathZH, stored.DocumentZH)
+func TestAcceptAdminComplianceDisabledIgnoresWrongPhrase(t *testing.T) {
+	repo := &adminComplianceRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	status, err := svc.AcceptAdminCompliance(context.Background(), AdminComplianceAcceptInput{
+		AdminUserID: 1,
+		Language:    "zh",
+		Phrase:      "我同意",
+	})
+	require.NoError(t, err)
+	require.False(t, status.Required)
+	require.Empty(t, repo.values)
+}
+
+func TestAcceptAdminComplianceDisabledDoesNotPersistCurrentVersion(t *testing.T) {
+	repo := &adminComplianceRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	status, err := svc.AcceptAdminCompliance(context.Background(), AdminComplianceAcceptInput{
+		AdminUserID: 42,
+		Language:    "zh-CN",
+		Phrase:      AdminComplianceAckPhraseZH,
+		IPAddress:   "203.0.113.10",
+		UserAgent:   "test-agent",
+	})
+	require.NoError(t, err)
+	require.False(t, status.Required)
+	require.Nil(t, status.Acknowledgement)
+	require.Empty(t, repo.values)
 }
 
 func TestAdminComplianceStatusRequiresAckOnOldVersion(t *testing.T) {
@@ -109,7 +120,7 @@ func TestAdminComplianceStatusRequiresAckOnOldVersion(t *testing.T) {
 
 	status, err := svc.GetAdminComplianceStatus(context.Background(), 1)
 	require.NoError(t, err)
-	require.True(t, status.Required)
+	require.False(t, status.Required)
 	require.Nil(t, status.Acknowledgement)
 }
 
@@ -129,5 +140,5 @@ func TestAdminComplianceStatusIsPerAdminUser(t *testing.T) {
 
 	statusForUserTwo, err := svc.GetAdminComplianceStatus(context.Background(), 2)
 	require.NoError(t, err)
-	require.True(t, statusForUserTwo.Required)
+	require.False(t, statusForUserTwo.Required)
 }

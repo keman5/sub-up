@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -84,6 +85,16 @@ type accountWindowStatsBatchReader interface {
 	GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error)
 }
 
+type accountWindowStatsForViewReader interface {
+	GetAccountTodayStatsForView(ctx context.Context, accountID int64, usePresentation bool) (*usagestats.AccountStats, error)
+	GetAccountWindowStatsForView(ctx context.Context, accountID int64, startTime time.Time, usePresentation bool) (*usagestats.AccountStats, error)
+	GetAccountWindowStatsBatchForView(ctx context.Context, accountIDs []int64, startTime time.Time, usePresentation bool) (map[int64]*usagestats.AccountStats, error)
+}
+
+type accountUsageStatsForViewReader interface {
+	GetAccountUsageStatsForView(ctx context.Context, accountID int64, startTime, endTime time.Time, usePresentation bool) (*usagestats.AccountUsageStatsResponse, error)
+}
+
 // apiUsageCache 缓存从 Anthropic API 获取的使用率数据（utilization, resets_at）
 // 同时支持缓存错误响应（负缓存），防止 429 等错误导致的重试风暴
 type apiUsageCache struct {
@@ -105,15 +116,18 @@ type antigravityUsageCache struct {
 }
 
 const (
-	apiCacheTTL             = 3 * time.Minute
-	apiErrorCacheTTL        = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
-	antigravityErrorTTL     = 1 * time.Minute        // Antigravity 错误缓存 TTL（可恢复错误）
-	apiQueryMaxJitter       = 800 * time.Millisecond // 用量查询最大随机延迟
-	windowStatsCacheTTL     = 1 * time.Minute
-	openAIProbeCacheTTL     = 10 * time.Minute
-	grokProbeRetryTTL       = 1 * time.Minute
-	grokFreeQuotaWindow     = 24 * time.Hour
-	openAICodexProbeVersion = codexCLIVersion // 与网关出站身份同源，避免两处硬编码版本各自漂移
+	apiCacheTTL               = 3 * time.Minute
+	apiErrorCacheTTL          = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
+	antigravityErrorTTL       = 1 * time.Minute        // Antigravity 错误缓存 TTL（可恢复错误）
+	apiQueryMaxJitter         = 800 * time.Millisecond // 用量查询最大随机延迟
+	windowStatsCacheTTL       = 1 * time.Minute
+	openAIProbeCacheTTL       = 10 * time.Minute
+	openAIOfficialQuotaTTL    = 1 * time.Minute
+	openAICodexProbeModel     = "gpt-5.3-codex-spark"
+	openAICodexMainProbeModel = "gpt-5.3-codex"
+	grokProbeRetryTTL         = 1 * time.Minute
+	grokFreeQuotaWindow       = 24 * time.Hour
+	openAICodexProbeVersion   = codexCLIVersion // 与网关出站身份同源，避免两处硬编码版本各自漂移
 )
 
 // UsageCache 封装账户使用量相关的缓存
@@ -124,6 +138,7 @@ type UsageCache struct {
 	apiFlight         singleflight.Group // 防止同一账号的并发请求击穿缓存（Anthropic）
 	antigravityFlight singleflight.Group // 防止同一 Antigravity 账号的并发请求击穿缓存
 	openAIProbeCache  sync.Map           // accountID -> time.Time
+	openAIQuotaCache  sync.Map           // accountID -> time.Time
 	grokProbeCache    sync.Map           // accountID -> last billing probe attempt
 }
 
@@ -182,18 +197,42 @@ type AICredit struct {
 
 // UsageInfo 账号使用量信息
 type UsageInfo struct {
-	Source             string         `json:"source,omitempty"`               // "passive" or "active"
-	UpdatedAt          *time.Time     `json:"updated_at,omitempty"`           // 更新时间
-	FiveHour           *UsageProgress `json:"five_hour"`                      // 5小时窗口
-	SevenDay           *UsageProgress `json:"seven_day,omitempty"`            // 7天窗口
-	SevenDaySonnet     *UsageProgress `json:"seven_day_sonnet,omitempty"`     // 7天Sonnet窗口
-	SevenDayFable      *UsageProgress `json:"seven_day_fable,omitempty"`      // 7天Fable窗口（响应头 7d_oi）
-	GeminiSharedDaily  *UsageProgress `json:"gemini_shared_daily,omitempty"`  // Gemini shared pool RPD (Google One / Code Assist)
-	GeminiProDaily     *UsageProgress `json:"gemini_pro_daily,omitempty"`     // Gemini Pro 日配额
-	GeminiFlashDaily   *UsageProgress `json:"gemini_flash_daily,omitempty"`   // Gemini Flash 日配额
-	GeminiSharedMinute *UsageProgress `json:"gemini_shared_minute,omitempty"` // Gemini shared pool RPM (Google One / Code Assist)
-	GeminiProMinute    *UsageProgress `json:"gemini_pro_minute,omitempty"`    // Gemini Pro RPM
-	GeminiFlashMinute  *UsageProgress `json:"gemini_flash_minute,omitempty"`  // Gemini Flash RPM
+	Source         string         `json:"source,omitempty"`           // "passive" or "active"
+	UpdatedAt      *time.Time     `json:"updated_at,omitempty"`       // 更新时间
+	FiveHour       *UsageProgress `json:"five_hour"`                  // 5小时窗口
+	SevenDay       *UsageProgress `json:"seven_day,omitempty"`        // 7天窗口
+	SevenDaySonnet *UsageProgress `json:"seven_day_sonnet,omitempty"` // 7天Sonnet窗口
+	SevenDayFable  *UsageProgress `json:"seven_day_fable,omitempty"`  // 7天Fable窗口（响应头 7d_oi）
+	CodexPrimary   *UsageProgress `json:"codex_primary,omitempty"`    // OpenAI Codex primary snapshot
+	CodexSecondary *UsageProgress `json:"codex_secondary,omitempty"`  // OpenAI Codex secondary snapshot
+
+	// OpenAI Codex canonical snapshot fields（用于后台响应）
+	Codex5hUsedPercent       *float64 `json:"codex_5h_used_percent,omitempty"`
+	Codex5hResetAfterSeconds *int     `json:"codex_5h_reset_after_seconds,omitempty"`
+	Codex5hResetAt           *string  `json:"codex_5h_reset_at,omitempty"`
+	Codex5hWindowMinutes     *int     `json:"codex_5h_window_minutes,omitempty"`
+	Codex7dUsedPercent       *float64 `json:"codex_7d_used_percent,omitempty"`
+	Codex7dResetAfterSeconds *int     `json:"codex_7d_reset_after_seconds,omitempty"`
+	Codex7dResetAt           *string  `json:"codex_7d_reset_at,omitempty"`
+	Codex7dWindowMinutes     *int     `json:"codex_7d_window_minutes,omitempty"`
+	CodexUsageUpdatedAt      *string  `json:"codex_usage_updated_at,omitempty"`
+
+	// OpenAI Codex main model canonical snapshot fields（非 Spark 主套餐）
+	CodexMain5hUsedPercent       *float64       `json:"codex_main_5h_used_percent,omitempty"`
+	CodexMain5hResetAfterSeconds *int           `json:"codex_main_5h_reset_after_seconds,omitempty"`
+	CodexMain5hResetAt           *string        `json:"codex_main_5h_reset_at,omitempty"`
+	CodexMain5hWindowMinutes     *int           `json:"codex_main_5h_window_minutes,omitempty"`
+	CodexMain7dUsedPercent       *float64       `json:"codex_main_7d_used_percent,omitempty"`
+	CodexMain7dResetAfterSeconds *int           `json:"codex_main_7d_reset_after_seconds,omitempty"`
+	CodexMain7dResetAt           *string        `json:"codex_main_7d_reset_at,omitempty"`
+	CodexMain7dWindowMinutes     *int           `json:"codex_main_7d_window_minutes,omitempty"`
+	CodexMainUsageUpdatedAt      *string        `json:"codex_main_usage_updated_at,omitempty"`
+	GeminiSharedDaily            *UsageProgress `json:"gemini_shared_daily,omitempty"`  // Gemini shared pool RPD (Google One / Code Assist)
+	GeminiProDaily               *UsageProgress `json:"gemini_pro_daily,omitempty"`     // Gemini Pro 日配额
+	GeminiFlashDaily             *UsageProgress `json:"gemini_flash_daily,omitempty"`   // Gemini Flash 日配额
+	GeminiSharedMinute           *UsageProgress `json:"gemini_shared_minute,omitempty"` // Gemini shared pool RPM (Google One / Code Assist)
+	GeminiProMinute              *UsageProgress `json:"gemini_pro_minute,omitempty"`    // Gemini Pro RPM
+	GeminiFlashMinute            *UsageProgress `json:"gemini_flash_minute,omitempty"`  // Gemini Flash RPM
 
 	// Antigravity 多模型配额
 	AntigravityQuota map[string]*AntigravityModelQuota `json:"antigravity_quota,omitempty"`
@@ -289,19 +328,24 @@ type ClaudeUsageFetcher interface {
 
 // AccountUsageService 账号使用量查询服务
 type AccountUsageService struct {
-	accountRepo             AccountRepository
-	usageLogRepo            UsageLogRepository
-	usageFetcher            ClaudeUsageFetcher
-	geminiQuotaService      *GeminiQuotaService
-	antigravityQuotaFetcher *AntigravityQuotaFetcher
-	grokQuotaFetcher        *GrokQuotaFetcher
-	grokQuotaService        *GrokQuotaService
-	openAIQuotaService      *OpenAIQuotaService
-	cache                   *UsageCache
-	identityCache           IdentityCache
-	tlsFPProfileService     *TLSFingerprintProfileService
-	agentIdentityTaskMu     sync.Mutex
-	agentIdentityWS         agentIdentityWSConnectionInvalidator
+	accountRepo               AccountRepository
+	usageLogRepo              UsageLogRepository
+	usageFetcher              ClaudeUsageFetcher
+	geminiQuotaService        *GeminiQuotaService
+	antigravityQuotaFetcher   *AntigravityQuotaFetcher
+	grokQuotaFetcher          *GrokQuotaFetcher
+	grokQuotaService          *GrokQuotaService
+	openAIQuotaService        *OpenAIQuotaService
+	cache                     *UsageCache
+	identityCache             IdentityCache
+	tlsFPProfileService       *TLSFingerprintProfileService
+	openAIQuotaUsageRefresher openAIQuotaUsageRefresher
+	agentIdentityTaskMu       sync.Mutex
+	agentIdentityWS           agentIdentityWSConnectionInvalidator
+}
+
+type openAIQuotaUsageRefresher interface {
+	QueryUsage(ctx context.Context, accountID int64) (*OpenAIQuotaUsage, error)
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
@@ -319,17 +363,18 @@ func NewAccountUsageService(
 	tlsFPProfileService *TLSFingerprintProfileService,
 ) *AccountUsageService {
 	return &AccountUsageService{
-		accountRepo:             accountRepo,
-		usageLogRepo:            usageLogRepo,
-		usageFetcher:            usageFetcher,
-		geminiQuotaService:      geminiQuotaService,
-		antigravityQuotaFetcher: antigravityQuotaFetcher,
-		grokQuotaFetcher:        grokQuotaFetcher,
-		grokQuotaService:        grokQuotaService,
-		openAIQuotaService:      openAIQuotaService,
-		cache:                   cache,
-		identityCache:           identityCache,
-		tlsFPProfileService:     tlsFPProfileService,
+		accountRepo:               accountRepo,
+		usageLogRepo:              usageLogRepo,
+		usageFetcher:              usageFetcher,
+		geminiQuotaService:        geminiQuotaService,
+		antigravityQuotaFetcher:   antigravityQuotaFetcher,
+		grokQuotaFetcher:          grokQuotaFetcher,
+		openAIQuotaService:        openAIQuotaService,
+		cache:                     cache,
+		identityCache:             identityCache,
+		tlsFPProfileService:       tlsFPProfileService,
+		openAIQuotaUsageRefresher: openAIQuotaService,
+		grokQuotaService:          grokQuotaService,
 	}
 }
 
@@ -609,7 +654,28 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		return usage, nil
 	}
 
-	applyExtraToUsage(usage, account.Extra, now)
+	if os.Getenv("SUB2API_DEBUG_OPENAI_USAGE") == "1" {
+		extraKeys := make([]string, 0, len(account.Extra))
+		for k := range account.Extra {
+			extraKeys = append(extraKeys, k)
+		}
+		slog.Info(
+			"[usage] openai account usage input",
+			"account_id", account.ID,
+			"usage_extra_keys", extraKeys,
+			"codex_5h_exists", account.Extra["codex_5h_used_percent"] != nil,
+			"codex_7d_exists", account.Extra["codex_7d_used_percent"] != nil,
+			"codex_secondary_exists", account.Extra["codex_secondary_used_percent"] != nil,
+			"codex_primary_exists", account.Extra["codex_primary_used_percent"] != nil,
+			"codex_secondary_window", account.Extra["codex_secondary_window_minutes"],
+			"codex_primary_window", account.Extra["codex_primary_window_minutes"],
+		)
+	}
+
+	if account.IsShadow() {
+		applyExtraToUsage(usage, account.Extra, now)
+	}
+	applyOpenAIUsageSnapshots(usage, account.Extra, now)
 
 	if (force || shouldRefreshOpenAICodexSnapshot(account, usage, now)) && s.shouldProbeOpenAICodexSnapshot(account.ID, now, force) {
 		if account.IsShadow() {
@@ -629,18 +695,40 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 					}
 				}
 			}
+			applyExtraToUsage(usage, account.Extra, now)
+			applyOpenAIUsageSnapshots(usage, account.Extra, now)
 		} else {
 			if updates, err := s.probeOpenAICodexSnapshot(ctx, account); err == nil && len(updates) > 0 {
 				mergeAccountExtra(account, updates)
 				if usage.UpdatedAt == nil {
 					usage.UpdatedAt = &now
 				}
-				applyExtraToUsage(usage, account.Extra, now)
+				applyOpenAIUsageSnapshots(usage, account.Extra, now)
 			}
 		}
 	}
 
+	if refreshed, ok := s.refreshOpenAIMainQuotaSnapshotIfNeeded(ctx, account, usage, now); ok {
+		account = refreshed
+		usage = &UsageInfo{UpdatedAt: &now}
+		if account.IsShadow() {
+			applyExtraToUsage(usage, account.Extra, now)
+		}
+		applyOpenAIUsageSnapshots(usage, account.Extra, now)
+	}
+
 	if s.usageLogRepo == nil {
+		setCodexUsageSnapshotFields(usage, account.Extra, now)
+		if os.Getenv("SUB2API_DEBUG_OPENAI_USAGE") == "1" {
+			slog.Info(
+				"[usage] openai account usage output (no usage log)",
+				"account_id", account.ID,
+				"usage_5h", usage.Codex5hUsedPercent,
+				"usage_7d", usage.Codex7dUsedPercent,
+				"usage_secondary", usage.CodexSecondary,
+				"usage_primary", usage.CodexPrimary,
+			)
+		}
 		return usage, nil
 	}
 
@@ -658,7 +746,275 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
 	}
 
+	setCodexUsageSnapshotFields(usage, account.Extra, now)
+	if os.Getenv("SUB2API_DEBUG_OPENAI_USAGE") == "1" {
+		slog.Info(
+			"[usage] openai account usage output",
+			"account_id", account.ID,
+			"usage_5h", usage.Codex5hUsedPercent,
+			"usage_7d", usage.Codex7dUsedPercent,
+			"usage_secondary", usage.CodexSecondary,
+			"usage_primary", usage.CodexPrimary,
+		)
+	}
 	return usage, nil
+}
+
+func applyOpenAIUsageSnapshots(usage *UsageInfo, extra map[string]any, now time.Time) {
+	if usage == nil {
+		return
+	}
+	if progress := buildCodexMainUsageProgressFromExtra(extra, "5h", now); progress != nil {
+		usage.FiveHour = progress
+	}
+	if progress := buildCodexMainUsageProgressFromExtra(extra, "7d", now); progress != nil {
+		usage.SevenDay = progress
+	}
+	if progress := buildCodexUsageProgressFromExtraKeys(extra, "codex_primary_used_percent", "codex_primary_reset_after_seconds", "codex_primary_reset_at", now); progress != nil {
+		usage.CodexPrimary = progress
+	}
+	if progress := buildCodexUsageProgressFromExtraKeys(extra, "codex_secondary_used_percent", "codex_secondary_reset_after_seconds", "codex_secondary_reset_at", now); progress != nil {
+		usage.CodexSecondary = progress
+	}
+}
+
+func setCodexUsageSnapshotFields(usage *UsageInfo, extra map[string]any, now time.Time) {
+	if usage == nil || len(extra) == 0 {
+		return
+	}
+	if v, ok := extra["codex_5h_used_percent"]; ok {
+		parsed := parseExtraFloat64(v)
+		usage.Codex5hUsedPercent = &parsed
+	}
+	if v, ok := extra["codex_5h_reset_after_seconds"]; ok {
+		parsed := parseExtraInt(v)
+		usage.Codex5hResetAfterSeconds = &parsed
+	}
+	if v, ok := extra["codex_5h_reset_at"]; ok {
+		s := fmt.Sprint(v)
+		usage.Codex5hResetAt = &s
+	}
+	if v, ok := extra["codex_5h_window_minutes"]; ok {
+		parsed := parseExtraInt(v)
+		usage.Codex5hWindowMinutes = &parsed
+	}
+	if v, ok := extra["codex_7d_used_percent"]; ok {
+		parsed := parseExtraFloat64(v)
+		usage.Codex7dUsedPercent = &parsed
+	}
+	if v, ok := extra["codex_7d_reset_after_seconds"]; ok {
+		parsed := parseExtraInt(v)
+		usage.Codex7dResetAfterSeconds = &parsed
+	}
+	if v, ok := extra["codex_7d_reset_at"]; ok {
+		s := fmt.Sprint(v)
+		usage.Codex7dResetAt = &s
+	}
+	if v, ok := extra["codex_7d_window_minutes"]; ok {
+		parsed := parseExtraInt(v)
+		usage.Codex7dWindowMinutes = &parsed
+	}
+	if v, ok := extra["codex_usage_updated_at"]; ok {
+		s := fmt.Sprint(v)
+		usage.CodexUsageUpdatedAt = &s
+	}
+	if v, ok := extra["codex_main_5h_used_percent"]; ok {
+		parsed := parseExtraFloat64(v)
+		usage.CodexMain5hUsedPercent = &parsed
+	}
+	if v, ok := extra["codex_main_5h_reset_after_seconds"]; ok {
+		parsed := parseExtraInt(v)
+		usage.CodexMain5hResetAfterSeconds = &parsed
+	}
+	if v, ok := extra["codex_main_5h_reset_at"]; ok {
+		s := fmt.Sprint(v)
+		usage.CodexMain5hResetAt = &s
+	}
+	if v, ok := extra["codex_main_5h_window_minutes"]; ok {
+		parsed := parseExtraInt(v)
+		usage.CodexMain5hWindowMinutes = &parsed
+	}
+	if v, ok := extra["codex_main_7d_used_percent"]; ok {
+		parsed := parseExtraFloat64(v)
+		usage.CodexMain7dUsedPercent = &parsed
+	}
+	if v, ok := extra["codex_main_7d_reset_after_seconds"]; ok {
+		parsed := parseExtraInt(v)
+		usage.CodexMain7dResetAfterSeconds = &parsed
+	}
+	if v, ok := extra["codex_main_7d_reset_at"]; ok {
+		s := fmt.Sprint(v)
+		usage.CodexMain7dResetAt = &s
+	}
+	if v, ok := extra["codex_main_7d_window_minutes"]; ok {
+		parsed := parseExtraInt(v)
+		usage.CodexMain7dWindowMinutes = &parsed
+	}
+	if v, ok := extra["codex_main_usage_updated_at"]; ok {
+		s := fmt.Sprint(v)
+		usage.CodexMainUsageUpdatedAt = &s
+	}
+
+	applyCodexProgressSnapshotFields(usage, extra, now)
+	applyRawCodexSnapshotFallback(usage, extra, now)
+}
+
+func applyCodexProgressSnapshotFields(usage *UsageInfo, extra map[string]any, now time.Time) {
+	if progress := buildCodexUsageProgressFromExtra(extra, "5h", now); progress != nil {
+		usage.Codex5hUsedPercent = usageFloat64Ptr(progress.Utilization)
+		usage.Codex5hResetAfterSeconds = usageIntPtr(progress.RemainingSeconds)
+		if progress.ResetsAt != nil {
+			usage.Codex5hResetAt = usageStringPtr(progress.ResetsAt.Format(time.RFC3339))
+		}
+	}
+	if progress := buildCodexUsageProgressFromExtra(extra, "7d", now); progress != nil {
+		usage.Codex7dUsedPercent = usageFloat64Ptr(progress.Utilization)
+		usage.Codex7dResetAfterSeconds = usageIntPtr(progress.RemainingSeconds)
+		if progress.ResetsAt != nil {
+			usage.Codex7dResetAt = usageStringPtr(progress.ResetsAt.Format(time.RFC3339))
+		}
+	}
+	if progress := buildCodexMainUsageProgressFromExtra(extra, "5h", now); progress != nil {
+		usage.CodexMain5hUsedPercent = usageFloat64Ptr(progress.Utilization)
+		usage.CodexMain5hResetAfterSeconds = usageIntPtr(progress.RemainingSeconds)
+		if progress.ResetsAt != nil {
+			usage.CodexMain5hResetAt = usageStringPtr(progress.ResetsAt.Format(time.RFC3339))
+		}
+	}
+	if progress := buildCodexMainUsageProgressFromExtra(extra, "7d", now); progress != nil {
+		usage.CodexMain7dUsedPercent = usageFloat64Ptr(progress.Utilization)
+		usage.CodexMain7dResetAfterSeconds = usageIntPtr(progress.RemainingSeconds)
+		if progress.ResetsAt != nil {
+			usage.CodexMain7dResetAt = usageStringPtr(progress.ResetsAt.Format(time.RFC3339))
+		}
+	}
+}
+
+func usageFloat64Ptr(v float64) *float64 {
+	return &v
+}
+
+func usageIntPtr(v int) *int {
+	return &v
+}
+
+func usageStringPtr(v string) *string {
+	return &v
+}
+
+type rawCodexWindowSnapshot struct {
+	usedPercent       *float64
+	resetAfterSeconds *int
+	resetAt           *string
+	windowMinutes     *int
+}
+
+func buildRawCodexWindowSnapshot(extra map[string]any, prefix string) rawCodexWindowSnapshot {
+	out := rawCodexWindowSnapshot{}
+	if v, ok := extra[prefix+"_used_percent"]; ok {
+		parsed := parseExtraFloat64(v)
+		out.usedPercent = &parsed
+	}
+	if v, ok := extra[prefix+"_reset_after_seconds"]; ok {
+		parsed := parseExtraInt(v)
+		out.resetAfterSeconds = &parsed
+	}
+	if v, ok := extra[prefix+"_reset_at"]; ok {
+		s := fmt.Sprint(v)
+		out.resetAt = &s
+	}
+	if v, ok := extra[prefix+"_window_minutes"]; ok {
+		parsed := parseExtraInt(v)
+		out.windowMinutes = &parsed
+	}
+	return out
+}
+
+func selectRawCodexSnapshotForWindow(primary, secondary rawCodexWindowSnapshot, window string) rawCodexWindowSnapshot {
+	if primary.windowMinutes != nil && secondary.windowMinutes != nil {
+		if *primary.windowMinutes < *secondary.windowMinutes {
+			if window == "5h" {
+				return primary
+			}
+			return secondary
+		}
+		if window == "5h" {
+			return secondary
+		}
+		return primary
+	}
+
+	if primary.windowMinutes != nil {
+		primaryIs5h := *primary.windowMinutes <= 360
+		if (window == "5h" && primaryIs5h) || (window == "7d" && !primaryIs5h) {
+			return primary
+		}
+		return secondary
+	}
+
+	if secondary.windowMinutes != nil {
+		secondaryIs5h := *secondary.windowMinutes <= 360
+		if (window == "5h" && secondaryIs5h) || (window == "7d" && !secondaryIs5h) {
+			return secondary
+		}
+		return primary
+	}
+
+	if window == "5h" {
+		return secondary
+	}
+	return primary
+}
+
+func applyRawCodexSnapshotFallback(usage *UsageInfo, extra map[string]any, now time.Time) {
+	primary := buildRawCodexWindowSnapshot(extra, "codex_primary")
+	secondary := buildRawCodexWindowSnapshot(extra, "codex_secondary")
+
+	if usage.Codex5hUsedPercent == nil {
+		raw5h := selectRawCodexSnapshotForWindow(primary, secondary, "5h")
+		raw5h = normalizeRawCodexWindowSnapshot(raw5h, now)
+		if raw5h.usedPercent != nil {
+			usage.Codex5hUsedPercent = raw5h.usedPercent
+			usage.Codex5hResetAfterSeconds = raw5h.resetAfterSeconds
+			usage.Codex5hResetAt = raw5h.resetAt
+			usage.Codex5hWindowMinutes = raw5h.windowMinutes
+		}
+	}
+
+	if usage.Codex7dUsedPercent == nil {
+		raw7d := selectRawCodexSnapshotForWindow(primary, secondary, "7d")
+		raw7d = normalizeRawCodexWindowSnapshot(raw7d, now)
+		if raw7d.usedPercent != nil {
+			usage.Codex7dUsedPercent = raw7d.usedPercent
+			usage.Codex7dResetAfterSeconds = raw7d.resetAfterSeconds
+			usage.Codex7dResetAt = raw7d.resetAt
+			usage.Codex7dWindowMinutes = raw7d.windowMinutes
+		}
+	}
+}
+
+func normalizeRawCodexWindowSnapshot(raw rawCodexWindowSnapshot, now time.Time) rawCodexWindowSnapshot {
+	if raw.resetAt == nil || strings.TrimSpace(*raw.resetAt) == "" {
+		return raw
+	}
+	resetAt, err := parseTime(*raw.resetAt)
+	if err != nil || now.Before(resetAt) {
+		return raw
+	}
+	raw.usedPercent = usageFloat64Ptr(0)
+	raw.resetAfterSeconds = usageIntPtr(0)
+	return raw
+}
+
+func buildCodexMainUsageProgressFromExtra(extra map[string]any, window string, now time.Time) *UsageProgress {
+	switch window {
+	case "5h":
+		return buildCodexUsageProgressFromExtraKeys(extra, "codex_main_5h_used_percent", "codex_main_5h_reset_after_seconds", "codex_main_5h_reset_at", now)
+	case "7d":
+		return buildCodexUsageProgressFromExtraKeys(extra, "codex_main_7d_used_percent", "codex_main_7d_reset_after_seconds", "codex_main_7d_reset_at", now)
+	default:
+		return nil
+	}
 }
 
 func shouldRefreshOpenAICodexSnapshot(account *Account, usage *UsageInfo, now time.Time) bool {
@@ -674,7 +1030,52 @@ func shouldRefreshOpenAICodexSnapshot(account *Account, usage *UsageInfo, now ti
 	if account.IsRateLimited() {
 		return true
 	}
+	if account.IsShadow() {
+		return isOpenAICodexSnapshotStale(account, now)
+	}
+	if isOpenAICodexSparkSnapshotIncomplete(account) {
+		return true
+	}
 	return isOpenAICodexSnapshotStale(account, now)
+}
+
+func shouldRefreshOpenAIMainQuotaFromOfficial(account *Account, usage *UsageInfo) bool {
+	if account == nil || !account.IsOpenAIOAuth() {
+		return false
+	}
+	if account.IsRateLimited() {
+		return true
+	}
+	if usage == nil {
+		return false
+	}
+	return usageProgressAtLimit(usage.FiveHour) || usageProgressAtLimit(usage.SevenDay)
+}
+
+func usageProgressAtLimit(progress *UsageProgress) bool {
+	return progress != nil && progress.Utilization >= 100
+}
+
+func isOpenAICodexSparkSnapshotIncomplete(account *Account) bool {
+	if account == nil || !account.IsOpenAIOAuth() {
+		return false
+	}
+	if !account.IsShadow() && !account.IsOpenAIResponsesWebSocketV2Enabled() {
+		return false
+	}
+	if account.Extra == nil {
+		return true
+	}
+	if _, ok := account.Extra["codex_usage_updated_at"]; !ok {
+		return true
+	}
+	if _, ok := account.Extra["codex_5h_used_percent"]; !ok {
+		return true
+	}
+	if _, ok := account.Extra["codex_7d_used_percent"]; !ok {
+		return true
+	}
+	return false
 }
 
 func isOpenAICodexSnapshotStale(account *Account, now time.Time) bool {
@@ -718,19 +1119,82 @@ func (s *AccountUsageService) shouldProbeOpenAICodexSnapshot(accountID int64, no
 	return true
 }
 
+func (s *AccountUsageService) refreshOpenAIMainQuotaSnapshotIfNeeded(ctx context.Context, account *Account, usage *UsageInfo, now time.Time) (*Account, bool) {
+	if s == nil ||
+		s.openAIQuotaUsageRefresher == nil ||
+		s.accountRepo == nil ||
+		account == nil ||
+		account.ID <= 0 ||
+		!shouldRefreshOpenAIMainQuotaFromOfficial(account, usage) ||
+		!s.shouldQueryOpenAIOfficialQuota(account.ID, now) {
+		return nil, false
+	}
+
+	if _, err := s.openAIQuotaUsageRefresher.QueryUsage(ctx, account.ID); err != nil {
+		slog.Warn("openai_usage_official_quota_refresh_failed", "account_id", account.ID, "error", err)
+		return nil, false
+	}
+
+	refreshed, err := s.accountRepo.GetByID(ctx, account.ID)
+	if err != nil {
+		slog.Warn("openai_usage_official_quota_reload_failed", "account_id", account.ID, "error", err)
+		return nil, false
+	}
+	if refreshed == nil {
+		return nil, false
+	}
+	return refreshed, true
+}
+
+func (s *AccountUsageService) shouldQueryOpenAIOfficialQuota(accountID int64, now time.Time) bool {
+	if s == nil || s.cache == nil || accountID <= 0 {
+		return true
+	}
+	if cached, ok := s.cache.openAIQuotaCache.Load(accountID); ok {
+		if ts, ok := cached.(time.Time); ok && now.Sub(ts) < openAIOfficialQuotaTTL {
+			return false
+		}
+	}
+	s.cache.openAIQuotaCache.Store(accountID, now)
+	return true
+}
+
 func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, account *Account) (map[string]any, error) {
 	if account == nil || !account.IsOAuth() {
 		return nil, nil
 	}
-	accessToken := ""
-	if !account.IsOpenAIAgentIdentity() {
-		accessToken = account.GetOpenAIAccessToken()
+	updates, err := s.probeOpenAICodexSnapshotForModel(ctx, account, openAICodexProbeModel)
+	if err != nil {
+		return nil, err
 	}
-	if accessToken == "" && !account.IsOpenAIAgentIdentity() {
+	mainUpdates, mainErr := s.probeOpenAICodexSnapshotForModel(ctx, account, openAICodexMainProbeModel)
+	if mainErr != nil && len(updates) == 0 {
+		return nil, mainErr
+	}
+	if len(mainUpdates) > 0 {
+		if updates == nil {
+			updates = make(map[string]any, len(mainUpdates))
+		}
+		for k, v := range mainUpdates {
+			updates[k] = v
+		}
+	}
+	if len(updates) > 0 {
+		s.persistOpenAICodexProbeSnapshot(account.ID, updates)
+		return updates, nil
+	}
+	return nil, nil
+}
+
+func (s *AccountUsageService) probeOpenAICodexSnapshotForModel(ctx context.Context, account *Account, model string) (map[string]any, error) {
+	if account == nil || !account.IsOAuth() {
+		return nil, nil
+	}
+	accessToken := account.GetOpenAIAccessToken()
+	if accessToken == "" {
 		return nil, fmt.Errorf("no access token available")
 	}
-	modelID := openaipkg.DefaultTestModel
-	payload := createOpenAITestPayload(modelID, true)
+	payload := buildOpenAICodexProbePayloadForModel(model)
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal openai probe payload: %w", err)
@@ -791,15 +1255,40 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	updates, err := extractOpenAICodexProbeUpdates(resp)
+	updates, err := extractOpenAICodexProbeUpdatesForModel(resp, model)
 	if err != nil {
 		return nil, err
 	}
 	if len(updates) > 0 {
-		s.persistOpenAICodexProbeSnapshot(account.ID, updates)
+		if os.Getenv("SUB2API_DEBUG_OPENAI_USAGE") == "1" {
+			slog.Info(
+				"[usage] openai codex probe updates",
+				"account_id", account.ID,
+				"model", model,
+				"status", resp.Status,
+				"headers", map[string]string{
+					"x-codex-primary-used-percent":                 resp.Header.Get("x-codex-primary-used-percent"),
+					"x-codex-primary-reset-after-seconds":          resp.Header.Get("x-codex-primary-reset-after-seconds"),
+					"x-codex-primary-window-minutes":               resp.Header.Get("x-codex-primary-window-minutes"),
+					"x-codex-secondary-used-percent":               resp.Header.Get("x-codex-secondary-used-percent"),
+					"x-codex-secondary-reset-after-seconds":        resp.Header.Get("x-codex-secondary-reset-after-seconds"),
+					"x-codex-secondary-window-minutes":             resp.Header.Get("x-codex-secondary-window-minutes"),
+					"x-codex-primary-over-secondary-limit-percent": resp.Header.Get("x-codex-primary-over-secondary-limit-percent"),
+				},
+				"updates", updates,
+			)
+		}
 		return updates, nil
 	}
 	return nil, nil
+}
+
+func buildOpenAICodexProbePayload() map[string]any {
+	return buildOpenAICodexProbePayloadForModel(openAICodexProbeModel)
+}
+
+func buildOpenAICodexProbePayloadForModel(model string) map[string]any {
+	return createOpenAITestPayload(model, true)
 }
 
 func (s *AccountUsageService) persistOpenAICodexProbeSnapshot(accountID int64, updates map[string]any) {
@@ -818,11 +1307,15 @@ func (s *AccountUsageService) persistOpenAICodexProbeSnapshot(accountID int64, u
 }
 
 func extractOpenAICodexProbeUpdates(resp *http.Response) (map[string]any, error) {
+	return extractOpenAICodexProbeUpdatesForModel(resp, openAICodexProbeModel)
+}
+
+func extractOpenAICodexProbeUpdatesForModel(resp *http.Response, model string) (map[string]any, error) {
 	if resp == nil {
 		return nil, nil
 	}
-	if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
-		return buildCodexUsageExtraUpdates(snapshot, time.Now()), nil
+	if snapshot := ParseCodexRateLimitHeadersForModel(resp.Header, model); snapshot != nil {
+		return buildCodexUsageExtraUpdatesForFamily(snapshot, time.Now(), model), nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("openai codex probe returned status %d", resp.StatusCode)
@@ -1279,17 +1772,56 @@ func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64
 		return nil, fmt.Errorf("get today stats failed: %w", err)
 	}
 
-	return &WindowStats{
-		Requests:     stats.Requests,
-		Tokens:       stats.Tokens,
-		Cost:         stats.Cost,
-		StandardCost: stats.StandardCost,
-		UserCost:     stats.UserCost,
-	}, nil
+	return windowStatsFromAccountStats(stats), nil
+}
+
+// GetTodayStatsForView 获取账号今日统计，并按角色视图隐藏真实账号成本。
+func (s *AccountUsageService) GetTodayStatsForView(ctx context.Context, accountID int64, viewMode UsageViewMode) (*WindowStats, error) {
+	usePresentation := viewMode == UsageViewPresentation
+	if repo, ok := s.usageLogRepo.(accountWindowStatsForViewReader); ok {
+		stats, err := repo.GetAccountTodayStatsForView(ctx, accountID, usePresentation)
+		if err != nil {
+			return nil, fmt.Errorf("get today stats failed: %w", err)
+		}
+		return windowStatsForView(windowStatsFromAccountStats(stats), viewMode), nil
+	}
+
+	stats, err := s.GetTodayStats(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return windowStatsForView(stats, viewMode), nil
+}
+
+// GetAccountWindowStatsForView 获取账号窗口统计，并按角色视图隐藏真实账号成本。
+func (s *AccountUsageService) GetAccountWindowStatsForView(ctx context.Context, accountID int64, startTime time.Time, viewMode UsageViewMode) (*WindowStats, error) {
+	usePresentation := viewMode == UsageViewPresentation
+	if repo, ok := s.usageLogRepo.(accountWindowStatsForViewReader); ok {
+		stats, err := repo.GetAccountWindowStatsForView(ctx, accountID, startTime, usePresentation)
+		if err != nil {
+			return nil, fmt.Errorf("get account window stats failed: %w", err)
+		}
+		return windowStatsForView(windowStatsFromAccountStats(stats), viewMode), nil
+	}
+
+	stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, startTime)
+	if err != nil {
+		return nil, fmt.Errorf("get account window stats failed: %w", err)
+	}
+	return windowStatsForView(windowStatsFromAccountStats(stats), viewMode), nil
 }
 
 // GetTodayStatsBatch 批量获取账号今日统计，优先走批量 SQL，失败时回退单账号查询。
 func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*WindowStats, error) {
+	return s.getTodayStatsBatch(ctx, accountIDs, UsageViewRaw)
+}
+
+// GetTodayStatsBatchForView 批量获取账号今日统计，并按角色视图隐藏真实账号成本。
+func (s *AccountUsageService) GetTodayStatsBatchForView(ctx context.Context, accountIDs []int64, viewMode UsageViewMode) (map[int64]*WindowStats, error) {
+	return s.getTodayStatsBatch(ctx, accountIDs, viewMode)
+}
+
+func (s *AccountUsageService) getTodayStatsBatch(ctx context.Context, accountIDs []int64, viewMode UsageViewMode) (map[int64]*WindowStats, error) {
 	uniqueIDs := make([]int64, 0, len(accountIDs))
 	seen := make(map[int64]struct{}, len(accountIDs))
 	for _, accountID := range accountIDs {
@@ -1309,11 +1841,20 @@ func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs
 	}
 
 	startTime := timezone.Today()
-	if batchReader, ok := s.usageLogRepo.(accountWindowStatsBatchReader); ok {
+	usePresentation := viewMode == UsageViewPresentation
+	if viewReader, ok := s.usageLogRepo.(accountWindowStatsForViewReader); ok {
+		statsByAccount, err := viewReader.GetAccountWindowStatsBatchForView(ctx, uniqueIDs, startTime, usePresentation)
+		if err == nil {
+			for _, accountID := range uniqueIDs {
+				result[accountID] = windowStatsForView(windowStatsFromAccountStats(statsByAccount[accountID]), viewMode)
+			}
+			return result, nil
+		}
+	} else if batchReader, ok := s.usageLogRepo.(accountWindowStatsBatchReader); ok {
 		statsByAccount, err := batchReader.GetAccountWindowStatsBatch(ctx, uniqueIDs, startTime)
 		if err == nil {
 			for _, accountID := range uniqueIDs {
-				result[accountID] = windowStatsFromAccountStats(statsByAccount[accountID])
+				result[accountID] = windowStatsForView(windowStatsFromAccountStats(statsByAccount[accountID]), viewMode)
 			}
 			return result, nil
 		}
@@ -1326,12 +1867,18 @@ func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs
 	for _, accountID := range uniqueIDs {
 		id := accountID
 		g.Go(func() error {
-			stats, err := s.usageLogRepo.GetAccountWindowStats(gctx, id, startTime)
+			var stats *usagestats.AccountStats
+			var err error
+			if viewReader, ok := s.usageLogRepo.(accountWindowStatsForViewReader); ok {
+				stats, err = viewReader.GetAccountWindowStatsForView(gctx, id, startTime, usePresentation)
+			} else {
+				stats, err = s.usageLogRepo.GetAccountWindowStats(gctx, id, startTime)
+			}
 			if err != nil {
 				return nil
 			}
 			mu.Lock()
-			result[id] = windowStatsFromAccountStats(stats)
+			result[id] = windowStatsForView(windowStatsFromAccountStats(stats), viewMode)
 			mu.Unlock()
 			return nil
 		})
@@ -1360,11 +1907,17 @@ func windowStatsFromAccountStats(stats *usagestats.AccountStats) *WindowStats {
 	}
 }
 
-func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now time.Time) *UsageProgress {
-	if len(extra) == 0 {
-		return nil
+func windowStatsForView(stats *WindowStats, viewMode UsageViewMode) *WindowStats {
+	if stats == nil || viewMode == UsageViewRaw {
+		return stats
 	}
+	out := *stats
+	out.Cost = out.UserCost
+	out.StandardCost = out.UserCost
+	return &out
+}
 
+func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now time.Time) *UsageProgress {
 	var (
 		usedPercentKey string
 		resetAfterKey  string
@@ -1381,6 +1934,14 @@ func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now t
 		resetAfterKey = "codex_7d_reset_after_seconds"
 		resetAtKey = "codex_7d_reset_at"
 	default:
+		return nil
+	}
+
+	return buildCodexUsageProgressFromExtraKeys(extra, usedPercentKey, resetAfterKey, resetAtKey, now)
+}
+
+func buildCodexUsageProgressFromExtraKeys(extra map[string]any, usedPercentKey, resetAfterKey, resetAtKey string, now time.Time) *UsageProgress {
+	if len(extra) == 0 {
 		return nil
 	}
 
@@ -1437,6 +1998,18 @@ func (s *AccountUsageService) GetAccountUsageStats(ctx context.Context, accountI
 		return nil, fmt.Errorf("get account usage stats failed: %w", err)
 	}
 	return stats, nil
+}
+
+func (s *AccountUsageService) GetAccountUsageStatsForView(ctx context.Context, accountID int64, startTime, endTime time.Time, viewMode UsageViewMode) (*usagestats.AccountUsageStatsResponse, error) {
+	usePresentation := viewMode == UsageViewPresentation
+	if repo, ok := s.usageLogRepo.(accountUsageStatsForViewReader); ok {
+		stats, err := repo.GetAccountUsageStatsForView(ctx, accountID, startTime, endTime, usePresentation)
+		if err != nil {
+			return nil, fmt.Errorf("get account usage stats failed: %w", err)
+		}
+		return stats, nil
+	}
+	return s.GetAccountUsageStats(ctx, accountID, startTime, endTime)
 }
 
 // fetchOAuthUsageRaw 从 Anthropic API 获取原始响应（不构建 UsageInfo）

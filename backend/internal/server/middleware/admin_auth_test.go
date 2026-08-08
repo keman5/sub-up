@@ -30,13 +30,27 @@ func TestAdminAuthJWTValidatesTokenVersion(t *testing.T) {
 		TokenVersion: 2,
 		Concurrency:  1,
 	}
+	ordinaryUser := &service.User{
+		ID:           2,
+		Email:        "user@example.com",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		TokenVersion: 1,
+		Concurrency:  1,
+	}
 
 	userRepo := &stubUserRepo{
 		getByID: func(ctx context.Context, id int64) (*service.User, error) {
-			if id != admin.ID {
+			var user *service.User
+			switch id {
+			case admin.ID:
+				user = admin
+			case ordinaryUser.ID:
+				user = ordinaryUser
+			default:
 				return nil, service.ErrUserNotFound
 			}
-			clone := *admin
+			clone := *user
 			return &clone, nil
 		},
 	}
@@ -46,6 +60,22 @@ func TestAdminAuthJWTValidatesTokenVersion(t *testing.T) {
 	router.Use(gin.HandlerFunc(NewAdminAuthMiddleware(authService, userService, nil, nil)))
 	router.GET("/t", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	router.GET("/api/v1/admin/dashboard/user-breakdown", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"users": []any{}})
+	})
+
+	t.Run("ordinary_user_cannot_access_user_breakdown", func(t *testing.T) {
+		token, err := authService.GenerateToken(ordinaryUser)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/dashboard/user-breakdown", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusForbidden, w.Code)
+		require.Contains(t, w.Body.String(), "FORBIDDEN")
 	})
 
 	t.Run("token_version_mismatch_rejected", func(t *testing.T) {
@@ -121,6 +151,16 @@ func TestAdminAuthJWTValidatesTokenVersion(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, w.Code)
 	})
+}
+
+func TestUserAdminRoleHelpers(t *testing.T) {
+	require.True(t, (&service.User{Role: service.RoleAdmin}).IsAdmin())
+	require.True(t, (&service.User{Role: service.RoleSuperAdmin}).IsAdmin())
+	require.False(t, (&service.User{Role: service.RoleUser}).IsAdmin())
+
+	require.True(t, (&service.User{Role: service.RoleSuperAdmin}).IsSuperAdmin())
+	require.False(t, (&service.User{Role: service.RoleAdmin}).IsSuperAdmin())
+	require.False(t, (&service.User{Role: service.RoleUser}).IsSuperAdmin())
 }
 
 type stubUserRepo struct {

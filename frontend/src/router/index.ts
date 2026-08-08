@@ -10,9 +10,25 @@ import { useAdminSettingsStore } from '@/stores/adminSettings'
 import { useAdminComplianceStore } from '@/stores/adminCompliance'
 import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
+import HomeView from '@/views/HomeView.vue'
 import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
+
+function isStaticHomePath(path: string): boolean {
+  return path === '/' || path === '/home'
+}
+
+function isReloadOrHistoryRestore(): boolean {
+  if (typeof performance === 'undefined') return false
+
+  const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
+  return navigation?.type === 'reload' || navigation?.type === 'back_forward'
+}
+
+function isHomeScrollRestoring(): boolean {
+  return typeof document !== 'undefined' && document.documentElement.classList.contains('home-scroll-restoring')
+}
 
 /**
  * Route definitions with lazy loading
@@ -31,12 +47,13 @@ const routes: RouteRecordRaw[] = [
 
   // ==================== Public Routes ====================
   {
-    path: '/home',
+    path: '/',
+    alias: '/home',
     name: 'Home',
-    component: () => import('@/views/HomeView.vue'),
+    component: HomeView,
     meta: {
       requiresAuth: false,
-      title: 'Home'
+      title: '51token 算力'
     }
   },
   {
@@ -187,10 +204,6 @@ const routes: RouteRecordRaw[] = [
   },
 
   // ==================== User Routes ====================
-  {
-    path: '/',
-    redirect: '/home'
-  },
   {
     path: '/dashboard',
     name: 'Dashboard',
@@ -719,7 +732,11 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
-  scrollBehavior(_to, _from, savedPosition) {
+  scrollBehavior(to, _from, savedPosition) {
+    if (isStaticHomePath(to.path) && (isReloadOrHistoryRestore() || isHomeScrollRestoring())) {
+      return false
+    }
+
     // Scroll to saved position when using browser back/forward
     if (savedPosition) {
       return savedPosition
@@ -771,9 +788,10 @@ router.beforeEach(async (to, _from, next) => {
   navigationLoading.startNavigation()
 
   const authStore = useAuthStore()
+  const isStaticHome = to.path === '/' || to.path === '/home'
 
   // Restore auth state from localStorage on first navigation (page refresh)
-  if (!authInitialized) {
+  if (!authInitialized && !isStaticHome) {
     authStore.checkAuth()
     authInitialized = true
   }

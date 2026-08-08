@@ -319,6 +319,11 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	dailyLimit := normalizeLimit(input.DailyLimitUSD)
 	weeklyLimit := normalizeLimit(input.WeeklyLimitUSD)
 	monthlyLimit := normalizeLimit(input.MonthlyLimitUSD)
+	totalLimit := normalizeLimit(input.TotalLimitUSD)
+	usageMultiplier := input.UsageMultiplier
+	if usageMultiplier <= 0 {
+		usageMultiplier = 1
+	}
 
 	// 图片价格：负数表示清除（使用默认价格），0 保留（表示免费）
 	imagePrice1K := normalizePrice(input.ImagePrice1K)
@@ -449,12 +454,15 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		Description:                     input.Description,
 		Platform:                        platform,
 		RateMultiplier:                  input.RateMultiplier,
+		UsageMultiplierEnabled:          input.UsageMultiplierEnabled,
+		UsageMultiplier:                 usageMultiplier,
 		IsExclusive:                     input.IsExclusive,
 		Status:                          StatusActive,
 		SubscriptionType:                subscriptionType,
 		DailyLimitUSD:                   dailyLimit,
 		WeeklyLimitUSD:                  weeklyLimit,
 		MonthlyLimitUSD:                 monthlyLimit,
+		TotalLimitUSD:                   totalLimit,
 		AllowImageGeneration:            allowImageGeneration,
 		AllowBatchImageGeneration:       allowBatchImageGeneration,
 		ImageRateIndependent:            input.ImageRateIndependent,
@@ -480,6 +488,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ClaudeCodeOnly:                  input.ClaudeCodeOnly,
 		FallbackGroupID:                 input.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: fallbackOnInvalidRequest,
+		QuotaFallbackGroupID:            input.QuotaFallbackGroupID,
 		ModelRouting:                    input.ModelRouting,
 		MCPXMLInject:                    mcpXMLInject,
 		SupportedModelScopes:            input.SupportedModelScopes,
@@ -490,6 +499,8 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		DefaultMappedModel:              input.DefaultMappedModel,
 		MessagesDispatchModelConfig:     normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
 		ModelsListConfig:                normalizeGroupModelsListConfig(input.ModelsListConfig),
+		ModelPolicyMode:                 input.ModelPolicyMode,
+		ModelPolicyModel:                input.ModelPolicyModel,
 		RPMLimit:                        input.RPMLimit,
 		MaxReasoningEffort:              maxReasoningEffort,
 		ReasoningEffortMappings:         reasoningEffortMappings,
@@ -641,6 +652,15 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		}
 		group.RateMultiplier = *input.RateMultiplier
 	}
+	if input.UsageMultiplierEnabled != nil {
+		group.UsageMultiplierEnabled = *input.UsageMultiplierEnabled
+	}
+	if input.UsageMultiplier != nil {
+		if *input.UsageMultiplier <= 0 {
+			return nil, errors.New("usage_multiplier must be > 0")
+		}
+		group.UsageMultiplier = *input.UsageMultiplier
+	}
 	if input.IsExclusive != nil {
 		group.IsExclusive = *input.IsExclusive
 	}
@@ -657,6 +677,7 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	group.DailyLimitUSD = normalizeLimit(input.DailyLimitUSD)
 	group.WeeklyLimitUSD = normalizeLimit(input.WeeklyLimitUSD)
 	group.MonthlyLimitUSD = normalizeLimit(input.MonthlyLimitUSD)
+	group.TotalLimitUSD = normalizeLimit(input.TotalLimitUSD)
 	// 图片生成计费配置：负数表示清除（使用默认价格）
 	if input.AllowImageGeneration != nil {
 		group.AllowImageGeneration = *input.AllowImageGeneration
@@ -789,6 +810,13 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		}
 	}
 	group.FallbackGroupIDOnInvalidRequest = fallbackOnInvalidRequest
+	if input.QuotaFallbackGroupID != nil {
+		if *input.QuotaFallbackGroupID > 0 {
+			group.QuotaFallbackGroupID = input.QuotaFallbackGroupID
+		} else {
+			group.QuotaFallbackGroupID = nil
+		}
+	}
 
 	// 模型路由配置
 	if input.ModelRouting != nil {
@@ -827,6 +855,12 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.ModelsListConfig != nil {
 		group.ModelsListConfig = normalizeGroupModelsListConfig(*input.ModelsListConfig)
+	}
+	if input.ModelPolicyMode != nil {
+		group.ModelPolicyMode = *input.ModelPolicyMode
+	}
+	if input.ModelPolicyModel != nil {
+		group.ModelPolicyModel = *input.ModelPolicyModel
 	}
 	if input.RPMLimit != nil {
 		group.RPMLimit = *input.RPMLimit

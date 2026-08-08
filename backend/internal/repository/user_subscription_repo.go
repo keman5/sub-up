@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -38,6 +39,7 @@ func (r *userSubscriptionRepository) Create(ctx context.Context, sub *service.Us
 		SetDailyUsageUsd(sub.DailyUsageUSD).
 		SetWeeklyUsageUsd(sub.WeeklyUsageUSD).
 		SetMonthlyUsageUsd(sub.MonthlyUsageUSD).
+		SetTotalUsageUsd(sub.TotalUsageUSD).
 		SetNillableAssignedBy(sub.AssignedBy)
 
 	if sub.StartsAt.IsZero() {
@@ -149,6 +151,7 @@ func (r *userSubscriptionRepository) Update(ctx context.Context, sub *service.Us
 		SetDailyUsageUsd(sub.DailyUsageUSD).
 		SetWeeklyUsageUsd(sub.WeeklyUsageUSD).
 		SetMonthlyUsageUsd(sub.MonthlyUsageUSD).
+		SetTotalUsageUsd(sub.TotalUsageUSD).
 		SetNillableAssignedBy(sub.AssignedBy).
 		SetAssignedAt(sub.AssignedAt).
 		SetNotes(sub.Notes)
@@ -475,6 +478,7 @@ func (r *userSubscriptionRepository) IncrementUsage(ctx context.Context, id int6
 			daily_usage_usd = us.daily_usage_usd + $1,
 			weekly_usage_usd = us.weekly_usage_usd + $1,
 			monthly_usage_usd = us.monthly_usage_usd + $1,
+			total_usage_usd = us.total_usage_usd + $1,
 			updated_at = NOW()
 		FROM groups g
 		WHERE us.id = $2
@@ -502,16 +506,59 @@ func (r *userSubscriptionRepository) IncrementUsage(ctx context.Context, id int6
 	return service.ErrSubscriptionNotFound
 }
 
-func (r *userSubscriptionRepository) BatchUpdateExpiredStatus(ctx context.Context) (int64, error) {
+func (r *userSubscriptionRepository) BatchUpdateExpiredStatus(ctx context.Context) ([]service.UserSubscription, error) {
+	tx, err := r.client.Tx(ctx)
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+		return nil, err
+	}
+
 	client := clientFromContext(ctx, r.client)
-	n, err := client.UserSubscription.Update().
+	txCtx := ctx
+	if err == nil {
+		defer func() { _ = tx.Rollback() }()
+		client = tx.Client()
+		txCtx = dbent.NewTxContext(ctx, tx)
+	}
+
+	now := time.Now()
+	due, err := client.UserSubscription.Query().
 		Where(
 			usersubscription.StatusEQ(service.SubscriptionStatusActive),
-			usersubscription.ExpiresAtLTE(time.Now()),
+			usersubscription.ExpiresAtLTE(now),
 		).
-		SetStatus(service.SubscriptionStatusExpired).
-		Save(ctx)
-	return int64(n), err
+		WithUser().
+		WithGroup().
+		All(txCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	expired := make([]service.UserSubscription, 0, len(due))
+	for _, sub := range due {
+		n, err := client.UserSubscription.Update().
+			Where(
+				usersubscription.IDEQ(sub.ID),
+				usersubscription.StatusEQ(service.SubscriptionStatusActive),
+				usersubscription.ExpiresAtLTE(now),
+			).
+			SetStatus(service.SubscriptionStatusExpired).
+			Save(txCtx)
+		if err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			sub.Status = service.SubscriptionStatusExpired
+			if svcSub := userSubscriptionEntityToService(sub); svcSub != nil {
+				expired = append(expired, *svcSub)
+			}
+		}
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+	}
+	return expired, nil
 }
 
 // Extra repository helpers (currently used only by integration tests).
@@ -653,6 +700,7 @@ func userSubscriptionEntityToServiceWithStatusMapping(m *dbent.UserSubscription,
 		DailyUsageUSD:      m.DailyUsageUsd,
 		WeeklyUsageUSD:     m.WeeklyUsageUsd,
 		MonthlyUsageUSD:    m.MonthlyUsageUsd,
+		TotalUsageUSD:      m.TotalUsageUsd,
 		AssignedBy:         m.AssignedBy,
 		AssignedAt:         m.AssignedAt,
 		Notes:              derefString(m.Notes),

@@ -1,12 +1,20 @@
 <template>
-  <div class="flex flex-wrap items-center gap-3">
-    <SearchInput
-      :model-value="searchQuery"
-      :placeholder="t('admin.accounts.searchAccounts')"
-      class="w-full sm:w-64"
-      @update:model-value="$emit('update:searchQuery', $event)"
-      @search="$emit('change')"
-    />
+  <div ref="rootRef" class="flex flex-wrap items-center gap-3">
+    <div class="w-full sm:w-64">
+      <SearchSuggestInput
+        :model-value="searchQuery"
+        :placeholder="t('admin.accounts.searchAccounts')"
+        :suggestions="accountSuggestions"
+        :open="showDropdown"
+        :empty-text="searchQuery ? t('common.noOptionsFound') : ''"
+        @update:model-value="handleSearchModelUpdate"
+        @search="handleSearch"
+        @focus="onSearchFocus"
+        @blur="onSearchBlur"
+        @select="selectAccountOption"
+        @clear="clearSearch"
+      />
+    </div>
     <Select :model-value="filters.platform" class="w-40" :options="pOpts" @update:model-value="updatePlatform" @change="$emit('change')" />
     <Select :model-value="filters.type" class="w-40" :options="tOpts" @update:model-value="updateType" @change="$emit('change')" />
     <Select :model-value="filters.status" class="w-40" :options="sOpts" @update:model-value="updateStatus" @change="$emit('change')" />
@@ -16,10 +24,118 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'; import { useI18n } from 'vue-i18n'; import Select from '@/components/common/Select.vue'; import SearchInput from '@/components/common/SearchInput.vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+import { adminAPI } from '@/api/admin'
+import SearchSuggestInput, { type SearchSuggestOption } from '@/components/common/SearchSuggestInput.vue'
+import Select from '@/components/common/Select.vue'
 import type { AdminGroup } from '@/types'
+
 const props = defineProps<{ searchQuery: string; filters: Record<string, any>; groups?: AdminGroup[] }>()
-const emit = defineEmits(['update:searchQuery', 'update:filters', 'change']); const { t } = useI18n()
+const emit = defineEmits(['update:searchQuery', 'update:filters', 'change'])
+const { t } = useI18n()
+
+interface SimpleAccountSuggestion {
+  id: number
+  name: string
+}
+
+const rootRef = ref<HTMLElement | null>(null)
+const accountSuggestions = ref<SearchSuggestOption<SimpleAccountSuggestion>[]>([])
+const showDropdown = ref(false)
+let accountSearchTimeout: ReturnType<typeof setTimeout> | null = null
+
+const handleSearchModelUpdate = (value: string) => {
+  emit('update:searchQuery', value)
+}
+
+const syncAccountSuggestions = (accounts: SimpleAccountSuggestion[]) => {
+  const existingSuggestions = accountSuggestions.value
+  const existingById = new Map(existingSuggestions.map((suggestion) => [suggestion.id, suggestion]))
+  const nextSuggestions = accounts.map((account) => {
+    const existing = existingById.get(account.id)
+    const secondaryText = `#${account.id}`
+    if (existing) {
+      existing.primaryText = account.name
+      existing.secondaryText = secondaryText
+      existing.value = account
+      return existing
+    }
+    return {
+      id: account.id,
+      primaryText: account.name,
+      secondaryText,
+      value: account
+    }
+  })
+
+  const unchanged =
+    existingSuggestions.length === nextSuggestions.length &&
+    existingSuggestions.every((suggestion, index) => suggestion === nextSuggestions[index])
+
+  if (!unchanged) {
+    existingSuggestions.splice(0, existingSuggestions.length, ...nextSuggestions)
+  }
+}
+
+const scheduleSuggestionLoad = (value: string, emitChangeAfterLoad: boolean) => {
+  emit('update:searchQuery', value)
+  showDropdown.value = true
+  if (accountSearchTimeout) clearTimeout(accountSearchTimeout)
+  accountSearchTimeout = setTimeout(async () => {
+    try {
+      const response = await adminAPI.accounts.list(1, 20, { search: value.trim() })
+      syncAccountSuggestions(response.items.map((account) => ({
+        id: account.id,
+        name: account.name
+      })))
+    } catch {
+      syncAccountSuggestions([])
+    }
+    if (emitChangeAfterLoad) {
+      emit('change')
+    }
+  }, 300)
+}
+
+const handleSearch = (value: string) => {
+  scheduleSuggestionLoad(value, true)
+}
+
+const onSearchFocus = () => {
+  showDropdown.value = true
+  if (accountSuggestions.value.length > 0) {
+    return
+  }
+  scheduleSuggestionLoad(props.searchQuery, false)
+}
+
+const onSearchBlur = () => {
+  showDropdown.value = false
+}
+
+const selectAccountOption = (option: SearchSuggestOption<SimpleAccountSuggestion>) => {
+  emit('update:searchQuery', option.primaryText)
+  showDropdown.value = false
+  emit('change')
+}
+
+const clearSearch = () => {
+  emit('update:searchQuery', '')
+  syncAccountSuggestions([])
+  showDropdown.value = false
+  emit('change')
+}
+
+const onDocumentClick = (event: MouseEvent) => {
+  const target = event.target as Node | null
+  if (!target) return
+  if (!(rootRef.value?.contains(target) ?? false)) {
+    showDropdown.value = false
+  }
+}
+
 const updatePlatform = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, platform: value }) }
 const updateType = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, type: value }) }
 const updateStatus = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, status: value }) }
@@ -40,4 +156,15 @@ const gOpts = computed(() => [
   { value: 'ungrouped', label: t('admin.accounts.ungroupedGroup') },
   ...(props.groups || []).map(g => ({ value: String(g.id), label: g.name }))
 ])
+
+onMounted(() => {
+  document.addEventListener('click', onDocumentClick)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', onDocumentClick)
+  if (accountSearchTimeout) {
+    clearTimeout(accountSearchTimeout)
+  }
+})
 </script>

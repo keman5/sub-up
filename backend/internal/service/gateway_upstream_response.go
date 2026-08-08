@@ -972,32 +972,39 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		if anthropicStreamEventIsTerminal(eventName, dataLine) {
 			sawTerminalEvent = true
 		}
-		if !eventChanged {
-			block := ""
-			if eventName != "" {
-				block = "event: " + eventName + "\n"
+
+		serverDataLine := dataLine
+		if eventChanged {
+			newData, err := json.Marshal(event)
+			if err != nil {
+				// 序列化失败，直接透传原始数据
+				block := ""
+				if eventName != "" {
+					block = "event: " + eventName + "\n"
+				}
+				block += "data: " + dataLine + "\n\n"
+				return []string{block}, dataLine, usagePatch, nil
 			}
-			block += "data: " + dataLine + "\n\n"
-			return []string{block}, dataLine, usagePatch, nil
+			serverDataLine = string(newData)
 		}
 
-		newData, err := json.Marshal(event)
-		if err != nil {
-			// 序列化失败，直接透传原始数据
-			block := ""
-			if eventName != "" {
-				block = "event: " + eventName + "\n"
+		clientDataLine := serverDataLine
+		if usagePatch != nil {
+			clientBytes := rewriteClaudeUsageForPresentation(
+				[]byte(serverDataLine),
+				resolveClaudeUsagePatchPresentationMultiplier(gatewayResponsePresentationGroup(c), usage, usagePatch),
+			)
+			if !bytes.Equal(clientBytes, []byte(serverDataLine)) {
+				clientDataLine = string(clientBytes)
 			}
-			block += "data: " + dataLine + "\n\n"
-			return []string{block}, dataLine, usagePatch, nil
 		}
 
 		block := ""
 		if eventName != "" {
 			block = "event: " + eventName + "\n"
 		}
-		block += "data: " + string(newData) + "\n\n"
-		return []string{block}, string(newData), usagePatch, nil
+		block += "data: " + clientDataLine + "\n\n"
+		return []string{block}, serverDataLine, usagePatch, nil
 	}
 
 	for {
@@ -1167,6 +1174,8 @@ type sseUsagePatch struct {
 	hasCacheCreationInput    bool
 	cacheReadInputTokens     int
 	hasCacheReadInput        bool
+	imageOutputTokens        int
+	hasImageOutputTokens     bool
 	cacheCreation5mTokens    int
 	hasCacheCreation5m       bool
 	cacheCreation1hTokens    int
@@ -1199,6 +1208,10 @@ func (s *GatewayService) extractSSEUsagePatch(event map[string]any) *sseUsagePat
 		patch.hasCacheReadInput = true
 		if v, ok := parseSSEUsageInt(usageObj["cache_read_input_tokens"]); ok {
 			patch.cacheReadInputTokens = v
+		}
+		if v, ok := parseSSEUsageInt(usageObj["image_output_tokens"]); ok {
+			patch.imageOutputTokens = v
+			patch.hasImageOutputTokens = true
 		}
 		if cc, ok := usageObj["cache_creation"].(map[string]any); ok {
 			if v, exists := parseSSEUsageInt(cc["ephemeral_5m_input_tokens"]); exists {
@@ -1235,6 +1248,10 @@ func (s *GatewayService) extractSSEUsagePatch(event map[string]any) *sseUsagePat
 			patch.cacheReadInputTokens = v
 			patch.hasCacheReadInput = true
 		}
+		if v, ok := parseSSEUsageInt(usageObj["image_output_tokens"]); ok && v > 0 {
+			patch.imageOutputTokens = v
+			patch.hasImageOutputTokens = true
+		}
 		if cc, ok := usageObj["cache_creation"].(map[string]any); ok {
 			if v, exists := parseSSEUsageInt(cc["ephemeral_5m_input_tokens"]); exists && v > 0 {
 				patch.cacheCreation5mTokens = v
@@ -1268,12 +1285,31 @@ func mergeSSEUsagePatch(usage *ClaudeUsage, patch *sseUsagePatch) {
 	if patch.hasOutputTokens {
 		usage.OutputTokens = patch.outputTokens
 	}
+	if patch.hasImageOutputTokens {
+		usage.ImageOutputTokens = patch.imageOutputTokens
+	}
 	if patch.hasCacheCreation5m {
 		usage.CacheCreation5mTokens = patch.cacheCreation5mTokens
 	}
 	if patch.hasCacheCreation1h {
 		usage.CacheCreation1hTokens = patch.cacheCreation1hTokens
 	}
+}
+
+func resolveClaudeUsagePatchPresentationMultiplier(group *Group, usage *ClaudeUsage, patch *sseUsagePatch) float64 {
+	if usage == nil || patch == nil {
+		return ResolvePresentationMultiplierWithImageOutput(group, 0, 0, 0, 0, 0)
+	}
+	projected := *usage
+	mergeSSEUsagePatch(&projected, patch)
+	return ResolvePresentationMultiplierWithImageOutput(
+		group,
+		projected.InputTokens,
+		projected.OutputTokens,
+		projected.CacheCreationInputTokens,
+		projected.CacheReadInputTokens,
+		projected.ImageOutputTokens,
+	)
 }
 
 func parseSSEUsageInt(value any) (int, bool) {
@@ -1301,6 +1337,82 @@ func parseSSEUsageInt(value any) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func claudeUsageIntFromBytes(data []byte, paths ...string) int {
+	for _, path := range paths {
+		if v := int(gjson.GetBytes(data, path).Int()); v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+func claudeUsageInputTokensFromBytes(data []byte) int {
+	return claudeUsageIntFromBytes(data, "usage.input_tokens", "message.usage.input_tokens")
+}
+
+func claudeUsageOutputTokensFromBytes(data []byte) int {
+	return claudeUsageIntFromBytes(data, "usage.output_tokens", "message.usage.output_tokens")
+}
+
+func claudeUsageCacheCreationTokensFromBytes(data []byte) int {
+	if v := claudeUsageIntFromBytes(data, "usage.cache_creation_input_tokens", "message.usage.cache_creation_input_tokens"); v > 0 {
+		return v
+	}
+	return int(gjson.GetBytes(data, "usage.cache_creation.ephemeral_5m_input_tokens").Int()) +
+		int(gjson.GetBytes(data, "usage.cache_creation.ephemeral_1h_input_tokens").Int()) +
+		int(gjson.GetBytes(data, "message.usage.cache_creation.ephemeral_5m_input_tokens").Int()) +
+		int(gjson.GetBytes(data, "message.usage.cache_creation.ephemeral_1h_input_tokens").Int())
+}
+
+func claudeUsageCacheReadTokensFromBytes(data []byte) int {
+	return claudeUsageIntFromBytes(data,
+		"usage.cache_read_input_tokens",
+		"usage.cached_tokens",
+		"message.usage.cache_read_input_tokens",
+		"message.usage.cached_tokens",
+	)
+}
+
+func claudeUsageImageOutputTokensFromBytes(data []byte) int {
+	return claudeUsageIntFromBytes(data, "usage.image_output_tokens", "message.usage.image_output_tokens")
+}
+
+func rewriteClaudeUsageForPresentation(body []byte, multiplier float64) []byte {
+	if multiplier <= 1 || len(body) == 0 || !gjson.ValidBytes(body) {
+		return body
+	}
+	usagePath := "usage"
+	if !gjson.GetBytes(body, usagePath).Exists() {
+		usagePath = "message.usage"
+		if !gjson.GetBytes(body, usagePath).Exists() {
+			return body
+		}
+	}
+	updated := body
+	for _, field := range []string{
+		"input_tokens",
+		"output_tokens",
+		"cache_creation_input_tokens",
+		"cache_read_input_tokens",
+		"cached_tokens",
+		"image_output_tokens",
+		"cache_creation.ephemeral_5m_input_tokens",
+		"cache_creation.ephemeral_1h_input_tokens",
+	} {
+		path := usagePath + "." + field
+		value := gjson.GetBytes(updated, path)
+		if !value.Exists() || value.Type != gjson.Number {
+			continue
+		}
+		next, err := sjson.SetBytes(updated, path, multiplyInt(int(value.Int()), multiplier))
+		if err != nil {
+			return body
+		}
+		updated = next
+	}
+	return updated
 }
 
 // applyCacheTTLOverride 将所有 cache creation tokens 归入指定的 TTL 类型。
@@ -1448,6 +1560,14 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 	}
 
 	body = reverseToolNamesIfPresent(c, body)
+	body = rewriteClaudeUsageForPresentation(body, ResolveGatewayResponsePresentationMultiplier(
+		c,
+		response.Usage.InputTokens,
+		response.Usage.OutputTokens,
+		response.Usage.CacheCreationInputTokens,
+		response.Usage.CacheReadInputTokens,
+		response.Usage.ImageOutputTokens,
+	))
 
 	// 写入响应
 	c.Data(resp.StatusCode, contentType, body)

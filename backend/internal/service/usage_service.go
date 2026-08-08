@@ -52,6 +52,7 @@ type UsageStats struct {
 	TotalCost                float64 `json:"total_cost"`
 	TotalActualCost          float64 `json:"total_actual_cost"`
 	AverageDurationMs        float64 `json:"average_duration_ms"`
+	AverageFirstTokenMs      float64 `json:"average_first_token_ms,omitempty"`
 }
 
 // UsageService 使用统计服务
@@ -60,6 +61,18 @@ type UsageService struct {
 	userRepo             UserRepository
 	entClient            *dbent.Client
 	authCacheInvalidator APIKeyAuthCacheInvalidator
+}
+
+type usageTrendForViewRepository interface {
+	GetUsageTrendWithFiltersForView(ctx context.Context, startTime, endTime time.Time, granularity string, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8, usePresentation bool) ([]usagestats.TrendDataPoint, error)
+}
+
+type modelStatsForViewRepository interface {
+	GetModelStatsWithFiltersBySourceForView(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8, source string, usePresentation bool) ([]usagestats.ModelStat, error)
+}
+
+type batchAPIKeyUsageStatsForViewRepository interface {
+	GetBatchAPIKeyUsageStatsForView(ctx context.Context, apiKeyIDs []int64, startTime, endTime time.Time, usePresentation bool) (map[int64]*usagestats.BatchAPIKeyUsageStats, error)
 }
 
 // NewUsageService 创建使用统计服务实例
@@ -202,6 +215,7 @@ func (s *UsageService) GetStatsByUser(ctx context.Context, userID int64, startTi
 		TotalCost:                stats.TotalCost,
 		TotalActualCost:          stats.TotalActualCost,
 		AverageDurationMs:        stats.AverageDurationMs,
+		AverageFirstTokenMs:      stats.AverageFirstTokenMs,
 	}, nil
 }
 
@@ -223,6 +237,7 @@ func (s *UsageService) GetStatsByAPIKey(ctx context.Context, apiKeyID int64, sta
 		TotalCost:                stats.TotalCost,
 		TotalActualCost:          stats.TotalActualCost,
 		AverageDurationMs:        stats.AverageDurationMs,
+		AverageFirstTokenMs:      stats.AverageFirstTokenMs,
 	}, nil
 }
 
@@ -244,6 +259,7 @@ func (s *UsageService) GetStatsByAccount(ctx context.Context, accountID int64, s
 		TotalCost:                stats.TotalCost,
 		TotalActualCost:          stats.TotalActualCost,
 		AverageDurationMs:        stats.AverageDurationMs,
+		AverageFirstTokenMs:      stats.AverageFirstTokenMs,
 	}, nil
 }
 
@@ -265,6 +281,7 @@ func (s *UsageService) GetStatsByModel(ctx context.Context, modelName string, st
 		TotalCost:                stats.TotalCost,
 		TotalActualCost:          stats.TotalActualCost,
 		AverageDurationMs:        stats.AverageDurationMs,
+		AverageFirstTokenMs:      stats.AverageFirstTokenMs,
 	}, nil
 }
 
@@ -395,7 +412,15 @@ func (s *UsageService) GetGroupStatsWithFilters(ctx context.Context, startTime, 
 
 // GetAPIKeyModelStats returns per-model usage stats for a specific API Key.
 func (s *UsageService) GetAPIKeyModelStats(ctx context.Context, apiKeyID int64, startTime, endTime time.Time) ([]usagestats.ModelStat, error) {
-	stats, err := s.usageRepo.GetModelStatsWithFilters(ctx, startTime, endTime, 0, apiKeyID, 0, 0, nil, nil, nil)
+	var (
+		stats []usagestats.ModelStat
+		err   error
+	)
+	if repo, ok := s.usageRepo.(modelStatsForViewRepository); ok {
+		stats, err = repo.GetModelStatsWithFiltersBySourceForView(ctx, startTime, endTime, 0, apiKeyID, 0, 0, nil, nil, nil, usagestats.ModelSourceRequested, true)
+	} else {
+		stats, err = s.usageRepo.GetModelStatsWithFilters(ctx, startTime, endTime, 0, apiKeyID, 0, 0, nil, nil, nil)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("get api key model stats: %w", err)
 	}
@@ -404,7 +429,15 @@ func (s *UsageService) GetAPIKeyModelStats(ctx context.Context, apiKeyID int64, 
 
 // GetAPIKeyDailyUsage returns daily usage stats for a user's API key.
 func (s *UsageService) GetAPIKeyDailyUsage(ctx context.Context, userID, apiKeyID int64, startTime, endTime time.Time) ([]usagestats.APIKeyDailyUsagePoint, error) {
-	trend, err := s.usageRepo.GetUsageTrendWithFilters(ctx, startTime, endTime, "day", userID, apiKeyID, 0, 0, "", nil, nil, nil)
+	var (
+		trend []usagestats.TrendDataPoint
+		err   error
+	)
+	if repo, ok := s.usageRepo.(usageTrendForViewRepository); ok {
+		trend, err = repo.GetUsageTrendWithFiltersForView(ctx, startTime, endTime, "day", userID, apiKeyID, 0, 0, "", nil, nil, nil, true)
+	} else {
+		trend, err = s.usageRepo.GetUsageTrendWithFilters(ctx, startTime, endTime, "day", userID, apiKeyID, 0, 0, "", nil, nil, nil)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("get api key daily usage: %w", err)
 	}
@@ -428,7 +461,15 @@ func (s *UsageService) GetAPIKeyDailyUsage(ctx context.Context, userID, apiKeyID
 
 // GetBatchAPIKeyUsageStats returns today/total actual_cost for given api keys.
 func (s *UsageService) GetBatchAPIKeyUsageStats(ctx context.Context, apiKeyIDs []int64, startTime, endTime time.Time) (map[int64]*usagestats.BatchAPIKeyUsageStats, error) {
-	stats, err := s.usageRepo.GetBatchAPIKeyUsageStats(ctx, apiKeyIDs, startTime, endTime)
+	var (
+		stats map[int64]*usagestats.BatchAPIKeyUsageStats
+		err   error
+	)
+	if repo, ok := s.usageRepo.(batchAPIKeyUsageStatsForViewRepository); ok {
+		stats, err = repo.GetBatchAPIKeyUsageStatsForView(ctx, apiKeyIDs, startTime, endTime, true)
+	} else {
+		stats, err = s.usageRepo.GetBatchAPIKeyUsageStats(ctx, apiKeyIDs, startTime, endTime)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("get batch api key usage stats: %w", err)
 	}

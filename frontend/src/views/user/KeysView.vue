@@ -4,12 +4,20 @@
       <template #filters>
         <div class="flex flex-col gap-3">
           <div class="flex flex-wrap items-center gap-3">
-            <SearchInput
-              v-model="filterSearch"
-              :placeholder="t('keys.searchPlaceholder')"
-              class="w-full sm:w-64"
-              @search="onFilterChange"
-            />
+            <div data-key-search-filter class="w-full sm:w-64">
+              <SearchSuggestInput
+                v-model="filterSearch"
+                :placeholder="t('keys.searchPlaceholder')"
+                :suggestions="keyNameSuggestions"
+                :open="showKeySearchDropdown"
+                :empty-text="filterSearch ? t('common.noOptionsFound') : ''"
+                @search="handleKeySearch"
+                @focus="onKeySearchFocus"
+                @blur="onKeySearchBlur"
+                @select="selectKeySearchOption"
+                @clear="clearKeySearch"
+              />
+            </div>
             <Select
               :model-value="filterGroupId"
               class="w-40"
@@ -73,7 +81,7 @@
               </button>
             </div>
           </div>
-          <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
+          <button @click="openCreateModal" class="btn btn-primary" data-tour="keys-create-btn">
             <Icon name="plus" size="md" class="mr-2" />
             {{ t('keys.createKey') }}
           </button>
@@ -146,7 +154,7 @@
                   :name="row.group.name"
                   :platform="row.group.platform"
                   :subscription-type="row.group.subscription_type"
-                  :rate-multiplier="row.group.rate_multiplier"
+                  :rate-multiplier="getGroupDisplayRateMultiplier(row.group)"
                   :user-rate-multiplier="userGroupRates[row.group.id]"
                   :peak-rate-enabled="row.group.peak_rate_enabled"
                   :peak-start="row.group.peak_start"
@@ -234,7 +242,19 @@
               <!-- 5h window -->
               <div v-if="row.rate_limit_5h > 0">
                 <div class="flex items-center justify-between text-xs">
-                  <span class="text-gray-500 dark:text-gray-400">5h</span>
+                  <div class="flex items-center gap-1">
+                    <span class="text-gray-500 dark:text-gray-400">5h</span>
+                    <button
+                      v-if="row.usage_5h > 0"
+                      type="button"
+                      class="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                      :title="t('keys.resetRateLimitWindowUsage', { window: formatRateLimitWindowLabel('5h') })"
+                      :aria-label="t('keys.resetRateLimitWindowUsage', { window: formatRateLimitWindowLabel('5h') })"
+                      @click.stop="confirmResetRateLimitFromTable(row, '5h')"
+                    >
+                      <Icon name="refresh" size="xs" />
+                    </button>
+                  </div>
                   <span :class="[
                     'font-medium tabular-nums',
                     row.usage_5h >= row.rate_limit_5h ? 'text-red-500' :
@@ -262,7 +282,19 @@
               <!-- 1d window -->
               <div v-if="row.rate_limit_1d > 0">
                 <div class="flex items-center justify-between text-xs">
-                  <span class="text-gray-500 dark:text-gray-400">1d</span>
+                  <div class="flex items-center gap-1">
+                    <span class="text-gray-500 dark:text-gray-400">1d</span>
+                    <button
+                      v-if="row.usage_1d > 0"
+                      type="button"
+                      class="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                      :title="t('keys.resetRateLimitWindowUsage', { window: formatRateLimitWindowLabel('1d') })"
+                      :aria-label="t('keys.resetRateLimitWindowUsage', { window: formatRateLimitWindowLabel('1d') })"
+                      @click.stop="confirmResetRateLimitFromTable(row, '1d')"
+                    >
+                      <Icon name="refresh" size="xs" />
+                    </button>
+                  </div>
                   <span :class="[
                     'font-medium tabular-nums',
                     row.usage_1d >= row.rate_limit_1d ? 'text-red-500' :
@@ -290,7 +322,19 @@
               <!-- 7d window -->
               <div v-if="row.rate_limit_7d > 0">
                 <div class="flex items-center justify-between text-xs">
-                  <span class="text-gray-500 dark:text-gray-400">7d</span>
+                  <div class="flex items-center gap-1">
+                    <span class="text-gray-500 dark:text-gray-400">7d</span>
+                    <button
+                      v-if="row.usage_7d > 0"
+                      type="button"
+                      class="rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                      :title="t('keys.resetRateLimitWindowUsage', { window: formatRateLimitWindowLabel('7d') })"
+                      :aria-label="t('keys.resetRateLimitWindowUsage', { window: formatRateLimitWindowLabel('7d') })"
+                      @click.stop="confirmResetRateLimitFromTable(row, '7d')"
+                    >
+                      <Icon name="refresh" size="xs" />
+                    </button>
+                  </div>
                   <span :class="[
                     'font-medium tabular-nums',
                     row.usage_7d >= row.rate_limit_7d ? 'text-red-500' :
@@ -426,7 +470,7 @@
               :title="t('keys.noKeysYet')"
               :description="t('keys.createFirstKey')"
               :action-text="t('keys.createKey')"
-              @action="showCreateModal = true"
+              @action="openCreateModal"
             />
           </template>
         </DataTable>
@@ -480,7 +524,7 @@
                 :name="(option as unknown as GroupOption).label"
                 :platform="(option as unknown as GroupOption).platform"
                 :subscription-type="(option as unknown as GroupOption).subscriptionType"
-                :rate-multiplier="(option as unknown as GroupOption).rate"
+                :rate-multiplier="(option as unknown as GroupOption).displayRate"
                 :user-rate-multiplier="(option as unknown as GroupOption).userRate"
                 :peak-rate-enabled="(option as unknown as GroupOption).peakRateEnabled"
                 :peak-start="(option as unknown as GroupOption).peakStart"
@@ -494,7 +538,7 @@
                 :name="(option as unknown as GroupOption).label"
                 :platform="(option as unknown as GroupOption).platform"
                 :subscription-type="(option as unknown as GroupOption).subscriptionType"
-                :rate-multiplier="(option as unknown as GroupOption).rate"
+                :rate-multiplier="(option as unknown as GroupOption).displayRate"
                 :user-rate-multiplier="(option as unknown as GroupOption).userRate"
                 :peak-rate-enabled="(option as unknown as GroupOption).peakRateEnabled"
                 :peak-start="(option as unknown as GroupOption).peakStart"
@@ -980,12 +1024,19 @@
     <ConfirmDialog
       :show="showResetRateLimitDialog"
       :title="t('keys.resetRateLimitTitle')"
-      :message="t('keys.resetRateLimitConfirmMessage', { name: selectedKey?.name })"
+      :message="
+        pendingRateLimitWindow
+          ? t('keys.resetRateLimitWindowConfirmMessage', {
+              name: selectedKey?.name,
+              window: formatRateLimitWindowLabel(pendingRateLimitWindow)
+            })
+          : t('keys.resetRateLimitConfirmMessage', { name: selectedKey?.name })
+      "
       :confirm-text="t('keys.reset')"
       :cancel-text="t('common.cancel')"
       :danger="true"
       @confirm="resetRateLimitUsage"
-      @cancel="showResetRateLimitDialog = false"
+      @cancel="cancelResetRateLimit"
     />
 
     <!-- Use Key Modal -->
@@ -1093,7 +1144,7 @@
               :name="option.label"
               :platform="option.platform"
               :subscription-type="option.subscriptionType"
-              :rate-multiplier="option.rate"
+              :rate-multiplier="option.displayRate"
               :user-rate-multiplier="option.userRate"
               :peak-rate-enabled="option.peakRateEnabled"
               :peak-start="option.peakStart"
@@ -1117,12 +1168,14 @@
 </template>
 
 <script setup lang="ts">
-	import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
-	import { useI18n } from 'vue-i18n'
-	import { useAppStore } from '@/stores/app'
-	import { useOnboardingStore } from '@/stores/onboarding'
-	import { useClipboard } from '@/composables/useClipboard'
+import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useAppStore } from '@/stores/app'
+import { useOnboardingStore } from '@/stores/onboarding'
+import { useSubscriptionStore } from '@/stores/subscriptions'
+import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 
 const { t } = useI18n()
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
@@ -1134,13 +1187,14 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 	import EmptyState from '@/components/common/EmptyState.vue'
 	import Select from '@/components/common/Select.vue'
-	import SearchInput from '@/components/common/SearchInput.vue'
+	import SearchSuggestInput, { type SearchSuggestOption } from '@/components/common/SearchSuggestInput.vue'
 	import Icon from '@/components/icons/Icon.vue'
 	import UseKeyModal from '@/components/keys/UseKeyModal.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 	import type { ApiKey, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
+import { getGroupDisplayRateMultiplier } from '@/utils/groupDisplayRate'
 import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
@@ -1162,6 +1216,7 @@ interface GroupOption {
   label: string
   description: string | null
   rate: number
+  displayRate: number
   userRate: number | null
   peakRateEnabled: boolean
   peakStart: string
@@ -1171,8 +1226,11 @@ interface GroupOption {
   platform: GroupPlatform
 }
 
+type RateLimitWindow = '5h' | '1d' | '7d'
+
 const appStore = useAppStore()
 const onboardingStore = useOnboardingStore()
+const subscriptionStore = useSubscriptionStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
 
 const allColumns = computed<Column[]>(() => [
@@ -1293,12 +1351,36 @@ const sortState = ref({
 const filterSearch = ref('')
 const filterStatus = ref('')
 const filterGroupId = ref<string | number>('')
+const showKeySearchDropdown = ref(false)
+
+const keyRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'search', get: () => filterSearch.value, set: (value) => { filterSearch.value = value }, defaultValue: '' },
+    { queryKey: 'status', get: () => filterStatus.value, set: (value) => { filterStatus.value = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'group_id', get: () => filterGroupId.value, set: (value) => { filterGroupId.value = value }, parse: 'number', defaultValue: '', defaultQueryValue: 'all' },
+  ],
+})
+
+const keyNameSuggestions = computed<SearchSuggestOption<ApiKey>[]>(() => {
+  const keyword = filterSearch.value.trim().toLowerCase()
+  return apiKeys.value
+    .filter((key) => key.name?.trim())
+    .filter((key) => !keyword || key.name.toLowerCase().includes(keyword))
+    .slice(0, 20)
+    .map((key) => ({
+      id: key.id,
+      primaryText: key.name,
+      secondaryText: maskApiKey(key.key),
+      value: key
+    }))
+})
 
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const showDeleteDialog = ref(false)
 const showResetQuotaDialog = ref(false)
 const showResetRateLimitDialog = ref(false)
+const pendingRateLimitWindow = ref<RateLimitWindow | null>(null)
 const showUseKeyModal = ref(false)
 const showCcsClientSelect = ref(false)
 const showColumnDropdown = ref(false)
@@ -1394,7 +1476,41 @@ const statusFilterOptions = computed(() => [
 
 const onFilterChange = () => {
   pagination.value.page = 1
+  void keyRouteQuerySync.syncToRoute()
   loadApiKeys()
+}
+
+const handleKeySearch = (value: string) => {
+  filterSearch.value = value
+  showKeySearchDropdown.value = true
+  onFilterChange()
+}
+
+const onKeySearchFocus = () => {
+  showKeySearchDropdown.value = true
+}
+
+const onKeySearchBlur = () => {
+  showKeySearchDropdown.value = false
+}
+
+const selectKeySearchOption = (option: SearchSuggestOption<ApiKey>) => {
+  filterSearch.value = option.primaryText
+  showKeySearchDropdown.value = false
+  onFilterChange()
+}
+
+const clearKeySearch = () => {
+  filterSearch.value = ''
+  showKeySearchDropdown.value = false
+  onFilterChange()
+}
+
+const closeKeySearchDropdown = (event: MouseEvent) => {
+  const target = event.target as HTMLElement
+  if (!target.closest('[data-key-search-filter]')) {
+    showKeySearchDropdown.value = false
+  }
 }
 
 const onGroupFilterChange = (value: string | number | boolean | null) => {
@@ -1414,6 +1530,7 @@ const groupOptions = computed(() =>
     label: group.name,
     description: group.description,
     rate: group.rate_multiplier,
+    displayRate: getGroupDisplayRateMultiplier(group),
     userRate: userGroupRates.value[group.id] ?? null,
     peakRateEnabled: group.peak_rate_enabled,
     peakStart: group.peak_start,
@@ -1656,6 +1773,28 @@ const closeGroupSelector = (event: MouseEvent) => {
   }
 }
 
+const resolveDefaultCreateGroupId = async (): Promise<number | null> => {
+  try {
+    const activeSubscriptions = await subscriptionStore.fetchActiveSubscriptions()
+    for (const subscription of activeSubscriptions) {
+      const matchedGroup = groups.value.find((group) => group.id === subscription.group_id)
+      if (matchedGroup) {
+        return matchedGroup.id
+      }
+    }
+  } catch (error) {
+    console.error('Failed to resolve default key group from active subscriptions:', error)
+  }
+
+  return null
+}
+
+const openCreateModal = async () => {
+  closeModals()
+  formData.value.group_id = await resolveDefaultCreateGroupId()
+  showCreateModal.value = true
+}
+
 const confirmDelete = (key: ApiKey) => {
   selectedKey.value = key
   showDeleteDialog.value = true
@@ -1840,13 +1979,26 @@ const resetQuotaUsed = async () => {
 
 // Show reset rate limit confirmation dialog (from edit modal)
 const confirmResetRateLimit = () => {
+  pendingRateLimitWindow.value = null
   showResetRateLimitDialog.value = true
 }
 
 // Show reset rate limit confirmation dialog (from table row)
-const confirmResetRateLimitFromTable = (row: ApiKey) => {
+const confirmResetRateLimitFromTable = (row: ApiKey, window?: RateLimitWindow) => {
   selectedKey.value = row
+  pendingRateLimitWindow.value = window ?? null
   showResetRateLimitDialog.value = true
+}
+
+const cancelResetRateLimit = () => {
+  showResetRateLimitDialog.value = false
+  pendingRateLimitWindow.value = null
+}
+
+function formatRateLimitWindowLabel(window: RateLimitWindow): string {
+  if (window === '5h') return t('keys.rateLimit5h')
+  if (window === '1d') return t('keys.rateLimit1d')
+  return t('keys.rateLimit7d')
 }
 
 // Reset rate limit usage for an API key
@@ -1854,7 +2006,12 @@ const resetRateLimitUsage = async () => {
   if (!selectedKey.value) return
   showResetRateLimitDialog.value = false
   try {
-    await keysAPI.update(selectedKey.value.id, { reset_rate_limit_usage: true })
+    await keysAPI.update(
+      selectedKey.value.id,
+      pendingRateLimitWindow.value
+        ? { reset_rate_limit_window: pendingRateLimitWindow.value }
+        : { reset_rate_limit_usage: true }
+    )
     appStore.showSuccess(t('keys.rateLimitResetSuccess'))
     // Refresh key data
     await loadApiKeys()
@@ -1866,6 +2023,8 @@ const resetRateLimitUsage = async () => {
   } catch (error: any) {
     const errorMsg = error.response?.data?.detail || t('keys.failedToResetRateLimit')
     appStore.showError(errorMsg)
+  } finally {
+    pendingRateLimitWindow.value = null
   }
 }
 
@@ -1886,15 +2045,32 @@ const importToCcswitch = (row: ApiKey) => {
 const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
   const baseUrl = publicSettings.value?.api_base_url || window.location.origin
   const platform = row.group?.platform || 'anthropic'
+  const usageUrl = `${baseUrl.replace(/\/+$/, '')}/usage`
 
   const usageScript = `({
     request: {
-      url: "{{baseUrl}}/v1/usage",
+      url: "${usageUrl}",
       method: "GET",
       headers: { "Authorization": "Bearer {{apiKey}}" }
     },
     extractor: function(response) {
-      const remaining = response?.remaining ?? response?.quota?.remaining ?? response?.balance;
+      const rateLimitRemaining = Array.isArray(response?.rate_limits)
+        ? response.rate_limits
+            .map(function(limit) { return limit?.remaining; })
+            .filter(function(value) { return typeof value === "number"; })
+            .sort(function(a, b) { return a - b; })[0]
+        : undefined;
+      const subscriptionRemaining = response?.subscription
+        ? Math.min(
+            ...[
+              response.subscription.daily_limit_usd != null ? response.subscription.daily_limit_usd - (response.subscription.daily_usage_usd ?? 0) : undefined,
+              response.subscription.weekly_limit_usd != null ? response.subscription.weekly_limit_usd - (response.subscription.weekly_usage_usd ?? 0) : undefined,
+              response.subscription.monthly_limit_usd != null ? response.subscription.monthly_limit_usd - (response.subscription.monthly_usage_usd ?? 0) : undefined,
+              response.subscription.total_limit_usd != null ? response.subscription.total_limit_usd - (response.subscription.total_usage_usd ?? 0) : undefined
+            ].filter(function(value) { return typeof value === "number"; })
+          )
+        : undefined;
+      const remaining = response?.remaining ?? response?.quota?.remaining ?? response?.balance ?? subscriptionRemaining ?? rateLimitRemaining;
       const unit = response?.unit ?? response?.quota?.unit ?? "USD";
       return {
         isValid: response?.is_active ?? response?.isValid ?? true,
@@ -1954,16 +2130,20 @@ function formatResetTime(resetAt: string | null): string {
 }
 
 onMounted(() => {
+  keyRouteQuerySync.restoreFromRoute()
+  void keyRouteQuerySync.syncToRoute()
   loadSavedColumns()
   loadApiKeys()
   loadGroups()
   loadUserGroupRates()
   loadPublicSettings()
+  document.addEventListener('click', closeKeySearchDropdown)
   document.addEventListener('click', closeGroupSelector)
   resetTimer = setInterval(() => { now.value = new Date() }, 60000)
 })
 
 onUnmounted(() => {
+  document.removeEventListener('click', closeKeySearchDropdown)
   document.removeEventListener('click', closeGroupSelector)
   if (resetTimer) clearInterval(resetTimer)
 })

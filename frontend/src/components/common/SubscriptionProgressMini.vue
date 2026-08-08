@@ -158,6 +158,34 @@
                     }}
                   </span>
                 </div>
+
+                <div v-if="subscription.group?.total_limit_usd" class="flex items-center gap-2">
+                  <span class="w-8 flex-shrink-0 text-[10px] text-gray-500">{{
+                    t('subscriptionProgress.total')
+                  }}</span>
+                  <div class="h-1.5 min-w-0 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
+                    <div
+                      class="h-1.5 rounded-full transition-all"
+                      :class="
+                        getProgressBarClass(
+                          subscription.total_usage_usd,
+                          subscription.group?.total_limit_usd
+                        )
+                      "
+                      :style="{
+                        width: getProgressWidth(
+                          subscription.total_usage_usd,
+                          subscription.group?.total_limit_usd
+                        )
+                      }"
+                    ></div>
+                  </div>
+                  <span class="w-24 flex-shrink-0 text-right text-[10px] text-gray-500">
+                    {{
+                      formatUsage(subscription.total_usage_usd, subscription.group?.total_limit_usd)
+                    }}
+                  </span>
+                </div>
               </template>
             </div>
           </div>
@@ -215,6 +243,9 @@ function getMaxUsagePercentage(sub: UserSubscription): number {
   if (sub.group?.monthly_limit_usd) {
     percentages.push(((sub.monthly_usage_usd || 0) / sub.group.monthly_limit_usd) * 100)
   }
+  if (sub.group?.total_limit_usd) {
+    percentages.push(((sub.total_usage_usd || 0) / sub.group.total_limit_usd) * 100)
+  }
   return percentages.length > 0 ? Math.max(...percentages) : 0
 }
 
@@ -222,7 +253,8 @@ function isUnlimited(sub: UserSubscription): boolean {
   return (
     !sub.group?.daily_limit_usd &&
     !sub.group?.weekly_limit_usd &&
-    !sub.group?.monthly_limit_usd
+    !sub.group?.monthly_limit_usd &&
+    !sub.group?.total_limit_usd
   )
 }
 

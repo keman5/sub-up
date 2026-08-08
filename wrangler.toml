@@ -1,0 +1,8 @@
+name = "sub2api-frontend"
+compatibility_date = "2026-06-11"
+pages_build_output_dir = "backend/internal/web/dist"
+
+[vars]
+# Used by preview deployments before ai.upit.top/a1.upit.top are cut over.
+# Production ai.upit.top defaults to https://api.upit.top; a1.upit.top defaults to https://ap1.upit.top.
+SUB2API_ORIGIN = "https://api.upit.top"

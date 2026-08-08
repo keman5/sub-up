@@ -14,6 +14,7 @@ export default {
     expiresTomorrow: 'Expires tomorrow',
     viewAll: 'View all subscriptions',
     noSubscriptions: 'No active subscriptions',
+    total: 'Total',
     unlimited: 'Unlimited'
   },
 
@@ -125,6 +126,7 @@ export default {
     usage: 'Usage',
     expires: 'Expires',
     noExpiration: 'No expiration',
+    total: 'Total',
     unlimited: 'Unlimited',
     unlimitedDesc: 'No usage limits on this subscription',
     daily: 'Daily',
@@ -462,6 +464,7 @@ export default {
       dailyLimit: 'Daily',
       weeklyLimit: 'Weekly',
       monthlyLimit: 'Monthly',
+      totalLimit: 'Total',
       quota: 'Quota',
       unlimited: 'Unlimited',
       models: 'Models',

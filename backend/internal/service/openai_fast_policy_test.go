@@ -348,6 +348,115 @@ func TestApplyOpenAIFastPolicyToBody_BlockReturnsTypedError(t *testing.T) {
 	require.Equal(t, string(body), string(updated)) // body not mutated on block
 }
 
+func TestEvaluateOpenAIFastPolicy_UserAllowlistPassesMultipleUsers(t *testing.T) {
+	settings := &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:      OpenAIFastTierPriority,
+			Action:           BetaPolicyActionFilter,
+			Scope:            BetaPolicyScopeAll,
+			AccountAllowlist: []int64{101, 202},
+		}},
+	}
+	svc := newOpenAIGatewayServiceWithSettings(t, settings)
+	account := &Account{ID: 303, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	for _, userID := range []int64{101, 202} {
+		ctx := WithOpenAIFastPolicyUserID(context.Background(), userID)
+		action, msg := svc.evaluateOpenAIFastPolicy(ctx, account, "gpt-5.5", OpenAIFastTierPriority)
+		require.Equal(t, BetaPolicyActionPass, action, "user %d should bypass the fast policy rule", userID)
+		require.Empty(t, msg)
+	}
+
+	action, _ := svc.evaluateOpenAIFastPolicy(WithOpenAIFastPolicyUserID(context.Background(), 303), account, "gpt-5.5", OpenAIFastTierPriority)
+	require.Equal(t, BetaPolicyActionFilter, action)
+}
+
+func TestEvaluateOpenAIFastPolicy_UserAllowlistOnlyAppliesToMatchedRule(t *testing.T) {
+	settings := &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{
+			{
+				ServiceTier:      OpenAIFastTierFlex,
+				Action:           BetaPolicyActionFilter,
+				Scope:            BetaPolicyScopeAll,
+				AccountAllowlist: []int64{101},
+			},
+			{
+				ServiceTier: OpenAIFastTierPriority,
+				Action:      BetaPolicyActionBlock,
+				Scope:       BetaPolicyScopeAll,
+			},
+		},
+	}
+	svc := newOpenAIGatewayServiceWithSettings(t, settings)
+	account := &Account{ID: 303, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	action, _ := svc.evaluateOpenAIFastPolicy(WithOpenAIFastPolicyUserID(context.Background(), 101), account, "gpt-5.5", OpenAIFastTierPriority)
+	require.Equal(t, BetaPolicyActionBlock, action)
+}
+
+func TestEvaluateOpenAIFastPolicy_AccountIDDoesNotBypassUserAllowlist(t *testing.T) {
+	settings := &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:      OpenAIFastTierPriority,
+			Action:           BetaPolicyActionFilter,
+			Scope:            BetaPolicyScopeAll,
+			AccountAllowlist: []int64{101},
+		}},
+	}
+	svc := newOpenAIGatewayServiceWithSettings(t, settings)
+	account := &Account{ID: 101, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	action, _ := svc.evaluateOpenAIFastPolicy(WithOpenAIFastPolicyUserID(context.Background(), 202), account, "gpt-5.5", OpenAIFastTierPriority)
+	require.Equal(t, BetaPolicyActionFilter, action)
+}
+
+func TestEvaluateOpenAIFastPolicy_OpenAIAccountAllowlistPassesMultipleAccounts(t *testing.T) {
+	settings := &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:            OpenAIFastTierPriority,
+			Action:                 BetaPolicyActionFilter,
+			Scope:                  BetaPolicyScopeAll,
+			OpenAIAccountAllowlist: []int64{101, 202},
+		}},
+	}
+	svc := newOpenAIGatewayServiceWithSettings(t, settings)
+
+	for _, accountID := range []int64{101, 202} {
+		account := &Account{ID: accountID, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+		action, msg := svc.evaluateOpenAIFastPolicy(WithOpenAIFastPolicyUserID(context.Background(), 303), account, "gpt-5.5", OpenAIFastTierPriority)
+		require.Equal(t, BetaPolicyActionPass, action, "OpenAI account %d should bypass the fast policy rule", accountID)
+		require.Empty(t, msg)
+	}
+
+	account := &Account{ID: 303, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	action, _ := svc.evaluateOpenAIFastPolicy(WithOpenAIFastPolicyUserID(context.Background(), 303), account, "gpt-5.5", OpenAIFastTierPriority)
+	require.Equal(t, BetaPolicyActionFilter, action)
+}
+
+func TestEvaluateOpenAIFastPolicy_UserAndOpenAIAccountAllowlistsMustBothMatch(t *testing.T) {
+	settings := &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:            OpenAIFastTierPriority,
+			Action:                 BetaPolicyActionFilter,
+			Scope:                  BetaPolicyScopeAll,
+			AccountAllowlist:       []int64{101},
+			OpenAIAccountAllowlist: []int64{202},
+		}},
+	}
+	svc := newOpenAIGatewayServiceWithSettings(t, settings)
+
+	matchingAccount := &Account{ID: 202, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	action, _ := svc.evaluateOpenAIFastPolicy(WithOpenAIFastPolicyUserID(context.Background(), 101), matchingAccount, "gpt-5.5", OpenAIFastTierPriority)
+	require.Equal(t, BetaPolicyActionPass, action)
+
+	action, _ = svc.evaluateOpenAIFastPolicy(WithOpenAIFastPolicyUserID(context.Background(), 999), matchingAccount, "gpt-5.5", OpenAIFastTierPriority)
+	require.Equal(t, BetaPolicyActionFilter, action, "matching account alone must not bypass when user allowlist is also configured")
+
+	otherAccount := &Account{ID: 999, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	action, _ = svc.evaluateOpenAIFastPolicy(WithOpenAIFastPolicyUserID(context.Background(), 101), otherAccount, "gpt-5.5", OpenAIFastTierPriority)
+	require.Equal(t, BetaPolicyActionFilter, action, "matching user alone must not bypass when OpenAI account allowlist is also configured")
+}
+
 func TestSetOpenAIFastPolicySettings_Validation(t *testing.T) {
 	repo := &openAIFastPolicyRepoStub{values: map[string]string{}}
 	svc := NewSettingService(repo, &config.Config{})
@@ -372,6 +481,17 @@ func TestSetOpenAIFastPolicySettings_Validation(t *testing.T) {
 	})
 	require.Error(t, err)
 
+	// Invalid user allowlist rejected
+	err = svc.SetOpenAIFastPolicySettings(context.Background(), &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:      OpenAIFastTierPriority,
+			Action:           BetaPolicyActionPass,
+			Scope:            BetaPolicyScopeAll,
+			AccountAllowlist: []int64{101, 0},
+		}},
+	})
+	require.Error(t, err)
+
 	// Non-positive and duplicate user IDs are rejected.
 	err = svc.SetOpenAIFastPolicySettings(context.Background(), &OpenAIFastPolicySettings{
 		Rules: []OpenAIFastPolicyRule{{
@@ -379,6 +499,17 @@ func TestSetOpenAIFastPolicySettings_Validation(t *testing.T) {
 			Action:      BetaPolicyActionPass,
 			Scope:       BetaPolicyScopeAll,
 			UserIDs:     []int64{0},
+		}},
+	})
+	require.Error(t, err)
+
+	// Invalid OpenAI account allowlist rejected
+	err = svc.SetOpenAIFastPolicySettings(context.Background(), &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:            OpenAIFastTierPriority,
+			Action:                 BetaPolicyActionPass,
+			Scope:                  BetaPolicyScopeAll,
+			OpenAIAccountAllowlist: []int64{101, 0},
 		}},
 	})
 	require.Error(t, err)
@@ -396,10 +527,12 @@ func TestSetOpenAIFastPolicySettings_Validation(t *testing.T) {
 	// Valid settings persisted
 	err = svc.SetOpenAIFastPolicySettings(context.Background(), &OpenAIFastPolicySettings{
 		Rules: []OpenAIFastPolicyRule{{
-			ServiceTier: OpenAIFastTierPriority,
-			Action:      OpenAIFastPolicyActionForcePriority,
-			Scope:       BetaPolicyScopeAll,
-			UserIDs:     []int64{42, 43},
+			ServiceTier:            OpenAIFastTierPriority,
+			Action:                 OpenAIFastPolicyActionForcePriority,
+			Scope:                  BetaPolicyScopeAll,
+			UserIDs:                []int64{42, 43},
+			AccountAllowlist:       []int64{101, 202},
+			OpenAIAccountAllowlist: []int64{303, 404},
 		}},
 	})
 	require.NoError(t, err)
@@ -410,4 +543,40 @@ func TestSetOpenAIFastPolicySettings_Validation(t *testing.T) {
 	require.Equal(t, OpenAIFastTierPriority, got.Rules[0].ServiceTier)
 	require.Equal(t, OpenAIFastPolicyActionForcePriority, got.Rules[0].Action)
 	require.Equal(t, []int64{42, 43}, got.Rules[0].UserIDs)
+	require.Equal(t, []int64{101, 202}, got.Rules[0].AccountAllowlist)
+	require.Equal(t, []int64{303, 404}, got.Rules[0].OpenAIAccountAllowlist)
+}
+
+func TestGetOpenAIFastPolicySettings_MigratesLegacyAccountAllowlistToOpenAIAccounts(t *testing.T) {
+	repo := &openAIFastPolicyRepoStub{values: map[string]string{
+		SettingKeyOpenAIFastPolicySettings: `{"rules":[{"service_tier":"all","action":"filter","scope":"all","account_allowlist":[42]}]}`,
+	}}
+	svc := NewSettingService(repo, &config.Config{})
+
+	got, err := svc.GetOpenAIFastPolicySettings(context.Background())
+	require.NoError(t, err)
+	require.Len(t, got.Rules, 1)
+	require.Empty(t, got.Rules[0].AccountAllowlist)
+	require.Equal(t, []int64{42}, got.Rules[0].OpenAIAccountAllowlist)
+}
+
+func TestSetOpenAIFastPolicySettings_PersistsEmptyAllowlistsAsNewSchemaMarker(t *testing.T) {
+	repo := &openAIFastPolicyRepoStub{values: map[string]string{}}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.SetOpenAIFastPolicySettings(context.Background(), &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{
+			ServiceTier:      OpenAIFastTierPriority,
+			Action:           BetaPolicyActionPass,
+			Scope:            BetaPolicyScopeAll,
+			AccountAllowlist: []int64{42},
+		}},
+	})
+	require.NoError(t, err)
+
+	raw := repo.values[SettingKeyOpenAIFastPolicySettings]
+	require.True(t, gjson.Get(raw, "rules.0.account_allowlist").IsArray())
+	require.True(t, gjson.Get(raw, "rules.0.openai_account_allowlist").IsArray())
+	require.Equal(t, int64(42), gjson.Get(raw, "rules.0.account_allowlist.0").Int())
+	require.Empty(t, gjson.Get(raw, "rules.0.openai_account_allowlist").Array())
 }

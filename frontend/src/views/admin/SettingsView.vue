@@ -1205,6 +1205,22 @@
                   />
                 </div>
 
+                <!-- User Allowlist: distinct from the rule's matching user scope. -->
+                <div class="mt-3">
+                  <label
+                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                  >
+                    {{ t("admin.settings.openaiFastPolicy.accountAllowlist") }}
+                  </label>
+                  <p class="mb-2 text-xs text-gray-400 dark:text-gray-500">
+                    {{ t("admin.settings.openaiFastPolicy.accountAllowlistHint") }}
+                  </p>
+                  <OpenAIFastPolicyUserSelector
+                    :model-value="rule.account_allowlist || []"
+                    @update:model-value="rule.account_allowlist = $event"
+                  />
+                </div>
+
                 <!-- Error Message (only when action=block) -->
                 <div v-if="rule.action === 'block'" class="mt-3">
                   <label
@@ -8491,12 +8507,15 @@ import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
 import { useClipboard } from "@/composables/useClipboard";
+import { useAppDialog } from "@/composables/useAppDialog";
 import {
   useStepUp,
   isStepUpCancelled,
   isStepUpBlocked,
   stepUpBlockReason,
 } from "@/composables/useStepUp";
+import { normalizeOpenAIFastPolicyOpenAIAccountAllowlist } from "@/utils/openaiFastPolicyAccounts";
+import { normalizeOpenAIFastPolicyUserAllowlist } from "@/utils/openaiFastPolicyUsers";
 import TotpStepUpDialog from "@/components/auth/TotpStepUpDialog.vue";
 import { affiliatesAPI, type AffiliateAdminEntry, type SimpleUser as AffiliateSimpleUser } from "@/api/admin/affiliates";
 import { extractApiErrorMessage, extractI18nErrorMessage } from "@/utils/apiError";
@@ -8518,6 +8537,7 @@ import {
 
 const { t, locale } = useI18n();
 const appStore = useAppStore();
+const appDialog = useAppDialog();
 // 关闭 step-up 开关是敏感操作：后端返回 STEP_UP_REQUIRED 时弹 TOTP 码重试
 const settingsStepUp = useStepUp();
 const adminSettingsStore = useAdminSettingsStore();
@@ -9761,7 +9781,7 @@ function quotaPercentage(provider: WebSearchProviderConfig): number {
 async function resetWebSearchUsage(idx: number) {
   const provider = webSearchConfig.providers[idx];
   if (!provider) return;
-  if (!confirm(t("admin.settings.webSearchEmulation.resetUsageConfirm")))
+  if (!(await appDialog.confirm(t("admin.settings.webSearchEmulation.resetUsageConfirm"))))
     return;
   try {
     await adminAPI.settings.resetWebSearchUsage({
@@ -10565,6 +10585,12 @@ async function loadSettings() {
         settings.openai_fast_policy_settings.rules.map((rule) => ({
           ...rule,
           user_ids: rule.user_ids ? [...rule.user_ids] : [],
+          account_allowlist: rule.account_allowlist
+            ? [...rule.account_allowlist]
+            : [],
+          openai_account_allowlist: rule.openai_account_allowlist
+            ? [...rule.openai_account_allowlist]
+            : [],
           model_whitelist: rule.model_whitelist
             ? [...rule.model_whitelist]
             : [],
@@ -11122,6 +11148,14 @@ async function saveSettings() {
               rule.user_ids && rule.user_ids.length > 0
                 ? [...rule.user_ids]
                 : undefined,
+            account_allowlist:
+              normalizeOpenAIFastPolicyUserAllowlist(
+                rule.account_allowlist,
+              ) || [],
+            openai_account_allowlist:
+              normalizeOpenAIFastPolicyOpenAIAccountAllowlist(
+                rule.openai_account_allowlist,
+              ) || [],
             error_message:
               rule.action === "block" ? rule.error_message : undefined,
             model_whitelist: hasWhitelist ? whitelist : undefined,
@@ -11206,6 +11240,12 @@ async function saveSettings() {
         updated.openai_fast_policy_settings.rules.map((rule) => ({
           ...rule,
           user_ids: rule.user_ids ? [...rule.user_ids] : [],
+          account_allowlist: rule.account_allowlist
+            ? [...rule.account_allowlist]
+            : [],
+          openai_account_allowlist: rule.openai_account_allowlist
+            ? [...rule.openai_account_allowlist]
+            : [],
           model_whitelist: rule.model_whitelist
             ? [...rule.model_whitelist]
             : [],
@@ -11337,12 +11377,12 @@ async function createAdminApiKey() {
 }
 
 async function regenerateAdminApiKey() {
-  if (!confirm(t("admin.settings.adminApiKey.regenerateConfirm"))) return;
+  if (!(await appDialog.confirm({ message: t("admin.settings.adminApiKey.regenerateConfirm"), danger: true }))) return;
   await createAdminApiKey();
 }
 
 async function deleteAdminApiKey() {
-  if (!confirm(t("admin.settings.adminApiKey.deleteConfirm"))) return;
+  if (!(await appDialog.confirm({ message: t("admin.settings.adminApiKey.deleteConfirm"), danger: true }))) return;
   adminApiKeyOperating.value = true;
   try {
     await adminAPI.settings.deleteAdminApiKey();
@@ -11743,6 +11783,8 @@ function addOpenAIFastPolicyRule() {
     action: "filter",
     scope: "all",
     user_ids: [],
+    account_allowlist: [],
+    openai_account_allowlist: [],
     error_message: "",
     model_whitelist: [],
     fallback_action: "pass",

@@ -1,6 +1,8 @@
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
+import { extractApiErrorMessage } from '@/utils/apiError'
 
 export type AddMethod = 'oauth' | 'setup-token'
 export type AuthInputMethod = 'manual' | 'cookie' | 'refresh_token' | 'mobile_refresh_token' | 'session_token' | 'access_token' | 'codex_session' | 'agent_identity' | 'codex_pat' | 'sso_cookie'
@@ -23,6 +25,7 @@ export interface TokenInfo {
 
 export function useAccountOAuth() {
   const appStore = useAppStore()
+  const { t } = useI18n()
 
   // State
   const authUrl = ref('')
@@ -64,7 +67,7 @@ export function useAccountOAuth() {
       sessionId.value = response.session_id
       return true
     } catch (err: any) {
-      error.value = err.response?.data?.detail || 'Failed to generate auth URL'
+      error.value = extractApiErrorMessage(err, t('admin.accounts.oauth.failedToGenerateAuthUrl'))
       appStore.showError(error.value)
       return false
     } finally {
@@ -78,7 +81,7 @@ export function useAccountOAuth() {
     proxyId?: number | null
   ): Promise<TokenInfo | null> => {
     if (!authCode.value.trim() || !sessionId.value) {
-      error.value = 'Missing auth code or session ID'
+      error.value = t('admin.accounts.oauth.missingAuthCodeOrSession')
       return null
     }
 
@@ -100,7 +103,7 @@ export function useAccountOAuth() {
 
       return tokenInfo as TokenInfo
     } catch (err: any) {
-      error.value = err.response?.data?.detail || 'Failed to exchange auth code'
+      error.value = extractApiErrorMessage(err, t('admin.accounts.oauth.failedToExchangeAuthCode'))
       appStore.showError(error.value)
       return null
     } finally {
@@ -115,7 +118,7 @@ export function useAccountOAuth() {
     proxyId?: number | null
   ): Promise<TokenInfo | null> => {
     if (!sessionKeyValue.trim()) {
-      error.value = 'Please enter sessionKey'
+      error.value = t('admin.accounts.oauth.pleaseEnterSessionKey')
       return null
     }
 
@@ -137,7 +140,7 @@ export function useAccountOAuth() {
 
       return tokenInfo as TokenInfo
     } catch (err: any) {
-      error.value = err.response?.data?.detail || 'Cookie authorization failed'
+      error.value = extractApiErrorMessage(err, t('admin.accounts.oauth.cookieAuthorizationFailed'))
       return null
     } finally {
       loading.value = false

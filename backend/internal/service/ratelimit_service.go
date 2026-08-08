@@ -116,14 +116,6 @@ func (s *RateLimitService) SetAccountRuntimeBlocker(blocker AccountRuntimeBlocke
 	s.runtimeBlocker = blocker
 }
 
-func (s *RateLimitService) IsOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx context.Context) bool {
-	if s == nil || s.settingService == nil {
-		return false
-	}
-	gateway := &OpenAIGatewayService{rateLimitService: s}
-	return gateway.isOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx)
-}
-
 func (s *RateLimitService) notifyAccountSchedulingBlocked(account *Account, until time.Time, reason string) {
 	if s == nil || s.runtimeBlocker == nil || account == nil {
 		return
@@ -280,7 +272,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			break
 		}
 		// OAuth 账号在 401 错误时临时不可调度（给 token 刷新窗口）；非 OAuth 账号保持原有 SetError 行为。
-		if authAccount.Type == AccountTypeOAuth {
+		// Antigravity 除外：其 401 由 applyErrorPolicy 的 temp_unschedulable_rules 自行控制。
+		if authAccount.Type == AccountTypeOAuth && authAccount.Platform != PlatformAntigravity {
 			// 1. 失效缓存
 			if s.tokenCacheInvalidator != nil {
 				if err := s.tokenCacheInvalidator.InvalidateToken(ctx, authAccount); err != nil {
@@ -310,20 +303,6 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			msg := "Authentication failed (401): invalid or expired credentials"
 			if upstreamMsg != "" {
 				msg = "OAuth 401: " + upstreamMsg
-			}
-			if authAccount.Platform == PlatformAntigravity {
-				extraUpdates := antigravityForceTokenRefreshExtra("401_invalid")
-				if err := s.accountRepo.UpdateExtra(ctx, authAccount.ID, extraUpdates); err != nil {
-					slog.Warn("antigravity_401_force_refresh_mark_failed", "account_id", authAccount.ID, "error", err)
-				} else {
-					if authAccount.Extra == nil {
-						authAccount.Extra = make(map[string]any, len(extraUpdates))
-					}
-					for k, v := range extraUpdates {
-						authAccount.Extra[k] = v
-					}
-					slog.Info("antigravity_401_force_refresh_marked", "account_id", authAccount.ID)
-				}
 			}
 			cooldownMinutes := s.cfg.RateLimit.OAuth401CooldownMinutes
 			if cooldownMinutes <= 0 {
@@ -373,7 +352,11 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		)
 		shouldDisable = s.handle403(ctx, account, upstreamMsg, responseBody)
 	case 429:
-		s.handle429(ctx, account, headers, responseBody)
+		model := ""
+		if len(requestedModel) > 0 {
+			model = requestedModel[0]
+		}
+		s.handle429(ctx, account, headers, responseBody, model)
 		shouldDisable = false
 	case 529:
 		s.handle529(ctx, account)
@@ -926,7 +909,7 @@ func (s *RateLimitService) handleCustomErrorCode(ctx context.Context, account *A
 
 // handle429 处理429限流错误
 // 解析响应头获取重置时间，标记账号为限流状态
-func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
+func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte, requestedModel ...string) {
 	// Spark 影子：限流/熔断状态 100% 由 QueryUsage(/wham/usage body 的 codex_bengalfox)驱动。
 	// /responses 的 429 携带的 x-codex-*/usage_limit_reached 是 global codex 道(plan/spec §8),
 	// 套到影子会把 spark 误耦合到 global 窗口——即便 spark 仍有配额也会被冷却到 global reset,
@@ -938,7 +921,11 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
 	if account.Platform == PlatformOpenAI {
 		persistOpenAI429PlanType(ctx, s.accountRepo, account, responseBody)
-		s.persistOpenAICodexSnapshot(ctx, account, headers)
+		model := ""
+		if len(requestedModel) > 0 {
+			model = requestedModel[0]
+		}
+		s.persistOpenAICodexSnapshot(ctx, account, headers, model)
 		if resetAt := s.calculateOpenAI429ResetTime(headers); resetAt != nil {
 			s.notifyAccountSchedulingBlocked(account, *resetAt, "429")
 			if err := s.accountRepo.SetRateLimited(ctx, account.ID, *resetAt); err != nil {
@@ -1435,7 +1422,7 @@ func pickSooner(a, b *time.Time) *time.Time {
 	}
 }
 
-func (s *RateLimitService) persistOpenAICodexSnapshot(ctx context.Context, account *Account, headers http.Header) {
+func (s *RateLimitService) persistOpenAICodexSnapshot(ctx context.Context, account *Account, headers http.Header, requestedModel ...string) {
 	if s == nil || s.accountRepo == nil || account == nil || headers == nil {
 		return
 	}
@@ -1444,11 +1431,15 @@ func (s *RateLimitService) persistOpenAICodexSnapshot(ctx context.Context, accou
 	if account.IsShadow() {
 		return
 	}
-	snapshot := ParseCodexRateLimitHeaders(headers)
+	modelOrFamily := openAICodexUsageFamilySpark
+	if len(requestedModel) > 0 && strings.TrimSpace(requestedModel[0]) != "" {
+		modelOrFamily = requestedModel[0]
+	}
+	snapshot := ParseCodexRateLimitHeadersForModel(headers, modelOrFamily)
 	if snapshot == nil {
 		return
 	}
-	updates := buildCodexUsageExtraUpdates(snapshot, time.Now())
+	updates := buildCodexUsageExtraUpdatesForFamily(snapshot, time.Now(), modelOrFamily)
 	if len(updates) == 0 {
 		return
 	}

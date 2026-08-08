@@ -43,6 +43,14 @@ const fakeAdminUser = {
   role: 'admin' as const,
 }
 
+const fakeSuperAdminUser = {
+  ...fakeUser,
+  id: 3,
+  username: 'super-admin',
+  email: 'super-admin@example.com',
+  role: 'super_admin' as const,
+}
+
 const fakeAuthResponse = {
   access_token: 'test-token-123',
   refresh_token: 'refresh-token-456',
@@ -77,6 +85,102 @@ describe('useAuthStore', () => {
       expect(store.isAuthenticated).toBe(true)
       expect(localStorage.getItem('auth_token')).toBe('test-token-123')
       expect(localStorage.getItem('auth_user')).toBe(JSON.stringify(fakeUser))
+    })
+
+    it('短有效期 token 登录后不主动定时刷新，避免后台 refresh 循环', async () => {
+      mockLogin.mockResolvedValue({
+        ...fakeAuthResponse,
+        expires_in: 60,
+      })
+      mockRefreshToken.mockResolvedValue({
+        access_token: 'refreshed-token',
+        refresh_token: 'refreshed-refresh-token',
+        expires_in: 60,
+      })
+      mockGetCurrentUser.mockResolvedValue({ data: fakeUser })
+      const store = useAuthStore()
+
+      await store.login({ email: 'test@example.com', password: '123456' })
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(29_000)
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(5 * 60_000)
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+      expect(mockGetCurrentUser).not.toHaveBeenCalled()
+    })
+
+    it('长有效期 token 登录后不会因 setTimeout 上限立即 refresh', async () => {
+      mockLogin.mockResolvedValue({
+        ...fakeAuthResponse,
+        expires_in: 30 * 24 * 60 * 60,
+      })
+      mockRefreshToken.mockResolvedValue({
+        access_token: 'refreshed-token',
+        refresh_token: 'refreshed-refresh-token',
+        expires_in: 30 * 24 * 60 * 60,
+      })
+      mockGetCurrentUser.mockResolvedValue({ data: fakeUser })
+      const store = useAuthStore()
+
+      await store.login({ email: 'test@example.com', password: '123456' })
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+    })
+
+    it('外部刷新成功后重排 token 刷新定时器，避免成功后立即再次刷新', async () => {
+      mockLogin.mockResolvedValue(fakeAuthResponse)
+      mockGetCurrentUser.mockResolvedValue({ data: fakeUser })
+      const store = useAuthStore()
+
+      await store.login({ email: 'test@example.com', password: '123456' })
+
+      window.dispatchEvent(new CustomEvent('auth-token-refreshed', {
+        detail: {
+          access_token: 'interceptor-token',
+          refresh_token: 'interceptor-refresh-token',
+          expires_in: 7200,
+        },
+      }))
+
+      await vi.advanceTimersByTimeAsync(3480_000)
+
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+      expect(store.token).toBe('interceptor-token')
+      expect(localStorage.getItem('refresh_token')).toBe('interceptor-refresh-token')
+    })
+
+    it('外部刷新返回短有效期 token 后不启动后台 refresh 循环', async () => {
+      mockLogin.mockResolvedValue(fakeAuthResponse)
+      mockGetCurrentUser.mockResolvedValue({ data: fakeUser })
+      const store = useAuthStore()
+
+      await store.login({ email: 'test@example.com', password: '123456' })
+
+      window.dispatchEvent(new CustomEvent('auth-token-refreshed', {
+        detail: {
+          access_token: 'short-interceptor-token',
+          refresh_token: 'short-interceptor-refresh-token',
+          expires_in: 60,
+        },
+      }))
+
+      await vi.advanceTimersByTimeAsync(5 * 60_000)
+
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+      expect(mockGetCurrentUser).not.toHaveBeenCalled()
+      expect(store.token).toBe('short-interceptor-token')
+      expect(localStorage.getItem('refresh_token')).toBe('short-interceptor-refresh-token')
     })
 
     it('登录失败时清除状态并抛出错误', async () => {
@@ -212,6 +316,50 @@ describe('useAuthStore', () => {
       expect(store.isAuthenticated).toBe(true)
     })
 
+    it('恢复已过期 token 时不后台请求用户信息或立即 refresh', async () => {
+      localStorage.setItem('auth_token', 'expired-token')
+      localStorage.setItem('auth_user', JSON.stringify(fakeUser))
+      localStorage.setItem('refresh_token', 'saved-refresh')
+      localStorage.setItem('token_expires_at', String(Date.now() - 1000))
+
+      mockGetCurrentUser.mockResolvedValue({ data: fakeUser })
+      mockRefreshToken.mockResolvedValue({
+        access_token: 'refreshed-token',
+        refresh_token: 'refreshed-refresh-token',
+        expires_in: 60,
+      })
+
+      const store = useAuthStore()
+      store.checkAuth()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(store.isAuthenticated).toBe(true)
+      expect(mockGetCurrentUser).not.toHaveBeenCalled()
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+    })
+
+    it('恢复已过期 token 时保留本地登录态并等待真实请求刷新', async () => {
+      localStorage.setItem('auth_token', 'expired-token')
+      localStorage.setItem('auth_user', JSON.stringify(fakeUser))
+      localStorage.setItem('refresh_token', 'stale-refresh')
+      localStorage.setItem('token_expires_at', String(Date.now() - 1000))
+
+      mockGetCurrentUser.mockResolvedValue({ data: fakeUser })
+      mockRefreshToken.mockRejectedValue({ status: 401, code: 'INVALID_REFRESH_TOKEN' })
+
+      const store = useAuthStore()
+      store.checkAuth()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(mockGetCurrentUser).not.toHaveBeenCalled()
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+      expect(store.isAuthenticated).toBe(true)
+      expect(localStorage.getItem('auth_token')).toBe('expired-token')
+      expect(localStorage.getItem('refresh_token')).toBe('stale-refresh')
+    })
+
     it('恢复持久化 pending auth session', () => {
       localStorage.setItem(
         'pending_auth_session',
@@ -233,6 +381,34 @@ describe('useAuthStore', () => {
         provider: 'wechat',
         redirect: '/profile',
       })
+    })
+  })
+
+  // --- setToken ---
+
+  describe('setToken', () => {
+    it('短有效期 OAuth token 设置后不立即 refresh，避免回调登录后 refresh 循环', async () => {
+      localStorage.setItem('refresh_token', 'oauth-refresh-token')
+      localStorage.setItem('token_expires_at', String(Date.now() + 60_000))
+      mockGetCurrentUser.mockResolvedValue({ data: fakeUser })
+      mockRefreshToken.mockResolvedValue({
+        access_token: 'refreshed-token',
+        refresh_token: 'refreshed-refresh-token',
+        expires_in: 60,
+      })
+
+      const store = useAuthStore()
+      await store.setToken('oauth-access-token')
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(mockGetCurrentUser).toHaveBeenCalledTimes(1)
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(5 * 60_000)
+
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+      expect(store.token).toBe('oauth-access-token')
     })
   })
 
@@ -323,6 +499,16 @@ describe('useAuthStore', () => {
       const store = useAuthStore()
 
       await store.login({ email: 'admin@example.com', password: '123456' })
+
+      expect(store.isAdmin).toBe(true)
+    })
+
+    it('超级管理员用户返回 true', async () => {
+      const superAdminResponse = { ...fakeAuthResponse, user: { ...fakeSuperAdminUser } }
+      mockLogin.mockResolvedValue(superAdminResponse)
+      const store = useAuthStore()
+
+      await store.login({ email: 'super-admin@example.com', password: '123456' })
 
       expect(store.isAdmin).toBe(true)
     })

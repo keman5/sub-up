@@ -5,6 +5,11 @@
 
 import { i18n, getLocale } from '@/i18n'
 
+function translateOrFallback(key: string, params: Record<string, unknown>, fallback: string): string {
+  const translated = i18n.global.t(key, params)
+  return translated.includes(key) ? fallback : translated
+}
+
 /**
  * 格式化相对时间
  * @param date 日期字符串或 Date 对象
@@ -325,14 +330,22 @@ export function formatCountdown(targetDate: string | Date | null | undefined): s
 
   if (diffDays > 0) {
     // 超过1天：显示 "Xd Yh"
-    return i18n.global.t('common.time.countdown.daysHours', { d: diffDays, h: remainingHours })
+    return translateOrFallback(
+      'common.time.countdown.daysHours',
+      { d: diffDays, h: remainingHours },
+      `${diffDays}d ${remainingHours}h`
+    )
   }
   if (diffHours > 0) {
     // 小于1天：显示 "Xh Ym"
-    return i18n.global.t('common.time.countdown.hoursMinutes', { h: diffHours, m: remainingMins })
+    return translateOrFallback(
+      'common.time.countdown.hoursMinutes',
+      { h: diffHours, m: remainingMins },
+      `${diffHours}h ${remainingMins}m`
+    )
   }
   // 小于1小时：显示 "Ym"
-  return i18n.global.t('common.time.countdown.minutes', { m: diffMins })
+  return translateOrFallback('common.time.countdown.minutes', { m: diffMins }, `${diffMins}m`)
 }
 
 /**
@@ -343,7 +356,7 @@ export function formatCountdown(targetDate: string | Date | null | undefined): s
 export function formatCountdownWithSuffix(targetDate: string | Date | null | undefined): string | null {
   const countdown = formatCountdown(targetDate)
   if (!countdown) return null
-  return i18n.global.t('common.time.countdown.withSuffix', { time: countdown })
+  return translateOrFallback('common.time.countdown.withSuffix', { time: countdown }, `${countdown} to lift`)
 }
 
 /**

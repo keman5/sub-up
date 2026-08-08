@@ -148,8 +148,25 @@ export default defineConfig(({ mode }) => {
             return 'vendor-misc'
           }
 
-          // 应用代码：按入口点自动分包，不手动干预
-          // 这样可以避免循环依赖，同时保持合理的 chunk 数量
+          if (id.includes('/src/views/admin/AccountsView.vue') || id.includes('/src/components/admin/account/')) {
+            return 'admin-accounts'
+          }
+
+          if (id.includes('/src/views/admin/UsersView.vue') || id.includes('/src/components/admin/user/')) {
+            return 'admin-users'
+          }
+
+          if (id.includes('/src/views/admin/UsageView.vue') || id.includes('/src/components/admin/usage/')) {
+            return 'admin-usage'
+          }
+
+          if (id.includes('/src/views/admin/SubscriptionsView.vue')) {
+            return 'admin-subscriptions'
+          }
+
+          if (id.includes('/src/views/user/KeysView.vue')) {
+            return 'user-keys'
+          }
         }
       }
     }

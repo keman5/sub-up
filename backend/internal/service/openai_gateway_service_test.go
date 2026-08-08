@@ -2500,6 +2500,82 @@ func TestOpenAIStreamingPassthroughResponseDoneWithoutDoneMarkerStillSucceeds(t 
 	require.Equal(t, 1, result.usage.CacheReadInputTokens)
 }
 
+func TestOpenAIStreamingPassthrough_RewritesClientUsageForPresentation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{
+		Gateway: config.GatewayConfig{
+			MaxLineSize: defaultMaxLineSize,
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: cfg}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.done","response":{"usage":{"input_tokens":600,"output_tokens":500,"input_tokens_details":{"cached_tokens":100},"total_tokens":1100}}}`,
+			"",
+		}, "\n"))),
+		Header: http.Header{"X-Request-Id": []string{"rid-passthrough-presentation-stream"}},
+	}
+
+	result, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1}, time.Now(), "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.usage)
+	require.Equal(t, 600, result.usage.InputTokens)
+	require.Equal(t, 500, result.usage.OutputTokens)
+	require.Equal(t, 100, result.usage.CacheReadInputTokens)
+
+	body := rec.Body.String()
+	require.Contains(t, body, `"input_tokens":1200`)
+	require.Contains(t, body, `"output_tokens":1000`)
+	require.Contains(t, body, `"cached_tokens":200`)
+	require.Contains(t, body, `"total_tokens":2200`)
+}
+
+func TestOpenAIStreamingResponse_RewritesClientUsageForPresentation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{
+		Gateway: config.GatewayConfig{
+			StreamDataIntervalTimeout: 0,
+			StreamKeepaliveInterval:   0,
+			MaxLineSize:               defaultMaxLineSize,
+		},
+	}
+	svc := &OpenAIGatewayService{cfg: cfg}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`data: {"type":"response.completed","response":{"usage":{"input_tokens":600,"output_tokens":500,"input_tokens_details":{"cached_tokens":100},"total_tokens":1100}}}`,
+			"",
+		}, "\n"))),
+		Header: http.Header{"X-Request-Id": []string{"rid-presentation-stream"}},
+	}
+
+	result, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, time.Now(), "model", "model")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.usage)
+	require.Equal(t, 600, result.usage.InputTokens)
+	require.Equal(t, 500, result.usage.OutputTokens)
+	require.Equal(t, 100, result.usage.CacheReadInputTokens)
+
+	body := rec.Body.String()
+	require.Contains(t, body, `"input_tokens":1200`)
+	require.Contains(t, body, `"output_tokens":1000`)
+	require.Contains(t, body, `"cached_tokens":200`)
+	require.Contains(t, body, `"total_tokens":2200`)
+}
+
 func TestOpenAIStreamingPassthroughResponseIncompleteWithoutDoneMarkerStillSucceeds(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{
@@ -2748,6 +2824,25 @@ func TestOpenAIInvalidBaseURLWhenAllowlistDisabled(t *testing.T) {
 	}
 }
 
+func TestOpenAIBuildUpstreamRequestAllowsNilGinContext(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		},
+	}}
+	account := &Account{
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"base_url": "https://example.com/v1"},
+	}
+
+	require.NotPanics(t, func() {
+		req, err := svc.buildUpstreamRequest(context.Background(), nil, account, []byte(`{"model":"gpt-5"}`), "token", false, "", false)
+		require.NoError(t, err)
+		require.Equal(t, "https://example.com/v1/responses", req.URL.String())
+	})
+}
+
 func TestOpenAIValidateUpstreamBaseURLDisabledRequiresHTTPS(t *testing.T) {
 	cfg := &config.Config{
 		Security: config.SecurityConfig{
@@ -2807,7 +2902,7 @@ func TestOpenAIValidateUpstreamBaseURLEnabledEnforcesAllowlist(t *testing.T) {
 	}
 }
 
-func TestOpenAIUpdateCodexUsageSnapshotFromHeaders(t *testing.T) {
+func TestOpenAIUpdateCodexUsageSnapshotFromHeadersWritesMainFieldsForMainModel(t *testing.T) {
 	repo := &snapshotUpdateAccountRepo{updateExtraCalls: make(chan map[string]any, 1)}
 	svc := &OpenAIGatewayService{accountRepo: repo}
 	headers := http.Header{}
@@ -2818,17 +2913,62 @@ func TestOpenAIUpdateCodexUsageSnapshotFromHeaders(t *testing.T) {
 	headers.Set("x-codex-primary-reset-after-seconds", "600")
 	headers.Set("x-codex-secondary-reset-after-seconds", "86400")
 
-	svc.UpdateCodexUsageSnapshotFromHeaders(context.Background(), 123, headers)
+	svc.UpdateCodexUsageSnapshotFromHeaders(context.Background(), 123, headers, "gpt-5.3-codex")
 
 	select {
 	case updates := <-repo.updateExtraCalls:
-		require.Equal(t, 12.0, updates["codex_5h_used_percent"])
-		require.Equal(t, 34.0, updates["codex_7d_used_percent"])
-		require.Equal(t, 600, updates["codex_5h_reset_after_seconds"])
-		require.Equal(t, 86400, updates["codex_7d_reset_after_seconds"])
+		require.NotContains(t, updates, "codex_5h_used_percent")
+		require.NotContains(t, updates, "codex_7d_used_percent")
+		require.Equal(t, 12.0, updates["codex_main_5h_used_percent"])
+		require.Equal(t, 34.0, updates["codex_main_7d_used_percent"])
+		require.Equal(t, 600, updates["codex_main_5h_reset_after_seconds"])
+		require.Equal(t, 86400, updates["codex_main_7d_reset_after_seconds"])
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected UpdateExtra to be called")
 	}
+}
+
+func TestOpenAIUpdateCodexUsageSnapshotFromHeadersWritesSparkFieldsForSparkModel(t *testing.T) {
+	repo := &snapshotUpdateAccountRepo{updateExtraCalls: make(chan map[string]any, 1)}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	headers := http.Header{}
+	headers.Set("x-codex-active-limit", "codex_bengalfox")
+	headers.Set("x-codex-primary-used-percent", "12")
+	headers.Set("x-codex-secondary-used-percent", "34")
+	headers.Set("x-codex-primary-window-minutes", "300")
+	headers.Set("x-codex-secondary-window-minutes", "10080")
+	headers.Set("x-codex-bengalfox-primary-used-percent", "0")
+	headers.Set("x-codex-bengalfox-secondary-used-percent", "0")
+	headers.Set("x-codex-bengalfox-primary-window-minutes", "300")
+	headers.Set("x-codex-bengalfox-secondary-window-minutes", "10080")
+
+	svc.UpdateCodexUsageSnapshotFromHeaders(context.Background(), 456, headers, "gpt-5.3-codex-spark")
+
+	select {
+	case updates := <-repo.updateExtraCalls:
+		require.NotContains(t, updates, "codex_main_5h_used_percent")
+		require.NotContains(t, updates, "codex_main_7d_used_percent")
+		require.Equal(t, 0.0, updates["codex_5h_used_percent"])
+		require.Equal(t, 0.0, updates["codex_7d_used_percent"])
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected UpdateExtra to be called")
+	}
+}
+
+func TestOpenAIPassthroughSnapshotModelFallsBackToBodyModel(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.3-codex","input":"hello"}`)
+
+	got := openAIPassthroughSnapshotModel(body, "", "gpt-5.3-codex")
+
+	require.Equal(t, "gpt-5.3-codex", got)
+}
+
+func TestOpenAIPassthroughSnapshotModelKeepsMappedModel(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.3-codex","input":"hello"}`)
+
+	got := openAIPassthroughSnapshotModel(body, "gpt-5.3-codex-spark", "gpt-5.3-codex")
+
+	require.Equal(t, "gpt-5.3-codex-spark", got)
 }
 
 func TestOpenAIResponsesRequestPathSuffix(t *testing.T) {
@@ -2932,6 +3072,32 @@ func TestOpenAIBuildUpstreamRequestCompactForcesJSONAcceptForOAuth(t *testing.T)
 	require.Empty(t, req.Header.Get("OpenAI-Beta"), "Codex OAuth HTTP must not synthesize the legacy responses beta header")
 	require.NotEmpty(t, req.Header.Get("Session_Id"))
 	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(req.Context()))
+}
+
+func TestOpenAIBuildOpenAIResponsesWSURLUsesDefaultOAuthCodexEndpoint(t *testing.T) {
+	account := &Account{Type: AccountTypeOAuth}
+
+	defaultURL, err := (&OpenAIGatewayService{}).buildOpenAIResponsesWSURL(account)
+	require.NoError(t, err)
+	require.Equal(t, "wss://chatgpt.com/backend-api/codex/responses", defaultURL)
+}
+
+func TestOpenAIOAuthCodexWSProxyURLUsesAccountProxy(t *testing.T) {
+	proxyID := int64(1)
+	account := &Account{
+		Type:    AccountTypeOAuth,
+		ProxyID: &proxyID,
+		Proxy: &Proxy{
+			ID:       proxyID,
+			Protocol: "socks5h",
+			Host:     "172.17.0.1",
+			Port:     40001,
+			Status:   StatusActive,
+		},
+	}
+	svc := &OpenAIGatewayService{}
+
+	require.Equal(t, "socks5h://172.17.0.1:40001", svc.openAICodexWSProxyURL(account, "wss://chatgpt.com/backend-api/codex/responses"))
 }
 
 func TestOpenAIBuildUpstreamRequestOAuthMessagesBridgeUsesSessionOnly(t *testing.T) {
@@ -3353,6 +3519,12 @@ func TestExtractOpenAIUsageFromJSONBytes_AcceptsResponseAndChatUsageShapes(t *te
 	require.Equal(t, 4, usage.CacheReadInputTokens)
 	require.Equal(t, 3, usage.CacheCreationInputTokens)
 
+	usage, ok = extractOpenAIUsageFromJSONBytes([]byte(`{"id":"resp_img","usage":{"input_tokens":13,"output_tokens":21,"image_output_tokens":9}}`))
+	require.True(t, ok)
+	require.Equal(t, 13, usage.InputTokens)
+	require.Equal(t, 21, usage.OutputTokens)
+	require.Equal(t, 9, usage.ImageOutputTokens)
+
 	usage, ok = extractOpenAIUsageFromJSONBytes([]byte(`{"usage":{"input_tokens":11,"output_tokens":2,"cache_write_input_tokens":6}}`))
 	require.True(t, ok)
 	require.Equal(t, 6, usage.CacheCreationInputTokens)
@@ -3368,6 +3540,80 @@ func TestExtractOpenAIUsageFromJSONBytes_AcceptsResponseAndChatUsageShapes(t *te
 	usage, ok = extractOpenAIUsageFromJSONBytes([]byte(`{"usage":{"input_tokens":20,"output_tokens":2,"cache_read_input_tokens":19,"input_tokens_details":{"cached_tokens":0}}}`))
 	require.True(t, ok)
 	require.Zero(t, usage.CacheReadInputTokens, "官方嵌套缓存读取字段显式为零时仍应优先于兼容顶层别名")
+}
+
+func TestRewriteOpenAIUsageForPresentation_ResponsesShape(t *testing.T) {
+	body := []byte(`{"id":"resp_1","usage":{"input_tokens":600,"output_tokens":500,"input_tokens_details":{"cached_tokens":40},"output_tokens_details":{"image_tokens":20},"total_tokens":1140}}`)
+
+	got := rewriteOpenAIUsageForPresentation(body, 2)
+
+	require.True(t, gjson.ValidBytes(got))
+	require.Equal(t, int64(1200), gjson.GetBytes(got, "usage.input_tokens").Int())
+	require.Equal(t, int64(1000), gjson.GetBytes(got, "usage.output_tokens").Int())
+	require.Equal(t, int64(80), gjson.GetBytes(got, "usage.input_tokens_details.cached_tokens").Int())
+	require.Equal(t, int64(40), gjson.GetBytes(got, "usage.output_tokens_details.image_tokens").Int())
+	require.Equal(t, int64(2280), gjson.GetBytes(got, "usage.total_tokens").Int())
+}
+
+func TestRewriteOpenAIUsageForPresentation_ChatCompletionsShape(t *testing.T) {
+	body := []byte(`{"id":"chatcmpl_1","usage":{"prompt_tokens":600,"completion_tokens":500,"prompt_tokens_details":{"cached_tokens":40},"completion_tokens_details":{"image_tokens":20},"total_tokens":1140}}`)
+
+	got := rewriteOpenAIUsageForPresentation(body, 2)
+
+	require.True(t, gjson.ValidBytes(got))
+	require.Equal(t, int64(1200), gjson.GetBytes(got, "usage.prompt_tokens").Int())
+	require.Equal(t, int64(1000), gjson.GetBytes(got, "usage.completion_tokens").Int())
+	require.Equal(t, int64(80), gjson.GetBytes(got, "usage.prompt_tokens_details.cached_tokens").Int())
+	require.Equal(t, int64(40), gjson.GetBytes(got, "usage.completion_tokens_details.image_tokens").Int())
+	require.Equal(t, int64(2280), gjson.GetBytes(got, "usage.total_tokens").Int())
+}
+
+func TestHandleNonStreamingResponse_RewritesClientUsageForPresentation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	body := `{"id":"resp_1","usage":{"input_tokens":600,"output_tokens":500,"input_tokens_details":{"cached_tokens":40},"total_tokens":1100}}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+	svc := &OpenAIGatewayService{}
+
+	result, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{}, "gpt-5", "gpt-5")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 600, result.usage.InputTokens)
+	require.Equal(t, 500, result.usage.OutputTokens)
+	require.Equal(t, 40, result.usage.CacheReadInputTokens)
+	require.Equal(t, int64(1200), gjson.GetBytes(rec.Body.Bytes(), "usage.input_tokens").Int())
+	require.Equal(t, int64(1000), gjson.GetBytes(rec.Body.Bytes(), "usage.output_tokens").Int())
+	require.Equal(t, int64(80), gjson.GetBytes(rec.Body.Bytes(), "usage.input_tokens_details.cached_tokens").Int())
+	require.Equal(t, int64(2200), gjson.GetBytes(rec.Body.Bytes(), "usage.total_tokens").Int())
+}
+
+func TestHandleNonStreamingResponse_RewritesClientUsageForPresentationWithImageOutputThreshold(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	body := `{"id":"resp_1","usage":{"input_tokens":0,"output_tokens":0,"image_output_tokens":1000,"total_tokens":1000}}`
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+	svc := &OpenAIGatewayService{}
+
+	result, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{}, "gpt-image-2", "gpt-image-2")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1000, result.usage.ImageOutputTokens)
+	require.Equal(t, int64(2000), gjson.GetBytes(rec.Body.Bytes(), "usage.image_output_tokens").Int())
+	require.Equal(t, int64(2000), gjson.GetBytes(rec.Body.Bytes(), "usage.total_tokens").Int())
 }
 
 func TestExtractCodexFinalResponse_SampleReplay(t *testing.T) {

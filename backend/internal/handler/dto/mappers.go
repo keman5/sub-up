@@ -141,11 +141,16 @@ func GroupFromService(g *service.Group) *Group {
 // GroupFromServiceAdmin converts a service Group to DTO for admin users.
 // It includes internal fields like model_routing and account_count.
 func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
+	return GroupFromServiceAdminWithViewer(g, service.UsageViewRaw)
+}
+
+func GroupFromServiceAdminWithViewer(g *service.Group, mode service.UsageViewMode) *AdminGroup {
 	if g == nil {
 		return nil
 	}
 	out := &AdminGroup{
 		Group:                       groupFromServiceBase(g),
+		BillingRateMultiplier:       g.RateMultiplier,
 		ProfitControlEnabled:        g.ProfitControlEnabled,
 		ProfitMinMargin:             g.ProfitMinMargin,
 		ProfitSafetyBuffer:          g.ProfitSafetyBuffer,
@@ -155,11 +160,20 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		DefaultMappedModel:          g.DefaultMappedModel,
 		MessagesDispatchModelConfig: g.MessagesDispatchModelConfig,
 		ModelsListConfig:            g.ModelsListConfig,
+		ModelPolicyMode:             g.ModelPolicyMode,
+		ModelPolicyModel:            g.ModelPolicyModel,
 		SupportedModelScopes:        g.SupportedModelScopes,
 		AccountCount:                g.AccountCount,
 		ActiveAccountCount:          g.ActiveAccountCount,
 		RateLimitedAccountCount:     g.RateLimitedAccountCount,
 		SortOrder:                   g.SortOrder,
+	}
+	out.RateMultiplier = g.RateMultiplier
+	out.UsageMultiplierEnabled = g.UsageMultiplierEnabled
+	out.UsageMultiplier = g.UsageMultiplier
+	if mode == service.UsageViewPresentation {
+		out.UsageMultiplierEnabled = false
+		out.UsageMultiplier = 1
 	}
 	if len(g.AccountGroups) > 0 {
 		out.AccountGroups = make([]AccountGroup, 0, len(g.AccountGroups))
@@ -172,18 +186,26 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 }
 
 func groupFromServiceBase(g *service.Group) Group {
+	displayRateMultiplier := g.DisplayRateMultiplier
+	if displayRateMultiplier <= 0 {
+		displayRateMultiplier = 1
+	}
 	return Group{
 		ID:                              g.ID,
 		Name:                            g.Name,
 		Description:                     g.Description,
 		Platform:                        g.Platform,
-		RateMultiplier:                  g.RateMultiplier,
+		RateMultiplier:                  displayRateMultiplier,
+		DisplayRateMultiplier:           displayRateMultiplier,
+		UsageMultiplierEnabled:          false,
+		UsageMultiplier:                 1,
 		IsExclusive:                     g.IsExclusive,
 		Status:                          g.Status,
 		SubscriptionType:                g.SubscriptionType,
 		DailyLimitUSD:                   g.DailyLimitUSD,
 		WeeklyLimitUSD:                  g.WeeklyLimitUSD,
 		MonthlyLimitUSD:                 g.MonthlyLimitUSD,
+		TotalLimitUSD:                   g.TotalLimitUSD,
 		AllowImageGeneration:            g.AllowImageGeneration,
 		AllowBatchImageGeneration:       g.AllowBatchImageGeneration,
 		ImageRateIndependent:            g.ImageRateIndependent,
@@ -206,6 +228,7 @@ func groupFromServiceBase(g *service.Group) Group {
 		ClaudeCodeOnly:                  g.ClaudeCodeOnly,
 		FallbackGroupID:                 g.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: g.FallbackGroupIDOnInvalidRequest,
+		QuotaFallbackGroupID:            g.QuotaFallbackGroupID,
 		AllowMessagesDispatch:           g.AllowMessagesDispatch,
 		AllowLive:                       g.AllowLive,
 		RequireOAuthOnly:                g.RequireOAuthOnly,
@@ -620,8 +643,10 @@ func AccountSummaryFromService(a *service.Account) *AccountSummary {
 	}
 }
 
-func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
+func usageLogFromServiceUser(l *service.UsageLog, mode service.UsageViewMode) UsageLog {
 	// 普通用户 DTO：严禁包含管理员字段（例如 account_rate_multiplier、account、upstream_model）。
+	viewLog := service.UsageLogForView(l, mode)
+	l = &viewLog
 	requestType := l.EffectiveRequestType()
 	stream, openAIWSMode := service.ApplyLegacyRequestFields(requestType, l.Stream, l.OpenAIWSMode)
 	requestedModel := l.RequestedModel
@@ -687,34 +712,46 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 // UsageLogFromService converts a service UsageLog to DTO for regular users.
 // It excludes admin-only account/upstream internals while keeping user billing and request metadata.
 func UsageLogFromService(l *service.UsageLog) *UsageLog {
+	return UsageLogFromServiceWithViewer(l, service.UsageViewPresentation)
+}
+
+func UsageLogFromServiceWithViewer(l *service.UsageLog, mode service.UsageViewMode) *UsageLog {
 	if l == nil {
 		return nil
 	}
-	u := usageLogFromServiceUser(l)
+	u := usageLogFromServiceUser(l, mode)
 	return &u
 }
 
 // UsageLogFromServiceAdmin converts a service UsageLog to DTO for admin users.
 // It includes minimal Account info (ID, Name only) and IP address.
 func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
+	return UsageLogFromServiceAdminWithViewer(l, service.UsageViewPresentation)
+}
+
+func UsageLogFromServiceAdminWithViewer(l *service.UsageLog, mode service.UsageViewMode) *AdminUsageLog {
 	if l == nil {
 		return nil
 	}
-	usageLog := usageLogFromServiceUser(l)
+	usageLog := usageLogFromServiceUser(l, mode)
 	usageLog.UpstreamEndpoint = l.UpstreamEndpoint
-	return &AdminUsageLog{
+	out := &AdminUsageLog{
 		UsageLog:              usageLog,
+		User:                  UserFromServiceAdmin(l.User),
 		UpstreamModel:         l.UpstreamModel,
 		UpstreamResponseModel: l.UpstreamResponseModel,
 		UpstreamModelMismatch: l.UpstreamModelMismatch,
 		ChannelID:             l.ChannelID,
 		ModelMappingChain:     l.ModelMappingChain,
 		BillingTier:           l.BillingTier,
-		AccountRateMultiplier: l.AccountRateMultiplier,
-		AccountStatsCost:      l.AccountStatsCost,
 		IPAddress:             l.IPAddress,
 		Account:               AccountSummaryFromService(l.Account),
 	}
+	if mode == service.UsageViewRaw {
+		out.AccountRateMultiplier = l.AccountRateMultiplier
+		out.AccountStatsCost = l.AccountStatsCost
+	}
+	return out
 }
 
 func UsageCleanupTaskFromService(task *service.UsageCleanupTask) *UsageCleanupTask {
@@ -787,6 +824,7 @@ func UserSubscriptionFromServiceAdmin(sub *service.UserSubscription) *AdminUserS
 		AssignedBy:       sub.AssignedBy,
 		AssignedAt:       sub.AssignedAt,
 		Notes:            sub.Notes,
+		User:             UserFromServiceAdmin(sub.User),
 		AssignedByUser:   UserFromServiceShallow(sub.AssignedByUser),
 	}
 }
@@ -805,6 +843,7 @@ func userSubscriptionFromServiceBase(sub *service.UserSubscription) UserSubscrip
 		DailyUsageUSD:      sub.DailyUsageUSD,
 		WeeklyUsageUSD:     sub.WeeklyUsageUSD,
 		MonthlyUsageUSD:    sub.MonthlyUsageUSD,
+		TotalUsageUSD:      sub.TotalUsageUSD,
 		CreatedAt:          sub.CreatedAt,
 		UpdatedAt:          sub.UpdatedAt,
 		RevokedAt:          sub.DeletedAt,

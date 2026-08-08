@@ -288,3 +288,35 @@ func TestOpenAIFastPolicySettingsFromDTO_NormalizesServiceTier(t *testing.T) {
 		require.Equal(t, service.OpenAIFastTierAny, out.Rules[2].ServiceTier)
 	})
 }
+
+func TestOpenAIFastPolicySettingsDTOConversionPreservesOpenAIAccountAllowlist(t *testing.T) {
+	fromDTO := openaiFastPolicySettingsFromDTO(&dto.OpenAIFastPolicySettings{
+		Rules: []dto.OpenAIFastPolicyRule{{
+			ServiceTier:            "priority",
+			Action:                 "filter",
+			Scope:                  "all",
+			AccountAllowlist:       []int64{11, 22},
+			OpenAIAccountAllowlist: []int64{101, 202},
+		}},
+	})
+
+	require.NotNil(t, fromDTO)
+	require.Len(t, fromDTO.Rules, 1)
+	require.Equal(t, []int64{11, 22}, fromDTO.Rules[0].AccountAllowlist)
+	require.Equal(t, []int64{101, 202}, fromDTO.Rules[0].OpenAIAccountAllowlist)
+
+	toDTO := openaiFastPolicySettingsToDTO(&service.OpenAIFastPolicySettings{
+		Rules: []service.OpenAIFastPolicyRule{{
+			ServiceTier:            service.OpenAIFastTierPriority,
+			Action:                 "filter",
+			Scope:                  "all",
+			AccountAllowlist:       []int64{33, 44},
+			OpenAIAccountAllowlist: []int64{303, 404},
+		}},
+	})
+
+	require.NotNil(t, toDTO)
+	require.Len(t, toDTO.Rules, 1)
+	require.Equal(t, []int64{33, 44}, toDTO.Rules[0].AccountAllowlist)
+	require.Equal(t, []int64{303, 404}, toDTO.Rules[0].OpenAIAccountAllowlist)
+}

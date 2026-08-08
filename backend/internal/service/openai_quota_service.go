@@ -204,6 +204,8 @@ func (s *OpenAIQuotaService) QueryUsage(ctx context.Context, accountID int64) (*
 			payload.RateLimitResetCredits.AvailableCount = details.AvailableCreditCount
 		}
 	}
+	s.syncQuotaUsageSnapshot(ctx, accountID, &payload, time.Unix(payload.FetchedAt, 0))
+	s.clearLocalRateLimitIfQuotaRecovered(ctx, accountID, &payload)
 	return &payload, nil
 }
 
@@ -268,6 +270,91 @@ func (s *OpenAIQuotaService) queryResetCreditDetails(ctx context.Context, client
 		return nil
 	}
 	return &details
+}
+
+func (s *OpenAIQuotaService) clearLocalRateLimitIfQuotaRecovered(ctx context.Context, accountID int64, usage *OpenAIQuotaUsage) {
+	if s == nil || s.accountRepo == nil || !openAIQuotaRecovered(usage) {
+		return
+	}
+	if err := s.accountRepo.ClearRateLimit(ctx, accountID); err != nil {
+		slog.Warn("openai_quota_clear_local_rate_limit_failed", "account_id", accountID, "error", err)
+	}
+}
+
+func openAIQuotaRecovered(usage *OpenAIQuotaUsage) bool {
+	return usage != nil && usage.RateLimit != nil && !usage.RateLimit.LimitReached
+}
+
+func (s *OpenAIQuotaService) syncQuotaUsageSnapshot(ctx context.Context, accountID int64, usage *OpenAIQuotaUsage, now time.Time) {
+	if s == nil || s.accountRepo == nil || usage == nil {
+		return
+	}
+	updates := make(map[string]any)
+	if snapshot := codexSnapshotFromOpenAIRateLimit(usage.RateLimit, now); snapshot != nil {
+		for k, v := range buildCodexUsageExtraUpdatesForFamily(snapshot, now, openAICodexUsageFamilyMain) {
+			updates[k] = v
+		}
+	}
+	for _, additional := range usage.AdditionalRateLimits {
+		if !isOpenAISparkAdditionalRateLimit(additional) {
+			continue
+		}
+		if snapshot := codexSnapshotFromOpenAIRateLimit(additional.RateLimit, now); snapshot != nil {
+			for k, v := range buildCodexUsageExtraUpdatesForFamily(snapshot, now, openAICodexUsageFamilySpark) {
+				updates[k] = v
+			}
+		}
+		break
+	}
+	if len(updates) == 0 {
+		return
+	}
+	if err := s.accountRepo.UpdateExtra(ctx, accountID, updates); err != nil {
+		slog.Warn("openai_quota_snapshot_sync_failed", "account_id", accountID, "error", err)
+	}
+}
+
+func codexSnapshotFromOpenAIRateLimit(rateLimit *OpenAIRateLimit, now time.Time) *OpenAICodexUsageSnapshot {
+	if rateLimit == nil {
+		return nil
+	}
+	snapshot := &OpenAICodexUsageSnapshot{UpdatedAt: now.Format(time.RFC3339)}
+	hasData := false
+	if rateLimit.PrimaryWindow != nil {
+		applyOpenAIQuotaWindowToCodexSnapshot(snapshot, rateLimit.PrimaryWindow, true)
+		hasData = true
+	}
+	if rateLimit.SecondaryWindow != nil {
+		applyOpenAIQuotaWindowToCodexSnapshot(snapshot, rateLimit.SecondaryWindow, false)
+		hasData = true
+	}
+	if !hasData {
+		return nil
+	}
+	return snapshot
+}
+
+func applyOpenAIQuotaWindowToCodexSnapshot(snapshot *OpenAICodexUsageSnapshot, window *OpenAIRateLimitWindow, primary bool) {
+	if snapshot == nil || window == nil {
+		return
+	}
+	usedPercent := window.UsedPercent
+	resetAfterSeconds := int(window.ResetAfterSeconds)
+	windowMinutes := int(window.LimitWindowSeconds / 60)
+	if primary {
+		snapshot.PrimaryUsedPercent = &usedPercent
+		snapshot.PrimaryResetAfterSeconds = &resetAfterSeconds
+		snapshot.PrimaryWindowMinutes = &windowMinutes
+		return
+	}
+	snapshot.SecondaryUsedPercent = &usedPercent
+	snapshot.SecondaryResetAfterSeconds = &resetAfterSeconds
+	snapshot.SecondaryWindowMinutes = &windowMinutes
+}
+
+func isOpenAISparkAdditionalRateLimit(limit OpenAIAdditionalRateLimit) bool {
+	text := strings.ToLower(strings.TrimSpace(limit.LimitName + " " + limit.MeteredFeature))
+	return strings.Contains(text, "spark") || strings.Contains(text, "bengalfox") || strings.Contains(text, "gpt-5.3-codex-spark")
 }
 
 // ResetCredit consumes one rate_limit_reset_credit for the given OpenAI account.

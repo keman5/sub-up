@@ -20,6 +20,10 @@ export default {
       moreActions: 'More Actions',
       dataActions: 'Data',
       toolActions: 'Tools',
+      bulkResetStatusTitle: 'Reset Account Status',
+      bulkResetStatusConfirm: 'Reset status for the selected {count} account(s)? This clears error, rate-limit, and temporary unschedulable runtime state, so accounts may re-enter scheduling.',
+      bulkRefreshTokenTitle: 'Refresh Account Tokens',
+      bulkRefreshTokenConfirm: 'Refresh tokens for the selected {count} account(s)? The system will request new upstream access tokens, and failed accounts will keep their current state.',
       viewColumns: 'Columns',
       selectedCount: '{count} selected',
       dataExportConfirmMessage: 'The exported data contains sensitive account and proxy information. Store it securely.',
@@ -44,6 +48,7 @@ export default {
       dataImportErrors: 'Error Details',
       dataImportSuccess: 'Import completed: accounts {account_created}, failed {account_failed}',
       dataImportCompletedWithErrors: 'Import completed with errors: account failed {account_failed}, proxy failed {proxy_failed}',
+      messages: { accountCreated: 'Account created successfully' },
       syncFromCrsTitle: 'Sync Accounts from CRS',
       syncFromCrsDesc:
         'Sync accounts from claude-relay-service (CRS) into this system (CRS is called server-to-server).',
@@ -90,6 +95,8 @@ export default {
       oauthType: 'OAuth',
       setupToken: 'Setup Token',
       apiKey: 'API Key',
+      fromModel: 'Request model, e.g. gpt-5.4',
+      toModel: 'Upstream model, e.g. gpt-5.4-compact',
       // Schedulable toggle
       schedulable: 'Schedulable',
       schedulableHint: 'Enable to include this account in API request scheduling',
@@ -910,6 +917,10 @@ export default {
         pleaseEnterSessionKey: 'Please enter at least one valid sessionKey',
         authFailed: 'Authorization failed',
         cookieAuthFailed: 'Cookie authorization failed',
+        failedToGenerateAuthUrl: 'Failed to generate auth URL',
+        failedToExchangeAuthCode: 'Failed to exchange auth code',
+        missingAuthCodeOrSession: 'Missing auth code or authorization session',
+        cookieAuthorizationFailed: 'Cookie authorization failed',
         keyAuthFailed: 'Key {index}: {error}',
         successCreated: 'Successfully created {count} account(s)',
         batchSuccess: 'Successfully created {count} account(s)',
@@ -937,6 +948,8 @@ export default {
           failedToGenerateUrl: 'Failed to generate OpenAI auth URL',
           failedToExchangeCode: 'Failed to exchange OpenAI auth code',
           failedToValidateRT: 'Failed to validate refresh token',
+          missingExchangeParams: 'Missing auth code, session ID, or state',
+          missingRefreshToken: 'Missing refresh token',
           errors: {
             OPENAI_OAUTH_PROXY_REQUIRED:
               'No proxy is configured and this server could not reach OpenAI directly, so the OpenAI OAuth request failed. Select a proxy that can access OpenAI and retry; if the authorization code has expired, regenerate the authorization URL.'
@@ -1325,6 +1338,8 @@ export default {
         dailyAvgTokens: 'Daily Average',
         performance: 'Performance',
         avgResponseTime: 'Avg Response',
+        avgFirstTokenTime: 'Avg First Token',
+        avgFullDuration: 'Avg Full Duration',
         daysActive: 'Days Active',
         recentActivity: 'Recent Activity',
         todayRequests: 'Today Requests',
@@ -1357,7 +1372,9 @@ export default {
         grokLastProbe: 'Probe {time}',
         grokLastHeadersSeen: 'Headers {time}',
         passiveSampled: 'Passive',
-        activeQuery: 'Query'
+        activeQuery: 'Query',
+        openaiCodexSparkShow: 'Spark usage',
+        openaiCodexSparkHide: 'Spark usage'
       },
       openaiQuotaReset: {
         count: 'Credits',

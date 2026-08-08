@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fork 同步与部署"
+  short_description: "同步上游、逐项修复非 fork 功能并双重复查后部署"
+  default_prompt: "使用 $fork-sync-deploy 同步 GitHub fork、逐项修复非 fork 功能并完成双重复查后部署。"

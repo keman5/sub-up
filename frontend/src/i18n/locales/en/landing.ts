@@ -181,6 +181,9 @@ export default {
     totalCacheRead: 'Total Cache Read',
     totalCost: 'Total Cost',
     avgDuration: 'Avg Duration',
+    avgFirstToken: 'Avg First Token',
+    avgFullDuration: 'Avg Full Duration',
+    limitTotal: 'Total Limit',
     // Messages
     enterApiKey: 'Please enter an API Key',
     querySuccess: 'Query successful',
@@ -243,10 +246,12 @@ export default {
     status: {
       testing: 'Testing...',
       success: 'Connection Successful',
+      connectionFailed: 'Connection failed',
       testConnection: 'Test Connection',
       installing: 'Installing...',
       completeInstallation: 'Complete Installation',
       completed: 'Installation completed!',
+      installationFailed: 'Installation failed',
       redirecting: 'Redirecting to login page...',
       restarting: 'Service is restarting, please wait...',
       timeout: 'Service restart is taking longer than expected. Please refresh the page manually.'

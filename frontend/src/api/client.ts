@@ -5,7 +5,7 @@
 
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 import type { ApiResponse } from '@/types'
-import { getLocale } from '@/i18n'
+import { getLocale, i18n } from '@/i18n'
 import {
   ADMIN_UI_REQUEST_HEADER,
   USER_UI_REQUEST_HEADER,
@@ -15,6 +15,25 @@ import {
 import { refreshAuthTokens } from './tokenRefresh'
 import { getAPIBaseURL } from './url'
 export { buildApiUrl, buildGatewayUrl } from './url'
+
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    skipGlobalErrorToast?: boolean
+  }
+}
+
+type ApiClientErrorDetail = {
+  message: string
+}
+
+type ApiClientError = {
+  status?: number
+  code?: unknown
+  reason?: unknown
+  error?: unknown
+  message: string
+  metadata?: unknown
+}
 
 // ==================== Axios Instance Configuration ====================
 
@@ -27,6 +46,28 @@ export const apiClient: AxiosInstance = axios.create({
   }
 })
 
+function isAuthEndpoint(url?: string): boolean {
+  const value = String(url || '')
+  return value.includes('/auth/login') || value.includes('/auth/register') || value.includes('/auth/refresh')
+}
+
+function shouldSkipGlobalErrorToast(config?: InternalAxiosRequestConfig | null, status?: number): boolean {
+  return config?.skipGlobalErrorToast === true || status === 401 || isAuthEndpoint(config?.url)
+}
+
+function dispatchGlobalErrorToast(message: string, config?: InternalAxiosRequestConfig | null, status?: number): void {
+  if (shouldSkipGlobalErrorToast(config, status)) return
+  try {
+    window.dispatchEvent(new CustomEvent<ApiClientErrorDetail>('sub2api-api-error', { detail: { message } }))
+  } catch {
+    // Browser event dispatch is best effort.
+  }
+}
+
+function tApiClientError(key: string, fallback: string): string {
+  const translated = i18n.global.t(key)
+  return translated === key ? fallback : translated
+}
 // ==================== Request Interceptor ====================
 
 // Get user's timezone
@@ -89,13 +130,15 @@ apiClient.interceptors.response.use(
       } else {
         // API error
         const resp = apiResponse as unknown as Record<string, unknown>
-        return Promise.reject({
+        const apiError: ApiClientError = {
           status: response.status,
           code: apiResponse.code,
-          message: apiResponse.message || 'Unknown error',
+          message: apiResponse.message || tApiClientError('errors.unknown', 'Unknown error'),
           reason: resp.reason,
           metadata: resp.metadata,
-        })
+        }
+        dispatchGlobalErrorToast(apiError.message, response.config, response.status)
+        return Promise.reject(apiError)
       }
     }
     return response
@@ -214,7 +257,7 @@ apiClient.interceptors.response.use(
             return Promise.reject({
               status: 401,
               code: 'TOKEN_REFRESH_FAILED',
-              message: 'Session expired. Please log in again.'
+              message: tApiClientError('errors.sessionExpired', 'Session expired. Please log in again.')
             })
           }
         }
@@ -244,21 +287,25 @@ apiClient.interceptors.response.use(
       }
 
       // Return structured error
-      return Promise.reject({
+      const structuredError: ApiClientError = {
         status,
         code: apiData.code,
         reason: apiData.reason,
         error: apiData.error,
         message: apiData.message || apiData.detail || error.message,
         metadata: apiData.metadata,
-      })
+      }
+      dispatchGlobalErrorToast(structuredError.message, originalRequest, status)
+      return Promise.reject(structuredError)
     }
 
     // Network error
-    return Promise.reject({
+    const networkError: ApiClientError = {
       status: 0,
-      message: 'Network error. Please check your connection.'
-    })
+      message: tApiClientError('errors.networkConnection', 'Network error. Please check your connection.')
+    }
+    dispatchGlobalErrorToast(networkError.message, originalRequest)
+    return Promise.reject(networkError)
   }
 )
 

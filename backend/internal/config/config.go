@@ -946,6 +946,8 @@ type GatewayConfig struct {
 	OpenAIProxyStreamCircuit GatewayOpenAIProxyStreamCircuitConfig `mapstructure:"openai_proxy_stream_circuit"`
 	// ImageConcurrency: 图片生成独立并发限制配置（默认关闭）
 	ImageConcurrency ImageConcurrencyConfig `mapstructure:"image_concurrency"`
+	// ModelRouter: OpenAI/Codex 动态模型路由配置（默认关闭）
+	ModelRouter GatewayModelRouterConfig `mapstructure:"model_router"`
 
 	// HTTP 上游连接池配置（性能优化：支持高并发场景调优）
 	// MaxIdleConns: 所有主机的最大空闲连接总数
@@ -1022,6 +1024,45 @@ type GatewayConfig struct {
 	// UserMessageQueue: 用户消息串行队列配置
 	// 对 role:"user" 的真实用户消息实施账号级串行化 + RPM 自适应延迟
 	UserMessageQueue UserMessageQueueConfig `mapstructure:"user_message_queue"`
+}
+
+// GatewayModelRouterConfig controls dynamic OpenAI/Codex model routing.
+// Route decisions are based on request intent + Codex usage snapshot pressure.
+type GatewayModelRouterConfig struct {
+	// Enabled toggles dynamic model routing.
+	Enabled bool `mapstructure:"enabled"`
+	// OAuthMode controls dynamic routing for OpenAI OAuth/Codex accounts.
+	// "passthrough" keeps the requested model; "adaptive_codex" enables tier routing.
+	OAuthMode string `mapstructure:"oauth_mode"`
+	// DefaultModel is the economy baseline model for regular text requests.
+	// Example: gpt-5.3-codex-spark
+	DefaultModel string `mapstructure:"default_model"`
+	// BalancedModel is used for complex text workloads when configured.
+	// Example: gpt-5.4
+	BalancedModel string `mapstructure:"balanced_model"`
+	// PremiumModel is used for image/vision requests and explicit escalations.
+	// Example: gpt-5.5
+	PremiumModel string `mapstructure:"premium_model"`
+	// SessionRouteTTLSeconds controls how long per-session route mode is remembered.
+	SessionRouteTTLSeconds int `mapstructure:"session_route_ttl_seconds"`
+	// EscalateCooldownSeconds is the minimum interval between two escalations in one session.
+	EscalateCooldownSeconds int `mapstructure:"escalate_cooldown_seconds"`
+	// CapabilityErrorEscalateConsecutiveFailures promotes one tier after this many consecutive capability failures.
+	CapabilityErrorEscalateConsecutiveFailures int `mapstructure:"capability_error_escalate_consecutive_failures"`
+	// ComplexInputMinChars is a low-cost complexity heuristic for text requests.
+	ComplexInputMinChars int `mapstructure:"complex_input_min_chars"`
+	// ComplexInputMinItems is retained for config compatibility; balanced routing uses text size.
+	ComplexInputMinItems int `mapstructure:"complex_input_min_items"`
+	// PremiumInputMinChars promotes very large text requests to premium tier.
+	PremiumInputMinChars int `mapstructure:"premium_input_min_chars"`
+	// PremiumInputMinItems promotes very broad multi-item requests to premium tier.
+	PremiumInputMinItems int `mapstructure:"premium_input_min_items"`
+	// PressureLowRemainingPercent and PressureMediumRemainingPercent define dynamic pressure bands.
+	// Values are in [0,100], and low <= medium.
+	PressureLowRemainingPercent    float64 `mapstructure:"pressure_low_remaining_percent"`
+	PressureMediumRemainingPercent float64 `mapstructure:"pressure_medium_remaining_percent"`
+	// ImageOrVisionForcePremium enforces premium tier for image/vision intent.
+	ImageOrVisionForcePremium bool `mapstructure:"image_or_vision_force_premium"`
 }
 
 type GatewayLiveConfig struct {
@@ -1476,6 +1517,10 @@ type OpsConfig struct {
 	// NOTE: vNext still has a DB-backed feature flag (ops_monitoring_enabled) for runtime on/off.
 	// This config flag is the "hard switch" for deployments that want to disable ops completely.
 	Enabled bool `mapstructure:"enabled"`
+
+	// HostHealthVisible exposes the host CPU panel to the frontend for non-primary deployments.
+	// The panel is backed by a host-side collector and stays hidden by default.
+	HostHealthVisible bool `mapstructure:"host_health_visible"`
 
 	// UsePreaggregatedTables prefers ops_metrics_hourly/daily for long-window dashboard queries.
 	UsePreaggregatedTables bool `mapstructure:"use_preaggregated_tables"`
@@ -2122,6 +2167,7 @@ func setDefaults() {
 
 	// Ops (vNext)
 	viper.SetDefault("ops.enabled", true)
+	viper.SetDefault("ops.host_health_visible", false)
 	viper.SetDefault("ops.use_preaggregated_tables", true)
 	viper.SetDefault("ops.cleanup.enabled", true)
 	viper.SetDefault("ops.cleanup.schedule", "0 2 * * *")
@@ -2137,9 +2183,9 @@ func setDefaults() {
 	// JWT
 	viper.SetDefault("jwt.secret", "")
 	viper.SetDefault("jwt.expire_hour", 24)
-	viper.SetDefault("jwt.access_token_expire_minutes", 0) // 0 表示回退到 expire_hour
-	viper.SetDefault("jwt.refresh_token_expire_days", 30)  // 30天Refresh Token有效期
-	viper.SetDefault("jwt.refresh_window_minutes", 2)      // 过期前2分钟开始允许刷新
+	viper.SetDefault("jwt.access_token_expire_minutes", 43200) // 30 days
+	viper.SetDefault("jwt.refresh_token_expire_days", 30)      // 30天Refresh Token有效期
+	viper.SetDefault("jwt.refresh_window_minutes", 2)          // 过期前2分钟开始允许刷新
 
 	// TOTP
 	viper.SetDefault("totp.encryption_key", "")
@@ -2241,6 +2287,21 @@ func setDefaults() {
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.4")
+	viper.SetDefault("gateway.model_router.enabled", false)
+	viper.SetDefault("gateway.model_router.oauth_mode", "passthrough")
+	viper.SetDefault("gateway.model_router.default_model", "gpt-5.3-codex-spark")
+	viper.SetDefault("gateway.model_router.balanced_model", "gpt-5.4")
+	viper.SetDefault("gateway.model_router.premium_model", "gpt-5.5")
+	viper.SetDefault("gateway.model_router.session_route_ttl_seconds", 1800)
+	viper.SetDefault("gateway.model_router.escalate_cooldown_seconds", 300)
+	viper.SetDefault("gateway.model_router.capability_error_escalate_consecutive_failures", 2)
+	viper.SetDefault("gateway.model_router.complex_input_min_chars", 2400)
+	viper.SetDefault("gateway.model_router.complex_input_min_items", 8)
+	viper.SetDefault("gateway.model_router.premium_input_min_chars", 12000)
+	viper.SetDefault("gateway.model_router.premium_input_min_items", 20)
+	viper.SetDefault("gateway.model_router.pressure_low_remaining_percent", 40.0)
+	viper.SetDefault("gateway.model_router.pressure_medium_remaining_percent", 70.0)
+	viper.SetDefault("gateway.model_router.image_or_vision_force_premium", false)
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)
@@ -2685,7 +2746,7 @@ func (c *Config) Validate() error {
 	if c.JWT.AccessTokenExpireMinutes < 0 {
 		return fmt.Errorf("jwt.access_token_expire_minutes must be non-negative")
 	}
-	if c.JWT.AccessTokenExpireMinutes > 720 {
+	if c.JWT.AccessTokenExpireMinutes > 43200 {
 		slog.Warn("jwt.access_token_expire_minutes is high; consider shorter expiration for security", "access_token_expire_minutes", c.JWT.AccessTokenExpireMinutes)
 	}
 	if c.JWT.RefreshTokenExpireDays <= 0 {
@@ -3156,6 +3217,41 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.ImageConcurrency.MaxWaitingRequests < 0 {
 		return fmt.Errorf("gateway.image_concurrency.max_waiting_requests must be non-negative")
+	}
+	if c.Gateway.ModelRouter.SessionRouteTTLSeconds <= 0 {
+		return fmt.Errorf("gateway.model_router.session_route_ttl_seconds must be positive")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Gateway.ModelRouter.OAuthMode)) {
+	case "", "passthrough", "adaptive_codex":
+	default:
+		return fmt.Errorf("gateway.model_router.oauth_mode must be passthrough or adaptive_codex")
+	}
+	if c.Gateway.ModelRouter.EscalateCooldownSeconds < 0 {
+		return fmt.Errorf("gateway.model_router.escalate_cooldown_seconds must be non-negative")
+	}
+	if c.Gateway.ModelRouter.CapabilityErrorEscalateConsecutiveFailures <= 0 {
+		return fmt.Errorf("gateway.model_router.capability_error_escalate_consecutive_failures must be positive")
+	}
+	if c.Gateway.ModelRouter.ComplexInputMinChars < 0 {
+		return fmt.Errorf("gateway.model_router.complex_input_min_chars must be non-negative")
+	}
+	if c.Gateway.ModelRouter.ComplexInputMinItems < 0 {
+		return fmt.Errorf("gateway.model_router.complex_input_min_items must be non-negative")
+	}
+	if c.Gateway.ModelRouter.PremiumInputMinChars < 0 {
+		return fmt.Errorf("gateway.model_router.premium_input_min_chars must be non-negative")
+	}
+	if c.Gateway.ModelRouter.PremiumInputMinItems < 0 {
+		return fmt.Errorf("gateway.model_router.premium_input_min_items must be non-negative")
+	}
+	if c.Gateway.ModelRouter.PressureLowRemainingPercent < 0 || c.Gateway.ModelRouter.PressureLowRemainingPercent > 100 {
+		return fmt.Errorf("gateway.model_router.pressure_low_remaining_percent must be between 0-100")
+	}
+	if c.Gateway.ModelRouter.PressureMediumRemainingPercent < 0 || c.Gateway.ModelRouter.PressureMediumRemainingPercent > 100 {
+		return fmt.Errorf("gateway.model_router.pressure_medium_remaining_percent must be between 0-100")
+	}
+	if c.Gateway.ModelRouter.PressureLowRemainingPercent > c.Gateway.ModelRouter.PressureMediumRemainingPercent {
+		return fmt.Errorf("gateway.model_router.pressure_low_remaining_percent must be <= pressure_medium_remaining_percent")
 	}
 	if c.Gateway.MaxIdleConns <= 0 {
 		return fmt.Errorf("gateway.max_idle_conns must be positive")

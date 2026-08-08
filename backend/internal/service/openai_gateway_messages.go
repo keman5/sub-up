@@ -343,10 +343,10 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 
 	// 7. Send request
-	proxyURL := ""
-	if account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
+	// Codex OAuth accounts can require a proxy selected from the request context,
+	// rather than only the static account proxy. Keep that local routing behavior
+	// for every attempt of the upstream Grok retry flow below.
+	proxyURL := s.openAICodexHTTPProxyURL(account, upstreamReq)
 	// Grok may reject encrypted reasoning replayed under a different OAuth
 	// account/cache identity. Match forwardGrokResponses: one strip+retry before
 	// treating the 400 as a hard failure / failover trigger.

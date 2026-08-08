@@ -63,100 +63,96 @@
               </div>
 
               <!-- More Tools Dropdown -->
-              <div class="relative" ref="accountToolsDropdownRef">
+              <div ref="accountToolsDropdownRef">
                 <button
-                  ref="accountToolsTriggerRef"
                   @click="toggleAccountToolsDropdown"
                   class="btn btn-secondary px-2 md:px-3"
                   :title="t('admin.accounts.moreActions')"
-                  :aria-expanded="showAccountToolsDropdown"
                 >
                   <Icon name="more" size="sm" class="md:mr-1.5" />
                   <span class="hidden md:inline">{{ t('admin.accounts.moreActions') }}</span>
                   <Icon name="chevronDown" size="xs" class="ml-1 hidden md:inline" />
                 </button>
-                <Teleport to="body">
-                  <div
-                    v-if="showAccountToolsDropdown"
-                    class="fixed z-[9999] origin-top-right overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-dark-700 dark:bg-dark-800"
-                    :style="accountToolsDropdownStyle"
-                    @click.stop
-                  >
-                    <div class="overflow-y-auto p-2" :style="{ maxHeight: `${accountToolsDropdownPosition.maxHeight}px` }">
-                      <div class="px-2 py-2">
-                        <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                          {{ t('admin.accounts.dataActions') }}
-                        </div>
-                      </div>
-                      <button class="account-tools-menu-item" @click="openSyncFromCrs">
-                        <span class="account-tools-menu-icon bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
-                          <Icon name="sync" size="sm" />
-                        </span>
-                        <span class="flex-1 text-left">{{ t('admin.accounts.syncFromCrs') }}</span>
-                      </button>
-                      <button class="account-tools-menu-item" @click="openImportData">
-                        <span class="account-tools-menu-icon bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300">
-                          <Icon name="upload" size="sm" />
-                        </span>
-                        <span class="flex-1 text-left">{{ t('admin.accounts.dataImport') }}</span>
-                      </button>
-                      <button class="account-tools-menu-item" @click="openExportDataDialogFromMenu">
-                        <span class="account-tools-menu-icon bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300">
-                          <Icon name="download" size="sm" />
-                        </span>
-                        <span class="flex-1 text-left">
-                          {{ selIds.length ? t('admin.accounts.dataExportSelected') : t('admin.accounts.dataExport') }}
-                        </span>
-                        <span
-                          v-if="selIds.length"
-                          class="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"
-                        >
-                          {{ t('admin.accounts.selectedCount', { count: selIds.length }) }}
-                        </span>
-                      </button>
-
-                      <div class="my-2 border-t border-gray-100 dark:border-dark-700"></div>
-                      <div class="px-2 py-2">
-                        <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                          {{ t('admin.accounts.toolActions') }}
-                        </div>
-                      </div>
-                      <button class="account-tools-menu-item" @click="openErrorPassthrough">
-                        <span class="account-tools-menu-icon bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300">
-                          <Icon name="shield" size="sm" />
-                        </span>
-                        <span class="flex-1 text-left">{{ t('admin.errorPassthrough.title') }}</span>
-                      </button>
-                      <button class="account-tools-menu-item" @click="openTLSFingerprintProfiles">
-                        <span class="account-tools-menu-icon bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
-                          <Icon name="lock" size="sm" />
-                        </span>
-                        <span class="flex-1 text-left">{{ t('admin.tlsFingerprintProfiles.title') }}</span>
-                      </button>
-
-                      <div class="my-2 border-t border-gray-100 dark:border-dark-700"></div>
-                      <div class="px-2 py-2">
-                        <div class="flex items-center justify-between gap-3">
-                          <span class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                            {{ t('admin.accounts.viewColumns') }}
-                          </span>
-                          <Icon name="grid" size="sm" class="text-gray-400" />
-                        </div>
-                      </div>
-                      <div class="grid grid-cols-1 gap-1">
-                        <button
-                          v-for="col in toggleableColumns"
-                          :key="col.key"
-                          @click="toggleColumn(col.key)"
-                          class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700"
-                        >
-                          <span class="truncate">{{ col.label }}</span>
-                          <Icon v-if="isColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" />
-                        </button>
+                <div
+                  v-if="showAccountToolsDropdown"
+                  ref="accountToolsMenuRef"
+                  class="fixed z-50 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-dark-700 dark:bg-dark-800"
+                  :style="accountToolsMenuStyle"
+                >
+                  <div class="max-h-[70vh] overflow-y-auto p-2">
+                    <div class="px-2 py-2">
+                      <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                        {{ t('admin.accounts.dataActions') }}
                       </div>
                     </div>
+                    <button class="account-tools-menu-item" @click="openSyncFromCrs">
+                      <span class="account-tools-menu-icon bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
+                        <Icon name="sync" size="sm" />
+                      </span>
+                      <span class="flex-1 text-left">{{ t('admin.accounts.syncFromCrs') }}</span>
+                    </button>
+                    <button class="account-tools-menu-item" @click="openImportData">
+                      <span class="account-tools-menu-icon bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300">
+                        <Icon name="upload" size="sm" />
+                      </span>
+                      <span class="flex-1 text-left">{{ t('admin.accounts.dataImport') }}</span>
+                    </button>
+                    <button class="account-tools-menu-item" @click="openExportDataDialogFromMenu">
+                      <span class="account-tools-menu-icon bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300">
+                        <Icon name="download" size="sm" />
+                      </span>
+                      <span class="flex-1 text-left">
+                        {{ selIds.length ? t('admin.accounts.dataExportSelected') : t('admin.accounts.dataExport') }}
+                      </span>
+                      <span
+                        v-if="selIds.length"
+                        class="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"
+                      >
+                        {{ t('admin.accounts.selectedCount', { count: selIds.length }) }}
+                      </span>
+                    </button>
+
+                    <div class="my-2 border-t border-gray-100 dark:border-dark-700"></div>
+                    <div class="px-2 py-2">
+                      <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                        {{ t('admin.accounts.toolActions') }}
+                      </div>
+                    </div>
+                    <button class="account-tools-menu-item" @click="openErrorPassthrough">
+                      <span class="account-tools-menu-icon bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300">
+                        <Icon name="shield" size="sm" />
+                      </span>
+                      <span class="flex-1 text-left">{{ t('admin.errorPassthrough.title') }}</span>
+                    </button>
+                    <button class="account-tools-menu-item" @click="openTLSFingerprintProfiles">
+                      <span class="account-tools-menu-icon bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                        <Icon name="lock" size="sm" />
+                      </span>
+                      <span class="flex-1 text-left">{{ t('admin.tlsFingerprintProfiles.title') }}</span>
+                    </button>
+
+                    <div class="my-2 border-t border-gray-100 dark:border-dark-700"></div>
+                    <div class="px-2 py-2">
+                      <div class="flex items-center justify-between gap-3">
+                        <span class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                          {{ t('admin.accounts.viewColumns') }}
+                        </span>
+                        <Icon name="grid" size="sm" class="text-gray-400" />
+                      </div>
+                    </div>
+                    <div class="grid grid-cols-1 gap-1">
+                      <button
+                        v-for="col in toggleableColumns"
+                        :key="col.key"
+                        @click="toggleColumn(col.key)"
+                        class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700"
+                      >
+                        <span class="truncate">{{ col.label }}</span>
+                        <Icon v-if="isColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" />
+                      </button>
+                    </div>
                   </div>
-                </Teleport>
+                </div>
               </div>
             </template>
           </AccountTableActions>
@@ -318,6 +314,7 @@
               :today-stats="todayStatsByAccountId[String(row.id)] ?? null"
               :today-stats-loading="todayStatsLoading"
               :manual-refresh-token="usageManualRefreshToken"
+              @runtime-state-updated="handleAccountRuntimeStateUpdated"
               @account-updated="handleAccountUpdated"
             />
           </template>
@@ -481,7 +478,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted, toRaw, watch, type CSSProperties } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -490,7 +487,9 @@ import { adminAPI } from '@/api/admin'
 import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
+import { useAppDialog } from '@/composables/useAppDialog'
 import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
+import { clampFloatingMenuPosition, getActionMenuPosition } from '@/utils/floatingMenuPosition'
 import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -522,15 +521,15 @@ import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfil
 import { fetchAllAccountIds } from '@/utils/accountSelection'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
+import { formatMultiplier } from '@/utils/formatters'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
-import { getFloatingPanelPosition } from '@/utils/floatingPanel'
-import { formatMultiplier } from '@/utils/formatters'
 import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const appDialog = useAppDialog()
 const authStore = useAuthStore()
 
 const proxies = ref<AccountProxy[]>([])
@@ -614,26 +613,51 @@ useIntervalFn(() => { upstreamBillingNow.value = Date.now() }, 60_000)
 // Account tools dropdown
 const showAccountToolsDropdown = ref(false)
 const accountToolsDropdownRef = ref<HTMLElement | null>(null)
+const accountToolsMenuRef = ref<HTMLElement | null>(null)
 const accountToolsTriggerRef = ref<HTMLElement | null>(null)
-const accountToolsDropdownPosition = reactive({
-  top: null as number | null,
-  bottom: null as number | null,
-  left: 16,
-  width: 320,
-  maxHeight: 0
+const accountToolsMenuPosition = ref<{ top: number; left: number; maxHeight: number } | null>(null)
+const accountToolsMenuStyle = computed<CSSProperties>(() => {
+  const position = accountToolsMenuPosition.value
+  if (!position) return {}
+
+  return {
+    top: `${position.top}px`,
+    left: `${position.left}px`,
+    maxHeight: `${position.maxHeight}px`,
+    overflowY: 'auto'
+  }
 })
-const accountToolsDropdownStyle = computed(() => ({
-  top: accountToolsDropdownPosition.top == null ? 'auto' : `${accountToolsDropdownPosition.top}px`,
-  bottom: accountToolsDropdownPosition.bottom == null ? 'auto' : `${accountToolsDropdownPosition.bottom}px`,
-  left: `${accountToolsDropdownPosition.left}px`,
-  width: `${accountToolsDropdownPosition.width}px`
-}))
 const hiddenColumns = reactive<Set<string>>(new Set())
-const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
+const DEFAULT_HIDDEN_COLUMNS = [
+  'proxy',
+  'notes',
+  'priority',
+  'scheduler_score',
+  'rate_multiplier',
+  'last_used_at',
+  'created_at',
+  'expires_at'
+]
+const LEGACY_DEFAULT_HIDDEN_COLUMNS = [
+  'today_stats',
+  'proxy',
+  'notes',
+  'priority',
+  'scheduler_score',
+  'rate_multiplier'
+]
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
 // One-time migration: hide scheduler score for existing admins too, because showing it opt-ins to heavy backend scoring.
 const HIDDEN_COLUMNS_VERSION_KEY = 'account-hidden-columns-version'
-const HIDDEN_COLUMNS_CURRENT_VERSION = 'scheduler-score-hidden-by-default'
+const SCHEDULER_SCORE_HIDDEN_VERSION = 'scheduler-score-hidden-by-default'
+const HIDDEN_COLUMNS_CURRENT_VERSION = 'today-stats-visible-activity-dates-hidden'
+
+const isSameColumnSet = (left: string[], right: string[]) => {
+  if (left.length !== right.length) return false
+  const leftSet = new Set(left)
+  const rightSet = new Set(right)
+  return leftSet.size === rightSet.size && [...leftSet].every(key => rightSet.has(key))
+}
 
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
@@ -691,6 +715,13 @@ const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
+let runtimeStateRefreshPending = false
+let runtimeStateRefreshInFlight = false
+
+const refreshCurrentPageUsageCells = async () => {
+  await nextTick()
+  usageManualRefreshToken.value += 1
+}
 
 const buildDefaultTodayStats = (): WindowStats => ({
   requests: 0,
@@ -790,12 +821,23 @@ const loadSavedColumns = () => {
       parsed.forEach(key => {
         hiddenColumns.add(key)
       })
-      // Older saved column layouts may have scheduler_score visible; migrate them to the new safe default once.
-      if (localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY) !== HIDDEN_COLUMNS_CURRENT_VERSION) {
+      // Only migrate the previous untouched default; custom layouts remain unchanged.
+      if (isSameColumnSet(parsed, LEGACY_DEFAULT_HIDDEN_COLUMNS)) {
+        hiddenColumns.clear()
+        DEFAULT_HIDDEN_COLUMNS.forEach(key => {
+          hiddenColumns.add(key)
+        })
+        localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+      }
+      const savedColumnsVersion = localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY)
+      if (
+        savedColumnsVersion !== HIDDEN_COLUMNS_CURRENT_VERSION &&
+        savedColumnsVersion !== SCHEDULER_SCORE_HIDDEN_VERSION
+      ) {
         hiddenColumns.add('scheduler_score')
         localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
-        localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
       }
+      localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach(key => {
         hiddenColumns.add(key)
@@ -918,7 +960,7 @@ const {
   initialParams: {
     platform: '',
     type: '',
-    status: '',
+    status: 'active',
     privacy_mode: '',
     group: '',
     search: '',
@@ -953,7 +995,7 @@ const selectionRequestVersion = ref(0)
 const allResultsSelected = computed(() => {
   const snapshot = selectedAllResultIDs.value
   if (!snapshot || snapshot.size === 0 || snapshot.size !== selectedSet.value.size) return false
-  return Array.from(snapshot).every(id => selectedSet.value.has(id))
+  return Array.from(snapshot).every((id) => selectedSet.value.has(id))
 })
 
 const clearSelection = () => {
@@ -1018,6 +1060,7 @@ const reload = async () => {
   pendingTodayStatsRefresh.value = false
   await baseReload()
   await refreshTodayStatsBatch()
+  await refreshCurrentPageUsageCells()
 }
 
 const refreshUpstreamBillingSortedList = async (force = false) => {
@@ -1213,10 +1256,30 @@ const refreshAccountsIncrementally = async () => {
   }
 }
 
+// A successful upstream usage query can change persisted runtime state. Coalesce
+// updates so a serial list refresh cannot lose a later account's status change.
+const handleAccountRuntimeStateUpdated = () => {
+  runtimeStateRefreshPending = true
+  if (runtimeStateRefreshInFlight) return
+
+  void (async () => {
+    runtimeStateRefreshInFlight = true
+    try {
+      while (runtimeStateRefreshPending) {
+        runtimeStateRefreshPending = false
+        resetAutoRefreshCache()
+        await refreshAccountsIncrementally()
+      }
+    } finally {
+      runtimeStateRefreshInFlight = false
+    }
+  })()
+}
+
 const handleManualRefresh = async () => {
   await Promise.all([load(), loadUpstreamBillingProbeGlobalState()])
   // Force usage cells to refetch /usage on explicit user refresh.
-  usageManualRefreshToken.value += 1
+  await refreshCurrentPageUsageCells()
 }
 
 const loadUpstreamBillingProbeGlobalState = async () => {
@@ -1230,25 +1293,55 @@ const loadUpstreamBillingProbeGlobalState = async () => {
 
 const closeAccountToolsDropdown = () => {
   showAccountToolsDropdown.value = false
+  accountToolsMenuPosition.value = null
+  accountToolsTriggerRef.value = null
 }
 
-const updateAccountToolsDropdownPosition = () => {
-  const trigger = accountToolsTriggerRef.value
+const adjustAccountToolsMenuPosition = () => {
+  if (!showAccountToolsDropdown.value || !accountToolsTriggerRef.value) return
+
+  nextTick(() => {
+    const triggerRect = accountToolsTriggerRef.value?.getBoundingClientRect()
+    const menuRect = accountToolsMenuRef.value?.getBoundingClientRect()
+    if (!triggerRect || !menuRect) return
+
+    const viewport = { width: window.innerWidth, height: window.innerHeight }
+    const padding = 8
+    let top = triggerRect.bottom + 8
+    if (top + menuRect.height > viewport.height - padding) {
+      top = triggerRect.top - menuRect.height - 8
+    }
+
+    accountToolsMenuPosition.value = clampFloatingMenuPosition(
+      { top, left: triggerRect.right - menuRect.width },
+      { width: menuRect.width, height: menuRect.height },
+      viewport,
+      padding
+    )
+  })
+}
+
+const toggleAccountToolsDropdown = (event: MouseEvent) => {
+  if (showAccountToolsDropdown.value) {
+    closeAccountToolsDropdown()
+    return
+  }
+
+  const trigger = event.currentTarget as HTMLElement | null
   if (!trigger) return
 
-  const position = getFloatingPanelPosition(
-    trigger.getBoundingClientRect(),
-    document.documentElement.clientWidth || window.innerWidth,
-    window.innerHeight
-  )
-  Object.assign(accountToolsDropdownPosition, position)
-}
-
-const toggleAccountToolsDropdown = () => {
-  const nextVisible = !showAccountToolsDropdown.value
   showAutoRefreshDropdown.value = false
-  if (nextVisible) updateAccountToolsDropdownPosition()
-  showAccountToolsDropdown.value = nextVisible
+  accountToolsTriggerRef.value = trigger
+  const triggerRect = trigger.getBoundingClientRect()
+  const viewport = { width: window.innerWidth, height: window.innerHeight }
+  const estimatedWidth = Math.min(320, Math.max(0, viewport.width - 16))
+  accountToolsMenuPosition.value = clampFloatingMenuPosition(
+    { top: triggerRect.bottom + 8, left: triggerRect.right - estimatedWidth },
+    { width: estimatedWidth, height: 0 },
+    viewport
+  )
+  showAccountToolsDropdown.value = true
+  adjustAccountToolsMenuPosition()
 }
 
 const openSyncFromCrs = () => {
@@ -1280,7 +1373,7 @@ const syncPendingListChanges = async () => {
   hasPendingListSync.value = false
   await load()
   // Keep behavior consistent with manual refresh.
-  usageManualRefreshToken.value += 1
+  await refreshCurrentPageUsageCells()
 }
 
 const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
@@ -1445,8 +1538,8 @@ const allColumns = computed(() => {
   if (!authStore.isSimpleMode) {
     c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })
   }
-  c.push({ key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false })
   c.push(
+    { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false },
     { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false },
     { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true },
     { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: false },
@@ -1478,50 +1571,16 @@ const openMenu = (a: Account, e: MouseEvent) => {
   menu.acc = a
 
   const target = e.currentTarget as HTMLElement
-  if (target) {
-    const rect = target.getBoundingClientRect()
-    const menuWidth = 200
-    const menuHeight = 240
-    const padding = 8
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
+  const rect = target?.getBoundingClientRect()
+  const position = getActionMenuPosition({
+    triggerRect: rect ?? { top: e.clientY, right: e.clientX, bottom: e.clientY, left: e.clientX, width: 0 },
+    pointerX: e.clientX,
+    pointerY: e.clientY,
+    menuSize: { width: 208, height: 240 },
+    viewport: { width: window.innerWidth, height: window.innerHeight }
+  })
 
-    let left: number
-    let top: number
-
-    if (viewportWidth < 768) {
-      // 居中显示,水平位置
-      left = Math.max(padding, Math.min(
-        rect.left + rect.width / 2 - menuWidth / 2,
-        viewportWidth - menuWidth - padding
-      ))
-
-      // 优先显示在按钮下方
-      top = rect.bottom + 4
-
-      // 如果下方空间不够,显示在上方
-      if (top + menuHeight > viewportHeight - padding) {
-        top = rect.top - menuHeight - 4
-        // 如果上方也不够,就贴在视口顶部
-        if (top < padding) {
-          top = padding
-        }
-      }
-    } else {
-      left = Math.max(padding, Math.min(
-        e.clientX - menuWidth,
-        viewportWidth - menuWidth - padding
-      ))
-      top = e.clientY
-      if (top + menuHeight > viewportHeight - padding) {
-        top = viewportHeight - menuHeight - padding
-      }
-    }
-
-    menu.pos = { top, left }
-  } else {
-    menu.pos = { top: e.clientY, left: e.clientX - 200 }
-  }
+  menu.pos = { top: position.top, left: position.left }
 
   menu.show = true
 }
@@ -1530,8 +1589,13 @@ const toggleSelectAllVisible = (event: Event) => {
   toggleVisible(target.checked)
 }
 const handleBulkDelete = async () => {
+  if (!(await appDialog.confirm({
+    title: t('admin.accounts.bulkDeleteTitle'),
+    message: t('admin.accounts.bulkDeleteConfirm', { count: selIds.value.length }),
+    confirmText: t('admin.accounts.bulkActions.delete'),
+    danger: true,
+  }))) return
   const accountIds = [...selIds.value]
-  if (!confirm(t('admin.accounts.bulkActions.confirmDelete', { count: accountIds.length }))) return
   try {
     const result = await adminAPI.accounts.batchDelete(accountIds)
     if (result.failed > 0) {
@@ -1551,7 +1615,11 @@ const handleBulkDelete = async () => {
   }
 }
 const handleBulkResetStatus = async () => {
-  if (!confirm(t('common.confirm'))) return
+  if (!(await appDialog.confirm({
+    title: t('admin.accounts.bulkResetStatusTitle'),
+    message: t('admin.accounts.bulkResetStatusConfirm', { count: selIds.value.length }),
+    confirmText: t('admin.accounts.bulkActions.resetStatus'),
+  }))) return
   try {
     const result = await adminAPI.accounts.batchClearError(selIds.value)
     if (result.failed > 0) {
@@ -1567,7 +1635,11 @@ const handleBulkResetStatus = async () => {
   }
 }
 const handleBulkRefreshToken = async () => {
-  if (!confirm(t('common.confirm'))) return
+  if (!(await appDialog.confirm({
+    title: t('admin.accounts.bulkRefreshTokenTitle'),
+    message: t('admin.accounts.bulkRefreshTokenConfirm', { count: selIds.value.length }),
+    confirmText: t('admin.accounts.bulkActions.refreshToken'),
+  }))) return
   try {
     const result = await adminAPI.accounts.batchRefresh(selIds.value)
     if (result.failed > 0) {
@@ -1602,7 +1674,7 @@ const handleBulkProbeUpstreamBilling = async () => {
         patched = true
       }
     })
-    if (patched) await refreshAccountsAfterUpstreamBillingProbe()
+    if (patched) await refreshUpstreamBillingSortedList(true)
     const failed = results.filter(result => result.error).length
     if (failed > 0) {
       appStore.showError(t('admin.accounts.upstreamBilling.batchPartial', { success: results.length - failed, failed }))
@@ -1742,7 +1814,7 @@ const handleSelectAllResults = async () => {
   try {
     const ids = await fetchAllAccountIds(
       (page, pageSize, requestFilters) => adminAPI.accounts.list(page, pageSize, requestFilters),
-      filters
+      filters,
     )
     if (requestVersion !== selectionRequestVersion.value) return
 
@@ -1901,13 +1973,6 @@ const patchUpstreamBillingSnapshot = (accountID: number, snapshot: UpstreamBilli
     extra: { ...account.extra, upstream_billing_probe: snapshot }
   })
 }
-const refreshAccountsAfterUpstreamBillingProbe = async () => {
-  try {
-    await load()
-  } catch (error) {
-    console.error('Failed to refresh accounts after upstream billing probe:', error)
-  }
-}
 const handleProbeUpstreamBilling = async (account: Account) => {
   if (probingUpstreamBilling.has(account.id)) return
   probingUpstreamBilling.add(account.id)
@@ -1915,7 +1980,7 @@ const handleProbeUpstreamBilling = async (account: Account) => {
     const result = await adminAPI.accounts.probeUpstreamBilling(account.id)
     if (result.snapshot) {
       patchUpstreamBillingSnapshot(account.id, result.snapshot)
-      await refreshAccountsAfterUpstreamBillingProbe()
+      await refreshUpstreamBillingSortedList(true)
     }
   } catch (error) {
     console.error('Failed to probe upstream billing:', error)
@@ -2161,14 +2226,10 @@ const proxyExpiryText = (p: AccountProxy): string => {
   return params ? t(key, params) : t(key)
 }
 
-// 表格滚动时关闭行操作菜单，并让顶部工具菜单继续贴紧触发按钮。
+// 滚动时关闭操作菜单（不关闭列设置下拉菜单）
 const handleScroll = () => {
   menu.show = false
-  if (showAccountToolsDropdown.value) updateAccountToolsDropdownPosition()
-}
-
-const handleViewportResize = () => {
-  if (showAccountToolsDropdown.value) updateAccountToolsDropdownPosition()
+  adjustAccountToolsMenuPosition()
 }
 
 // 点击外部关闭顶部下拉菜单
@@ -2183,7 +2244,14 @@ const handleClickOutside = (event: MouseEvent) => {
 }
 
 onMounted(async () => {
-  load()
+  try {
+    await load()
+    // The initial list must be as current as an explicit list refresh. This
+    // schedules each visible account's upstream usage read after it renders.
+    await refreshCurrentPageUsageCells()
+  } catch (error) {
+    console.error('Failed to load accounts on initial page entry:', error)
+  }
   loadUpstreamBillingProbeGlobalState()
   try {
     const [p, g] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll()])
@@ -2193,7 +2261,7 @@ onMounted(async () => {
     console.error('Failed to load proxies/groups:', error)
   }
   window.addEventListener('scroll', handleScroll, true)
-  window.addEventListener('resize', handleViewportResize)
+  window.addEventListener('resize', adjustAccountToolsMenuPosition)
   document.addEventListener('click', handleClickOutside)
 
   if (autoRefreshEnabled.value) {
@@ -2206,7 +2274,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll, true)
-  window.removeEventListener('resize', handleViewportResize)
+  window.removeEventListener('resize', adjustAccountToolsMenuPosition)
   document.removeEventListener('click', handleClickOutside)
 })
 </script>

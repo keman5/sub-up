@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import { createPinia } from 'pinia'
 import PaymentProviderDialog from '@/components/payment/PaymentProviderDialog.vue'
 import { STRIPE_SDK_API_VERSION } from '@/components/payment/providerConfig'
 import type { ProviderInstance } from '@/types/payment'
@@ -23,18 +24,22 @@ const messages: Record<string, string> = {
   'admin.settings.payment.airwallexWebhookHint': 'Select payment_intent.succeeded and use the latest stable API version.',
 }
 
-vi.mock('vue-i18n', () => ({
-  useI18n: () => ({
-    t: (key: string, params?: Record<string, string>) => {
-      const message = messages[key] ?? key
-      if (!params) return message
-      return Object.entries(params).reduce(
-        (value, [name, replacement]) => value.replaceAll(`{${name}}`, replacement),
-        message,
-      )
-    },
-  }),
-}))
+vi.mock('vue-i18n', async () => {
+  const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
+  return {
+    ...actual,
+    useI18n: () => ({
+      t: (key: string, params?: Record<string, string>) => {
+        const message = messages[key] ?? key
+        if (!params) return message
+        return Object.entries(params).reduce(
+          (value, [name, replacement]) => value.replaceAll(`{${name}}`, replacement),
+          message,
+        )
+      },
+    }),
+  }
+})
 
 function providerFactory(overrides: Partial<ProviderInstance> = {}): ProviderInstance {
   return {
@@ -79,6 +84,7 @@ function mountDialog(options: { editing?: ProviderInstance | null } = {}) {
       redirectLabel: 'Redirect',
     },
     global: {
+      plugins: [createPinia()],
       stubs: {
         BaseDialog: {
           template: '<div><slot /><slot name="footer" /></div>',

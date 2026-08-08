@@ -247,6 +247,40 @@ func canonicalizeCodexOriginator(name string) string {
 // CodexCLIOriginator 是 codex-rs 客户端的历史默认 originator，保留用于兼容识别。
 const CodexCLIOriginator = "codex_cli_rs"
 
+// codexLoadShedOriginators records known upstream identities that should be
+// normalized for compatibility with deployments that have not enabled the
+// newer process-wide identity enforcement switch.
+var codexLoadShedOriginators = map[string]bool{
+	"codex-tui": true,
+}
+
+// IsCodexLoadShedOriginator reports whether an originator is in the known
+// upstream load-shed bucket.
+func IsCodexLoadShedOriginator(originator string) bool {
+	return codexLoadShedOriginators[normalizeCodexClientHeader(originator)]
+}
+
+// NormalizeCodexClientIdentityToCLI converts a known load-shed official
+// identity to the canonical CLI identity while retaining its environment
+// fingerprint. New gateway paths use enforceCodexIdentityHeaders instead.
+func NormalizeCodexClientIdentityToCLI(originator, userAgent string) (string, string, bool) {
+	if !IsCodexLoadShedOriginator(originator) {
+		return originator, userAgent, false
+	}
+	ua := strings.TrimSpace(userAgent)
+	slash := strings.IndexByte(ua, '/')
+	if slash <= 0 {
+		return CodexCLIOriginator, ua, true
+	}
+	rest := ua[slash:]
+	if trailer := codexUATrailerName(ua); trailer != "" && IsCodexOfficialClientOriginator(trailer) {
+		if open := strings.LastIndex(rest, "("); open > 0 {
+			rest = strings.TrimRight(rest[:open], " ")
+		}
+	}
+	return CodexCLIOriginator, CodexCLIOriginator + rest, true
+}
+
 // CodexDefaultOriginator 是网关默认使用的 Codex TUI originator。
 const CodexDefaultOriginator = "codex-tui"
 

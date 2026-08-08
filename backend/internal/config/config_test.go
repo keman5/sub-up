@@ -799,8 +799,8 @@ func TestLoadDefaultJWTAccessTokenExpireMinutes(t *testing.T) {
 	if cfg.JWT.ExpireHour != 24 {
 		t.Fatalf("JWT.ExpireHour = %d, want 24", cfg.JWT.ExpireHour)
 	}
-	if cfg.JWT.AccessTokenExpireMinutes != 0 {
-		t.Fatalf("JWT.AccessTokenExpireMinutes = %d, want 0", cfg.JWT.AccessTokenExpireMinutes)
+	if cfg.JWT.AccessTokenExpireMinutes != 43200 {
+		t.Fatalf("JWT.AccessTokenExpireMinutes = %d, want 43200", cfg.JWT.AccessTokenExpireMinutes)
 	}
 }
 
@@ -1344,6 +1344,19 @@ func TestValidateOpsCleanupScheduleRequired(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ops.cleanup.schedule") {
 		t.Fatalf("Validate() expected ops.cleanup.schedule error, got: %v", err)
+	}
+}
+
+func TestLoadOpsHostHealthVisibleFromEnv(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("OPS_HOST_HEALTH_VISIBLE", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if !cfg.Ops.HostHealthVisible {
+		t.Fatalf("Ops.HostHealthVisible = false, want true")
 	}
 }
 

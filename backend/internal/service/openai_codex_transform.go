@@ -648,7 +648,7 @@ func hasOpenAIImageGenerationTool(reqBody map[string]any) bool {
 	if toolsContainImageGeneration(reqBody["tools"]) {
 		return true
 	}
-	return inputContainsImageGenerationTool(reqBody["input"])
+	return inputContainsImageGenNamespace(reqBody["input"]) || inputContainsImageGenerationTool(reqBody["input"])
 }
 
 func hasCodexImageGenerationFunctionTool(reqBody map[string]any) bool {
@@ -670,6 +670,29 @@ func toolsContainImageGeneration(rawTools any) bool {
 			continue
 		}
 		if isOpenAIImageGenerationToolMap(toolMap) {
+			return true
+		}
+		if isImageGenNamespaceToolMap(toolMap) {
+			return true
+		}
+	}
+	return false
+}
+
+func inputContainsImageGenNamespace(rawInput any) bool {
+	input, ok := rawInput.([]any)
+	if !ok {
+		return false
+	}
+	for _, rawItem := range input {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(firstNonEmptyString(item["type"])) != "additional_tools" {
+			continue
+		}
+		if toolsContainImageGeneration(item["tools"]) {
 			return true
 		}
 	}
@@ -812,6 +835,18 @@ func stripOpenAIImageGenerationToolsFromRawPayload(payload []byte) ([]byte, bool
 // advertise them by default.
 func stripCodexSparkImageGenerationTools(reqBody map[string]any) bool {
 	return stripOpenAIImageGenerationTools(reqBody)
+}
+
+func stripCodexSparkReasoningSummary(reqBody map[string]any) bool {
+	reasoning, ok := reqBody["reasoning"].(map[string]any)
+	if !ok {
+		return false
+	}
+	if _, exists := reasoning["summary"]; !exists {
+		return false
+	}
+	delete(reasoning, "summary")
+	return true
 }
 
 func hasOpenAIInputImage(reqBody map[string]any) bool {
@@ -1409,15 +1444,7 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 		// 若 item_reference 指向 legacy call_* 标识，则仅修正该引用本身。
 		fixCallIDPrefix := func(id string) string {
 			if opts.PreserveCallIDs {
-				// preserve 模式尽量原样透传客户端 id 以维持 tool_use/tool_result
-				// 配对，但上游对 call_id 有 64 字符硬上限，超长原样透传必然被
-				// 400 拒绝（"Invalid 'input[N].call_id': string too long"）。
-				// 超长时退回确定性压缩：同一逻辑 id 在 function_call 与
-				// function_call_output 两侧结果一致，配对不受影响。
-				if len(id) <= codexCallIDMaxLength {
-					return id
-				}
-				return compactCodexCallID(id)
+				return id
 			}
 			return normalizeCodexCallID(id)
 		}

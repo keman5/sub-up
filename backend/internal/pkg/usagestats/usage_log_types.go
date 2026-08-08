@@ -72,7 +72,8 @@ type DashboardStats struct {
 	TodayAccountCost         float64 `json:"today_account_cost"` // 今日账号成本
 
 	// 系统运行统计
-	AverageDurationMs float64 `json:"average_duration_ms"` // 平均响应时间
+	AverageDurationMs   float64 `json:"average_duration_ms"`    // 平均完整耗时
+	AverageFirstTokenMs float64 `json:"average_first_token_ms"` // 平均首 Token 延迟
 
 	// 性能指标
 	Rpm int64 `json:"rpm"` // 近5分钟平均每分钟请求数
@@ -167,6 +168,7 @@ type UserSpendingRankingResponse struct {
 type UserBreakdownItem struct {
 	UserID       int64   `json:"user_id"`
 	Email        string  `json:"email"`
+	Notes        string  `json:"notes"`
 	Requests     int64   `json:"requests"`
 	InputTokens  int64   `json:"input_tokens"`  // 输入 token 累计
 	OutputTokens int64   `json:"output_tokens"` // 输出 token 累计
@@ -244,7 +246,8 @@ type UserDashboardStats struct {
 	TodayActualCost          float64 `json:"today_actual_cost"` // 今日实际扣除
 
 	// 性能统计
-	AverageDurationMs float64 `json:"average_duration_ms"`
+	AverageDurationMs   float64 `json:"average_duration_ms"`
+	AverageFirstTokenMs float64 `json:"average_first_token_ms"`
 
 	// 性能指标
 	Rpm int64 `json:"rpm"` // 近5分钟平均每分钟请求数
@@ -274,14 +277,16 @@ type UsageLogFilters struct {
 	RequestID string
 	Model     string
 	// ModelFilterSource controls how Model is matched. Empty preserves raw usage_logs.model semantics.
-	ModelFilterSource     string
-	RequestType           *int16
-	Stream                *bool
-	BillingType           *int8
-	BillingMode           string
-	UpstreamModelMismatch *bool
-	StartTime             *time.Time
-	EndTime               *time.Time
+	ModelFilterSource string
+	RequestType       *int16
+	Stream            *bool
+	BillingType       *int8
+	BillingMode       string
+	// UsePresentationMultiplier returns user/admin-facing usage based on each row's presentation_multiplier.
+	UsePresentationMultiplier bool
+	UpstreamModelMismatch     *bool
+	StartTime                 *time.Time
+	EndTime                   *time.Time
 	// ExactTotal requests exact COUNT(*) for pagination. Default false for fast large-table paging.
 	ExactTotal bool
 }
@@ -299,6 +304,7 @@ type UsageStats struct {
 	TotalActualCost          float64        `json:"total_actual_cost"`
 	TotalAccountCost         *float64       `json:"total_account_cost,omitempty"`
 	AverageDurationMs        float64        `json:"average_duration_ms"`
+	AverageFirstTokenMs      float64        `json:"average_first_token_ms,omitempty"`
 	Endpoints                []EndpointStat `json:"endpoints,omitempty"`
 	UpstreamEndpoints        []EndpointStat `json:"upstream_endpoints,omitempty"`
 	EndpointPaths            []EndpointStat `json:"endpoint_paths,omitempty"`
@@ -352,6 +358,7 @@ type AccountUsageSummary struct {
 	AvgDailyRequests  float64 `json:"avg_daily_requests"`
 	AvgDailyTokens    float64 `json:"avg_daily_tokens"`
 	AvgDurationMs     float64 `json:"avg_duration_ms"`
+	AvgFirstTokenMs   float64 `json:"avg_first_token_ms"`
 	Today             *struct {
 		Date     string  `json:"date"`
 		Cost     float64 `json:"cost"`

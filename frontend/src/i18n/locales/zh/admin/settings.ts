@@ -847,6 +847,23 @@ export default {
         enabled: '启用订阅到期提醒',
         enabledHint: '开启后，系统会在订阅到期前 7 天、3 天、1 天各发送一次提醒。'
       },
+      subscriptionExpiredAdminNotify: {
+        title: '订阅过期管理员提醒',
+        description: '订阅过期后向指定管理员邮箱发送一次提醒。',
+        enabled: '启用订阅过期管理员提醒',
+        emails: '管理员通知邮箱',
+        emailsHint: '每个订阅过期后会对每个邮箱最多发送一次；留空则不发送。',
+        addEmail: '添加邮箱',
+        emailPlaceholder: "macseek{'@'}upit.top"
+      },
+      emailDefaultLocale: {
+        title: '默认邮件语言',
+        description: '当收件人没有语言记录时，系统通知邮件使用此语言。',
+        label: '默认语言',
+        hint: '用户触发验证码、密码重置、支付等流程后，会优先使用该用户或邮箱已记住的语言。',
+        zh: '中文',
+        en: '英文'
+      },
       smtp: {
         title: 'SMTP 设置',
         description: '配置用于发送验证码的邮件服务',
@@ -1166,6 +1183,20 @@ export default {
         modelWhitelistHint: '留空表示对所有模型生效；支持精确匹配与通配符（如 gpt-5.5*）。',
         modelPatternPlaceholder: '例如: gpt-5.5 或 gpt-5.5*',
         addModelPattern: '添加模型规则',
+        accountAllowlist: '用户放行列表',
+        accountAllowlistHint: '搜索并选择用户管理里的用户；命中后该用户的请求会跳过本规则，保留 fast mode 不变。',
+        accountAllowlistPlaceholder: '用户 ID',
+        accountSearchPlaceholder: '按 ID、邮箱或用户名搜索用户',
+        accountSearchLoading: '正在搜索用户...',
+        accountSearchEmpty: '没有匹配的用户',
+        accountFallback: '用户 #{id}',
+        removeAccount: '移除用户',
+        openAIAccountAllowlist: 'OpenAI 账号放行列表',
+        openAIAccountAllowlistHint: '搜索并选择 OpenAI 上游账号；如果同时配置用户放行列表，则必须用户和 OpenAI 账号都命中才会跳过本规则。',
+        openAIAccountSearchPlaceholder: '按 ID、名称、邮箱或用户名搜索 OpenAI 账号',
+        openAIAccountSearchLoading: '正在搜索 OpenAI 账号...',
+        openAIAccountSearchEmpty: '没有匹配的 OpenAI 账号',
+        removeOpenAIAccount: '移除 OpenAI 账号',
         fallbackAction: '未匹配模型处理方式',
         fallbackActionHint: '当请求模型不在白名单中时的处理方式。',
         fallbackErrorMessagePlaceholder: '未匹配模型被拦截时返回的自定义错误消息'

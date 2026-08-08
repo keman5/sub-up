@@ -83,7 +83,17 @@
       <div class="rounded-lg bg-purple-100 p-2 dark:bg-purple-900/30 text-purple-600">
         <Icon name="clock" size="md" />
       </div>
-      <div><p class="text-xs font-medium text-gray-500">{{ t('usage.avgDuration') }}</p><p class="text-xl font-bold">{{ formatDuration(stats?.average_duration_ms || 0) }}</p></div>
+      <div class="flex-1">
+        <p class="text-xs font-medium text-gray-500">{{ t('usage.responseLatency') }}</p>
+        <div class="flex items-baseline gap-2">
+          <p class="text-xl font-bold">{{ formatDuration(stats?.average_first_token_ms || 0) }}</p>
+          <span class="text-xs text-gray-500">{{ t('usage.firstToken') }}</span>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <p class="text-sm font-semibold text-purple-600">{{ formatDuration(stats?.average_duration_ms || 0) }}</p>
+          <span class="text-xs text-gray-500">{{ t('usage.fullDuration') }}</span>
+        </div>
+      </div>
     </div>
   </div>
 </template>

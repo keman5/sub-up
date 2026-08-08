@@ -239,10 +239,11 @@ type UpdateAPIKeyRequest struct {
 	ResetQuota      *bool      `json:"reset_quota"` // Reset quota_used to 0
 
 	// Rate limit fields (nil = no change, 0 = unlimited)
-	RateLimit5h         *float64 `json:"rate_limit_5h"`
-	RateLimit1d         *float64 `json:"rate_limit_1d"`
-	RateLimit7d         *float64 `json:"rate_limit_7d"`
-	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // Reset all usage counters to 0
+	RateLimit5h          *float64 `json:"rate_limit_5h"`
+	RateLimit1d          *float64 `json:"rate_limit_1d"`
+	RateLimit7d          *float64 `json:"rate_limit_7d"`
+	ResetRateLimitUsage  *bool    `json:"reset_rate_limit_usage"`  // Reset all usage counters to 0
+	ResetRateLimitWindow *string  `json:"reset_rate_limit_window"` // Reset one usage window: 5h, 1d, or 7d
 }
 
 // APIKeyService API Key服务
@@ -854,6 +855,22 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		apiKey.Window1dStart = nil
 		apiKey.Window7dStart = nil
 		fields.RateLimitUsage = true
+	}
+	if req.ResetRateLimitWindow != nil {
+		switch *req.ResetRateLimitWindow {
+		case "5h":
+			apiKey.Usage5h = 0
+			apiKey.Window5hStart = nil
+			resetRateLimit = true
+		case "1d":
+			apiKey.Usage1d = 0
+			apiKey.Window1dStart = nil
+			resetRateLimit = true
+		case "7d":
+			apiKey.Usage7d = 0
+			apiKey.Window7dStart = nil
+			resetRateLimit = true
+		}
 	}
 
 	// 上面的自动复活分支可能改了 status，这里统一登记。

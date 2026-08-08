@@ -238,10 +238,12 @@ import type {
   EmailTemplateOption,
 } from "@/api/admin/settings";
 import { useAppStore } from "@/stores";
+import { useAppDialog } from "@/composables/useAppDialog";
 import { extractApiErrorMessage } from "@/utils/apiError";
 
 const { t, locale } = useI18n();
 const appStore = useAppStore();
+const appDialog = useAppDialog();
 
 const fallbackPlaceholders = [
   "{{site_name}}",
@@ -365,6 +367,16 @@ const eventDisplayMeta: Record<string, EventDisplayMeta> = {
     timing: "后台任务在订阅仍有效且距离到期剩余 7 天、3 天、1 天时各发送一次，可通过邮件设置中的开关关闭。",
     categoryLabel: "订阅",
   },
+  "subscription.expired_admin": {
+    label: "订阅过期管理员提醒",
+    timing: "后台任务将订阅标记为过期后，向系统设置中配置的管理员邮箱发送一次。",
+    categoryLabel: "管理告警",
+  },
+  "announcement.publish": {
+    label: "公告邮件推送",
+    timing: "管理员创建或更新公告并选择邮件推送时，对全部或指定用户发送一次。",
+    categoryLabel: "公告",
+  },
   "balance.low": {
     label: "余额不足提醒",
     timing: "用户余额低于全局或个人配置的提醒阈值时发送。",
@@ -427,6 +439,16 @@ const eventDisplayMetaEn: Record<string, EventDisplayMeta> = {
     label: "Subscription Expiry Reminder",
     timing: "Sent by the background job when an active subscription has 7, 3, or 1 day remaining. It can be disabled in Email settings.",
     categoryLabel: "Subscription",
+  },
+  "subscription.expired_admin": {
+    label: "Subscription Expired Admin Alert",
+    timing: "Sent once to configured admin notification emails after the background job marks a subscription as expired.",
+    categoryLabel: "Admin",
+  },
+  "announcement.publish": {
+    label: "Announcement Email Push",
+    timing: "Sent once to all or selected users when an admin saves an announcement with email push enabled.",
+    categoryLabel: "Announcement",
   },
   "balance.low": {
     label: "Low Balance Alert",
@@ -684,7 +706,7 @@ async function refreshPreview() {
 
 async function restoreOfficial() {
   if (!selectedEvent.value || !selectedLocale.value) return;
-  if (!window.confirm(t("admin.settings.emailTemplates.restoreConfirm"))) return;
+  if (!(await appDialog.confirm(t("admin.settings.emailTemplates.restoreConfirm")))) return;
 
   restoring.value = true;
   try {

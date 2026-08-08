@@ -45,6 +45,17 @@ func (Group) Fields() []ent.Field {
 		field.Float("rate_multiplier").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Default(1.0),
+		field.Float("display_rate_multiplier").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(1.0).
+			Comment("用户端展示倍率，仅影响 UI 展示，不参与实际计费"),
+		field.Bool("usage_multiplier_enabled").
+			Default(false).
+			Comment("是否启用非超级管理员可见用量消耗倍率"),
+		field.Float("usage_multiplier").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(1.0).
+			Comment("非超级管理员可见用量消耗倍率"),
 		// 高峰时段倍率（added by migration 158）
 		field.Bool("peak_rate_enabled").
 			Default(false).
@@ -92,6 +103,11 @@ func (Group) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}),
+		field.Float("total_limit_usd").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Comment("订阅总量上限，NULL 表示不限制"),
 		field.Int("default_validity_days").
 			Default(30),
 
@@ -166,6 +182,14 @@ func (Group) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			Comment("无效请求兜底使用的分组 ID"),
+		field.Int64("quota_fallback_group_id").
+			Optional().
+			Nillable().
+			Comment("订阅额度耗尽后自动切换使用的附属套餐分组 ID"),
+		field.String("quota_fallback_model").
+			MaxLen(100).
+			Default("").
+			Comment("订阅额度耗尽切换附属套餐时强制使用的模型 ID"),
 
 		// 模型路由配置 (added by migration 040)
 		field.JSON("model_routing", map[string][]int64{}).
@@ -219,6 +243,14 @@ func (Group) Fields() []ent.Field {
 			Default(domain.GroupModelsListConfig{}).
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
 			Comment("自定义 /v1/models 展示列表配置；仅影响模型列表响应，不影响调度"),
+		field.String("model_policy_mode").
+			MaxLen(50).
+			Default("").
+			Comment("分组级模型策略：空=不限制，force=强制改写为指定模型"),
+		field.String("model_policy_model").
+			MaxLen(100).
+			Default("").
+			Comment("分组级模型策略使用的目标模型 ID"),
 
 		// 分组级每分钟请求数上限（0 = 不限制）。设置后优先于用户级兜底生效。
 		field.Int("rpm_limit").

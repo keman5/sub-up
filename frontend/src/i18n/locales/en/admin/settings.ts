@@ -852,6 +852,23 @@ export default {
         enabled: 'Enable Subscription Expiry Reminder',
         enabledHint: 'When enabled, the system sends reminders 7, 3, and 1 day before expiry.'
       },
+      subscriptionExpiredAdminNotify: {
+        title: 'Subscription Expired Admin Alert',
+        description: 'Send a one-time alert to configured admin emails after a subscription expires.',
+        enabled: 'Enable Subscription Expired Admin Alert',
+        emails: 'Admin Notification Emails',
+        emailsHint: 'Each expired subscription sends at most one email per recipient. Leave empty to disable alerts.',
+        addEmail: 'Add Email',
+        emailPlaceholder: "macseek{'@'}upit.top"
+      },
+      emailDefaultLocale: {
+        title: 'Default Email Language',
+        description: 'Choose the notification email language used when no recipient language has been remembered.',
+        label: 'Default Language',
+        hint: 'User or email language remembered from verification, password reset, payment, and similar flows takes priority.',
+        zh: 'Chinese',
+        en: 'English'
+      },
       smtp: {
         title: 'SMTP Settings',
         description: 'Configure email sending for verification codes',
@@ -1172,6 +1189,20 @@ export default {
         modelWhitelistHint: 'Leave empty to apply to all models. Supports exact match and wildcard prefix (e.g., gpt-5.5*).',
         modelPatternPlaceholder: 'e.g., gpt-5.5 or gpt-5.5*',
         addModelPattern: 'Add model pattern',
+        accountAllowlist: 'User allowlist',
+        accountAllowlistHint: 'Search and select users from User Management. Matching users bypass this rule and keep fast mode unchanged.',
+        accountAllowlistPlaceholder: 'User ID',
+        accountSearchPlaceholder: 'Search users by ID, email, or username',
+        accountSearchLoading: 'Searching users...',
+        accountSearchEmpty: 'No matching users',
+        accountFallback: 'User #{id}',
+        removeAccount: 'Remove user',
+        openAIAccountAllowlist: 'OpenAI account allowlist',
+        openAIAccountAllowlistHint: 'Search and select OpenAI upstream accounts. If the user allowlist is also configured, both the user and OpenAI account must match to bypass this rule.',
+        openAIAccountSearchPlaceholder: 'Search OpenAI accounts by ID, name, email, or username',
+        openAIAccountSearchLoading: 'Searching OpenAI accounts...',
+        openAIAccountSearchEmpty: 'No matching OpenAI accounts',
+        removeOpenAIAccount: 'Remove OpenAI account',
         fallbackAction: 'Fallback action',
         fallbackActionHint: 'Action for models not matching the whitelist.',
         fallbackErrorMessagePlaceholder: 'Custom error message when non-whitelisted models are blocked'

@@ -105,6 +105,48 @@ func (_c *GroupCreate) SetNillableRateMultiplier(v *float64) *GroupCreate {
 	return _c
 }
 
+// SetDisplayRateMultiplier sets the "display_rate_multiplier" field.
+func (_c *GroupCreate) SetDisplayRateMultiplier(v float64) *GroupCreate {
+	_c.mutation.SetDisplayRateMultiplier(v)
+	return _c
+}
+
+// SetNillableDisplayRateMultiplier sets the "display_rate_multiplier" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableDisplayRateMultiplier(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetDisplayRateMultiplier(*v)
+	}
+	return _c
+}
+
+// SetUsageMultiplierEnabled sets the "usage_multiplier_enabled" field.
+func (_c *GroupCreate) SetUsageMultiplierEnabled(v bool) *GroupCreate {
+	_c.mutation.SetUsageMultiplierEnabled(v)
+	return _c
+}
+
+// SetNillableUsageMultiplierEnabled sets the "usage_multiplier_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableUsageMultiplierEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetUsageMultiplierEnabled(*v)
+	}
+	return _c
+}
+
+// SetUsageMultiplier sets the "usage_multiplier" field.
+func (_c *GroupCreate) SetUsageMultiplier(v float64) *GroupCreate {
+	_c.mutation.SetUsageMultiplier(v)
+	return _c
+}
+
+// SetNillableUsageMultiplier sets the "usage_multiplier" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableUsageMultiplier(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetUsageMultiplier(*v)
+	}
+	return _c
+}
+
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
 func (_c *GroupCreate) SetPeakRateEnabled(v bool) *GroupCreate {
 	_c.mutation.SetPeakRateEnabled(v)
@@ -269,6 +311,20 @@ func (_c *GroupCreate) SetMonthlyLimitUsd(v float64) *GroupCreate {
 func (_c *GroupCreate) SetNillableMonthlyLimitUsd(v *float64) *GroupCreate {
 	if v != nil {
 		_c.SetMonthlyLimitUsd(*v)
+	}
+	return _c
+}
+
+// SetTotalLimitUsd sets the "total_limit_usd" field.
+func (_c *GroupCreate) SetTotalLimitUsd(v float64) *GroupCreate {
+	_c.mutation.SetTotalLimitUsd(v)
+	return _c
+}
+
+// SetNillableTotalLimitUsd sets the "total_limit_usd" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableTotalLimitUsd(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetTotalLimitUsd(*v)
 	}
 	return _c
 }
@@ -539,6 +595,34 @@ func (_c *GroupCreate) SetNillableFallbackGroupIDOnInvalidRequest(v *int64) *Gro
 	return _c
 }
 
+// SetQuotaFallbackGroupID sets the "quota_fallback_group_id" field.
+func (_c *GroupCreate) SetQuotaFallbackGroupID(v int64) *GroupCreate {
+	_c.mutation.SetQuotaFallbackGroupID(v)
+	return _c
+}
+
+// SetNillableQuotaFallbackGroupID sets the "quota_fallback_group_id" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableQuotaFallbackGroupID(v *int64) *GroupCreate {
+	if v != nil {
+		_c.SetQuotaFallbackGroupID(*v)
+	}
+	return _c
+}
+
+// SetQuotaFallbackModel sets the "quota_fallback_model" field.
+func (_c *GroupCreate) SetQuotaFallbackModel(v string) *GroupCreate {
+	_c.mutation.SetQuotaFallbackModel(v)
+	return _c
+}
+
+// SetNillableQuotaFallbackModel sets the "quota_fallback_model" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableQuotaFallbackModel(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetQuotaFallbackModel(*v)
+	}
+	return _c
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (_c *GroupCreate) SetModelRouting(v map[string][]int64) *GroupCreate {
 	_c.mutation.SetModelRouting(v)
@@ -687,6 +771,34 @@ func (_c *GroupCreate) SetModelsListConfig(v domain.GroupModelsListConfig) *Grou
 func (_c *GroupCreate) SetNillableModelsListConfig(v *domain.GroupModelsListConfig) *GroupCreate {
 	if v != nil {
 		_c.SetModelsListConfig(*v)
+	}
+	return _c
+}
+
+// SetModelPolicyMode sets the "model_policy_mode" field.
+func (_c *GroupCreate) SetModelPolicyMode(v string) *GroupCreate {
+	_c.mutation.SetModelPolicyMode(v)
+	return _c
+}
+
+// SetNillableModelPolicyMode sets the "model_policy_mode" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableModelPolicyMode(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetModelPolicyMode(*v)
+	}
+	return _c
+}
+
+// SetModelPolicyModel sets the "model_policy_model" field.
+func (_c *GroupCreate) SetModelPolicyModel(v string) *GroupCreate {
+	_c.mutation.SetModelPolicyModel(v)
+	return _c
+}
+
+// SetNillableModelPolicyModel sets the "model_policy_model" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableModelPolicyModel(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetModelPolicyModel(*v)
 	}
 	return _c
 }
@@ -912,6 +1024,18 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultRateMultiplier
 		_c.mutation.SetRateMultiplier(v)
 	}
+	if _, ok := _c.mutation.DisplayRateMultiplier(); !ok {
+		v := group.DefaultDisplayRateMultiplier
+		_c.mutation.SetDisplayRateMultiplier(v)
+	}
+	if _, ok := _c.mutation.UsageMultiplierEnabled(); !ok {
+		v := group.DefaultUsageMultiplierEnabled
+		_c.mutation.SetUsageMultiplierEnabled(v)
+	}
+	if _, ok := _c.mutation.UsageMultiplier(); !ok {
+		v := group.DefaultUsageMultiplier
+		_c.mutation.SetUsageMultiplier(v)
+	}
 	if _, ok := _c.mutation.PeakRateEnabled(); !ok {
 		v := group.DefaultPeakRateEnabled
 		_c.mutation.SetPeakRateEnabled(v)
@@ -984,6 +1108,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultClaudeCodeOnly
 		_c.mutation.SetClaudeCodeOnly(v)
 	}
+	if _, ok := _c.mutation.QuotaFallbackModel(); !ok {
+		v := group.DefaultQuotaFallbackModel
+		_c.mutation.SetQuotaFallbackModel(v)
+	}
 	if _, ok := _c.mutation.ModelRoutingEnabled(); !ok {
 		v := group.DefaultModelRoutingEnabled
 		_c.mutation.SetModelRoutingEnabled(v)
@@ -1027,6 +1155,14 @@ func (_c *GroupCreate) defaults() error {
 	if _, ok := _c.mutation.ModelsListConfig(); !ok {
 		v := group.DefaultModelsListConfig
 		_c.mutation.SetModelsListConfig(v)
+	}
+	if _, ok := _c.mutation.ModelPolicyMode(); !ok {
+		v := group.DefaultModelPolicyMode
+		_c.mutation.SetModelPolicyMode(v)
+	}
+	if _, ok := _c.mutation.ModelPolicyModel(); !ok {
+		v := group.DefaultModelPolicyModel
+		_c.mutation.SetModelPolicyModel(v)
 	}
 	if _, ok := _c.mutation.RpmLimit(); !ok {
 		v := group.DefaultRpmLimit
@@ -1073,6 +1209,15 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.RateMultiplier(); !ok {
 		return &ValidationError{Name: "rate_multiplier", err: errors.New(`ent: missing required field "Group.rate_multiplier"`)}
+	}
+	if _, ok := _c.mutation.DisplayRateMultiplier(); !ok {
+		return &ValidationError{Name: "display_rate_multiplier", err: errors.New(`ent: missing required field "Group.display_rate_multiplier"`)}
+	}
+	if _, ok := _c.mutation.UsageMultiplierEnabled(); !ok {
+		return &ValidationError{Name: "usage_multiplier_enabled", err: errors.New(`ent: missing required field "Group.usage_multiplier_enabled"`)}
+	}
+	if _, ok := _c.mutation.UsageMultiplier(); !ok {
+		return &ValidationError{Name: "usage_multiplier", err: errors.New(`ent: missing required field "Group.usage_multiplier"`)}
 	}
 	if _, ok := _c.mutation.PeakRateEnabled(); !ok {
 		return &ValidationError{Name: "peak_rate_enabled", err: errors.New(`ent: missing required field "Group.peak_rate_enabled"`)}
@@ -1158,6 +1303,14 @@ func (_c *GroupCreate) check() error {
 	if _, ok := _c.mutation.ClaudeCodeOnly(); !ok {
 		return &ValidationError{Name: "claude_code_only", err: errors.New(`ent: missing required field "Group.claude_code_only"`)}
 	}
+	if _, ok := _c.mutation.QuotaFallbackModel(); !ok {
+		return &ValidationError{Name: "quota_fallback_model", err: errors.New(`ent: missing required field "Group.quota_fallback_model"`)}
+	}
+	if v, ok := _c.mutation.QuotaFallbackModel(); ok {
+		if err := group.QuotaFallbackModelValidator(v); err != nil {
+			return &ValidationError{Name: "quota_fallback_model", err: fmt.Errorf(`ent: validator failed for field "Group.quota_fallback_model": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.ModelRoutingEnabled(); !ok {
 		return &ValidationError{Name: "model_routing_enabled", err: errors.New(`ent: missing required field "Group.model_routing_enabled"`)}
 	}
@@ -1195,6 +1348,22 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.ModelsListConfig(); !ok {
 		return &ValidationError{Name: "models_list_config", err: errors.New(`ent: missing required field "Group.models_list_config"`)}
+	}
+	if _, ok := _c.mutation.ModelPolicyMode(); !ok {
+		return &ValidationError{Name: "model_policy_mode", err: errors.New(`ent: missing required field "Group.model_policy_mode"`)}
+	}
+	if v, ok := _c.mutation.ModelPolicyMode(); ok {
+		if err := group.ModelPolicyModeValidator(v); err != nil {
+			return &ValidationError{Name: "model_policy_mode", err: fmt.Errorf(`ent: validator failed for field "Group.model_policy_mode": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.ModelPolicyModel(); !ok {
+		return &ValidationError{Name: "model_policy_model", err: errors.New(`ent: missing required field "Group.model_policy_model"`)}
+	}
+	if v, ok := _c.mutation.ModelPolicyModel(); ok {
+		if err := group.ModelPolicyModelValidator(v); err != nil {
+			return &ValidationError{Name: "model_policy_model", err: fmt.Errorf(`ent: validator failed for field "Group.model_policy_model": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.RpmLimit(); !ok {
 		return &ValidationError{Name: "rpm_limit", err: errors.New(`ent: missing required field "Group.rpm_limit"`)}
@@ -1270,6 +1439,18 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldRateMultiplier, field.TypeFloat64, value)
 		_node.RateMultiplier = value
 	}
+	if value, ok := _c.mutation.DisplayRateMultiplier(); ok {
+		_spec.SetField(group.FieldDisplayRateMultiplier, field.TypeFloat64, value)
+		_node.DisplayRateMultiplier = value
+	}
+	if value, ok := _c.mutation.UsageMultiplierEnabled(); ok {
+		_spec.SetField(group.FieldUsageMultiplierEnabled, field.TypeBool, value)
+		_node.UsageMultiplierEnabled = value
+	}
+	if value, ok := _c.mutation.UsageMultiplier(); ok {
+		_spec.SetField(group.FieldUsageMultiplier, field.TypeFloat64, value)
+		_node.UsageMultiplier = value
+	}
 	if value, ok := _c.mutation.PeakRateEnabled(); ok {
 		_spec.SetField(group.FieldPeakRateEnabled, field.TypeBool, value)
 		_node.PeakRateEnabled = value
@@ -1317,6 +1498,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.MonthlyLimitUsd(); ok {
 		_spec.SetField(group.FieldMonthlyLimitUsd, field.TypeFloat64, value)
 		_node.MonthlyLimitUsd = &value
+	}
+	if value, ok := _c.mutation.TotalLimitUsd(); ok {
+		_spec.SetField(group.FieldTotalLimitUsd, field.TypeFloat64, value)
+		_node.TotalLimitUsd = &value
 	}
 	if value, ok := _c.mutation.DefaultValidityDays(); ok {
 		_spec.SetField(group.FieldDefaultValidityDays, field.TypeInt, value)
@@ -1394,6 +1579,14 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldFallbackGroupIDOnInvalidRequest, field.TypeInt64, value)
 		_node.FallbackGroupIDOnInvalidRequest = &value
 	}
+	if value, ok := _c.mutation.QuotaFallbackGroupID(); ok {
+		_spec.SetField(group.FieldQuotaFallbackGroupID, field.TypeInt64, value)
+		_node.QuotaFallbackGroupID = &value
+	}
+	if value, ok := _c.mutation.QuotaFallbackModel(); ok {
+		_spec.SetField(group.FieldQuotaFallbackModel, field.TypeString, value)
+		_node.QuotaFallbackModel = value
+	}
 	if value, ok := _c.mutation.ModelRouting(); ok {
 		_spec.SetField(group.FieldModelRouting, field.TypeJSON, value)
 		_node.ModelRouting = value
@@ -1441,6 +1634,14 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.ModelsListConfig(); ok {
 		_spec.SetField(group.FieldModelsListConfig, field.TypeJSON, value)
 		_node.ModelsListConfig = value
+	}
+	if value, ok := _c.mutation.ModelPolicyMode(); ok {
+		_spec.SetField(group.FieldModelPolicyMode, field.TypeString, value)
+		_node.ModelPolicyMode = value
+	}
+	if value, ok := _c.mutation.ModelPolicyModel(); ok {
+		_spec.SetField(group.FieldModelPolicyModel, field.TypeString, value)
+		_node.ModelPolicyModel = value
 	}
 	if value, ok := _c.mutation.RpmLimit(); ok {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
@@ -1700,6 +1901,54 @@ func (u *GroupUpsert) AddRateMultiplier(v float64) *GroupUpsert {
 	return u
 }
 
+// SetDisplayRateMultiplier sets the "display_rate_multiplier" field.
+func (u *GroupUpsert) SetDisplayRateMultiplier(v float64) *GroupUpsert {
+	u.Set(group.FieldDisplayRateMultiplier, v)
+	return u
+}
+
+// UpdateDisplayRateMultiplier sets the "display_rate_multiplier" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateDisplayRateMultiplier() *GroupUpsert {
+	u.SetExcluded(group.FieldDisplayRateMultiplier)
+	return u
+}
+
+// AddDisplayRateMultiplier adds v to the "display_rate_multiplier" field.
+func (u *GroupUpsert) AddDisplayRateMultiplier(v float64) *GroupUpsert {
+	u.Add(group.FieldDisplayRateMultiplier, v)
+	return u
+}
+
+// SetUsageMultiplierEnabled sets the "usage_multiplier_enabled" field.
+func (u *GroupUpsert) SetUsageMultiplierEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldUsageMultiplierEnabled, v)
+	return u
+}
+
+// UpdateUsageMultiplierEnabled sets the "usage_multiplier_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateUsageMultiplierEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldUsageMultiplierEnabled)
+	return u
+}
+
+// SetUsageMultiplier sets the "usage_multiplier" field.
+func (u *GroupUpsert) SetUsageMultiplier(v float64) *GroupUpsert {
+	u.Set(group.FieldUsageMultiplier, v)
+	return u
+}
+
+// UpdateUsageMultiplier sets the "usage_multiplier" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateUsageMultiplier() *GroupUpsert {
+	u.SetExcluded(group.FieldUsageMultiplier)
+	return u
+}
+
+// AddUsageMultiplier adds v to the "usage_multiplier" field.
+func (u *GroupUpsert) AddUsageMultiplier(v float64) *GroupUpsert {
+	u.Add(group.FieldUsageMultiplier, v)
+	return u
+}
+
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
 func (u *GroupUpsert) SetPeakRateEnabled(v bool) *GroupUpsert {
 	u.Set(group.FieldPeakRateEnabled, v)
@@ -1871,6 +2120,30 @@ func (u *GroupUpsert) AddMonthlyLimitUsd(v float64) *GroupUpsert {
 // ClearMonthlyLimitUsd clears the value of the "monthly_limit_usd" field.
 func (u *GroupUpsert) ClearMonthlyLimitUsd() *GroupUpsert {
 	u.SetNull(group.FieldMonthlyLimitUsd)
+	return u
+}
+
+// SetTotalLimitUsd sets the "total_limit_usd" field.
+func (u *GroupUpsert) SetTotalLimitUsd(v float64) *GroupUpsert {
+	u.Set(group.FieldTotalLimitUsd, v)
+	return u
+}
+
+// UpdateTotalLimitUsd sets the "total_limit_usd" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateTotalLimitUsd() *GroupUpsert {
+	u.SetExcluded(group.FieldTotalLimitUsd)
+	return u
+}
+
+// AddTotalLimitUsd adds v to the "total_limit_usd" field.
+func (u *GroupUpsert) AddTotalLimitUsd(v float64) *GroupUpsert {
+	u.Add(group.FieldTotalLimitUsd, v)
+	return u
+}
+
+// ClearTotalLimitUsd clears the value of the "total_limit_usd" field.
+func (u *GroupUpsert) ClearTotalLimitUsd() *GroupUpsert {
+	u.SetNull(group.FieldTotalLimitUsd)
 	return u
 }
 
@@ -2240,6 +2513,42 @@ func (u *GroupUpsert) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsert {
 	return u
 }
 
+// SetQuotaFallbackGroupID sets the "quota_fallback_group_id" field.
+func (u *GroupUpsert) SetQuotaFallbackGroupID(v int64) *GroupUpsert {
+	u.Set(group.FieldQuotaFallbackGroupID, v)
+	return u
+}
+
+// UpdateQuotaFallbackGroupID sets the "quota_fallback_group_id" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateQuotaFallbackGroupID() *GroupUpsert {
+	u.SetExcluded(group.FieldQuotaFallbackGroupID)
+	return u
+}
+
+// AddQuotaFallbackGroupID adds v to the "quota_fallback_group_id" field.
+func (u *GroupUpsert) AddQuotaFallbackGroupID(v int64) *GroupUpsert {
+	u.Add(group.FieldQuotaFallbackGroupID, v)
+	return u
+}
+
+// ClearQuotaFallbackGroupID clears the value of the "quota_fallback_group_id" field.
+func (u *GroupUpsert) ClearQuotaFallbackGroupID() *GroupUpsert {
+	u.SetNull(group.FieldQuotaFallbackGroupID)
+	return u
+}
+
+// SetQuotaFallbackModel sets the "quota_fallback_model" field.
+func (u *GroupUpsert) SetQuotaFallbackModel(v string) *GroupUpsert {
+	u.Set(group.FieldQuotaFallbackModel, v)
+	return u
+}
+
+// UpdateQuotaFallbackModel sets the "quota_fallback_model" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateQuotaFallbackModel() *GroupUpsert {
+	u.SetExcluded(group.FieldQuotaFallbackModel)
+	return u
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (u *GroupUpsert) SetModelRouting(v map[string][]int64) *GroupUpsert {
 	u.Set(group.FieldModelRouting, v)
@@ -2393,6 +2702,30 @@ func (u *GroupUpsert) SetModelsListConfig(v domain.GroupModelsListConfig) *Group
 // UpdateModelsListConfig sets the "models_list_config" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateModelsListConfig() *GroupUpsert {
 	u.SetExcluded(group.FieldModelsListConfig)
+	return u
+}
+
+// SetModelPolicyMode sets the "model_policy_mode" field.
+func (u *GroupUpsert) SetModelPolicyMode(v string) *GroupUpsert {
+	u.Set(group.FieldModelPolicyMode, v)
+	return u
+}
+
+// UpdateModelPolicyMode sets the "model_policy_mode" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateModelPolicyMode() *GroupUpsert {
+	u.SetExcluded(group.FieldModelPolicyMode)
+	return u
+}
+
+// SetModelPolicyModel sets the "model_policy_model" field.
+func (u *GroupUpsert) SetModelPolicyModel(v string) *GroupUpsert {
+	u.Set(group.FieldModelPolicyModel, v)
+	return u
+}
+
+// UpdateModelPolicyModel sets the "model_policy_model" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateModelPolicyModel() *GroupUpsert {
+	u.SetExcluded(group.FieldModelPolicyModel)
 	return u
 }
 
@@ -2625,6 +2958,62 @@ func (u *GroupUpsertOne) UpdateRateMultiplier() *GroupUpsertOne {
 	})
 }
 
+// SetDisplayRateMultiplier sets the "display_rate_multiplier" field.
+func (u *GroupUpsertOne) SetDisplayRateMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDisplayRateMultiplier(v)
+	})
+}
+
+// AddDisplayRateMultiplier adds v to the "display_rate_multiplier" field.
+func (u *GroupUpsertOne) AddDisplayRateMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddDisplayRateMultiplier(v)
+	})
+}
+
+// UpdateDisplayRateMultiplier sets the "display_rate_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateDisplayRateMultiplier() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDisplayRateMultiplier()
+	})
+}
+
+// SetUsageMultiplierEnabled sets the "usage_multiplier_enabled" field.
+func (u *GroupUpsertOne) SetUsageMultiplierEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetUsageMultiplierEnabled(v)
+	})
+}
+
+// UpdateUsageMultiplierEnabled sets the "usage_multiplier_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateUsageMultiplierEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateUsageMultiplierEnabled()
+	})
+}
+
+// SetUsageMultiplier sets the "usage_multiplier" field.
+func (u *GroupUpsertOne) SetUsageMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetUsageMultiplier(v)
+	})
+}
+
+// AddUsageMultiplier adds v to the "usage_multiplier" field.
+func (u *GroupUpsertOne) AddUsageMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddUsageMultiplier(v)
+	})
+}
+
+// UpdateUsageMultiplier sets the "usage_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateUsageMultiplier() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateUsageMultiplier()
+	})
+}
+
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
 func (u *GroupUpsertOne) SetPeakRateEnabled(v bool) *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
@@ -2825,6 +3214,34 @@ func (u *GroupUpsertOne) UpdateMonthlyLimitUsd() *GroupUpsertOne {
 func (u *GroupUpsertOne) ClearMonthlyLimitUsd() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearMonthlyLimitUsd()
+	})
+}
+
+// SetTotalLimitUsd sets the "total_limit_usd" field.
+func (u *GroupUpsertOne) SetTotalLimitUsd(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetTotalLimitUsd(v)
+	})
+}
+
+// AddTotalLimitUsd adds v to the "total_limit_usd" field.
+func (u *GroupUpsertOne) AddTotalLimitUsd(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddTotalLimitUsd(v)
+	})
+}
+
+// UpdateTotalLimitUsd sets the "total_limit_usd" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateTotalLimitUsd() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateTotalLimitUsd()
+	})
+}
+
+// ClearTotalLimitUsd clears the value of the "total_limit_usd" field.
+func (u *GroupUpsertOne) ClearTotalLimitUsd() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearTotalLimitUsd()
 	})
 }
 
@@ -3255,6 +3672,48 @@ func (u *GroupUpsertOne) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsertOne 
 	})
 }
 
+// SetQuotaFallbackGroupID sets the "quota_fallback_group_id" field.
+func (u *GroupUpsertOne) SetQuotaFallbackGroupID(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetQuotaFallbackGroupID(v)
+	})
+}
+
+// AddQuotaFallbackGroupID adds v to the "quota_fallback_group_id" field.
+func (u *GroupUpsertOne) AddQuotaFallbackGroupID(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddQuotaFallbackGroupID(v)
+	})
+}
+
+// UpdateQuotaFallbackGroupID sets the "quota_fallback_group_id" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateQuotaFallbackGroupID() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateQuotaFallbackGroupID()
+	})
+}
+
+// ClearQuotaFallbackGroupID clears the value of the "quota_fallback_group_id" field.
+func (u *GroupUpsertOne) ClearQuotaFallbackGroupID() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearQuotaFallbackGroupID()
+	})
+}
+
+// SetQuotaFallbackModel sets the "quota_fallback_model" field.
+func (u *GroupUpsertOne) SetQuotaFallbackModel(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetQuotaFallbackModel(v)
+	})
+}
+
+// UpdateQuotaFallbackModel sets the "quota_fallback_model" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateQuotaFallbackModel() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateQuotaFallbackModel()
+	})
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (u *GroupUpsertOne) SetModelRouting(v map[string][]int64) *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
@@ -3434,6 +3893,34 @@ func (u *GroupUpsertOne) SetModelsListConfig(v domain.GroupModelsListConfig) *Gr
 func (u *GroupUpsertOne) UpdateModelsListConfig() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateModelsListConfig()
+	})
+}
+
+// SetModelPolicyMode sets the "model_policy_mode" field.
+func (u *GroupUpsertOne) SetModelPolicyMode(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetModelPolicyMode(v)
+	})
+}
+
+// UpdateModelPolicyMode sets the "model_policy_mode" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateModelPolicyMode() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateModelPolicyMode()
+	})
+}
+
+// SetModelPolicyModel sets the "model_policy_model" field.
+func (u *GroupUpsertOne) SetModelPolicyModel(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetModelPolicyModel(v)
+	})
+}
+
+// UpdateModelPolicyModel sets the "model_policy_model" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateModelPolicyModel() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateModelPolicyModel()
 	})
 }
 
@@ -3847,6 +4334,62 @@ func (u *GroupUpsertBulk) UpdateRateMultiplier() *GroupUpsertBulk {
 	})
 }
 
+// SetDisplayRateMultiplier sets the "display_rate_multiplier" field.
+func (u *GroupUpsertBulk) SetDisplayRateMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetDisplayRateMultiplier(v)
+	})
+}
+
+// AddDisplayRateMultiplier adds v to the "display_rate_multiplier" field.
+func (u *GroupUpsertBulk) AddDisplayRateMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddDisplayRateMultiplier(v)
+	})
+}
+
+// UpdateDisplayRateMultiplier sets the "display_rate_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateDisplayRateMultiplier() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateDisplayRateMultiplier()
+	})
+}
+
+// SetUsageMultiplierEnabled sets the "usage_multiplier_enabled" field.
+func (u *GroupUpsertBulk) SetUsageMultiplierEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetUsageMultiplierEnabled(v)
+	})
+}
+
+// UpdateUsageMultiplierEnabled sets the "usage_multiplier_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateUsageMultiplierEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateUsageMultiplierEnabled()
+	})
+}
+
+// SetUsageMultiplier sets the "usage_multiplier" field.
+func (u *GroupUpsertBulk) SetUsageMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetUsageMultiplier(v)
+	})
+}
+
+// AddUsageMultiplier adds v to the "usage_multiplier" field.
+func (u *GroupUpsertBulk) AddUsageMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddUsageMultiplier(v)
+	})
+}
+
+// UpdateUsageMultiplier sets the "usage_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateUsageMultiplier() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateUsageMultiplier()
+	})
+}
+
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
 func (u *GroupUpsertBulk) SetPeakRateEnabled(v bool) *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
@@ -4047,6 +4590,34 @@ func (u *GroupUpsertBulk) UpdateMonthlyLimitUsd() *GroupUpsertBulk {
 func (u *GroupUpsertBulk) ClearMonthlyLimitUsd() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearMonthlyLimitUsd()
+	})
+}
+
+// SetTotalLimitUsd sets the "total_limit_usd" field.
+func (u *GroupUpsertBulk) SetTotalLimitUsd(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetTotalLimitUsd(v)
+	})
+}
+
+// AddTotalLimitUsd adds v to the "total_limit_usd" field.
+func (u *GroupUpsertBulk) AddTotalLimitUsd(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddTotalLimitUsd(v)
+	})
+}
+
+// UpdateTotalLimitUsd sets the "total_limit_usd" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateTotalLimitUsd() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateTotalLimitUsd()
+	})
+}
+
+// ClearTotalLimitUsd clears the value of the "total_limit_usd" field.
+func (u *GroupUpsertBulk) ClearTotalLimitUsd() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearTotalLimitUsd()
 	})
 }
 
@@ -4477,6 +5048,48 @@ func (u *GroupUpsertBulk) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsertBul
 	})
 }
 
+// SetQuotaFallbackGroupID sets the "quota_fallback_group_id" field.
+func (u *GroupUpsertBulk) SetQuotaFallbackGroupID(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetQuotaFallbackGroupID(v)
+	})
+}
+
+// AddQuotaFallbackGroupID adds v to the "quota_fallback_group_id" field.
+func (u *GroupUpsertBulk) AddQuotaFallbackGroupID(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddQuotaFallbackGroupID(v)
+	})
+}
+
+// UpdateQuotaFallbackGroupID sets the "quota_fallback_group_id" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateQuotaFallbackGroupID() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateQuotaFallbackGroupID()
+	})
+}
+
+// ClearQuotaFallbackGroupID clears the value of the "quota_fallback_group_id" field.
+func (u *GroupUpsertBulk) ClearQuotaFallbackGroupID() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearQuotaFallbackGroupID()
+	})
+}
+
+// SetQuotaFallbackModel sets the "quota_fallback_model" field.
+func (u *GroupUpsertBulk) SetQuotaFallbackModel(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetQuotaFallbackModel(v)
+	})
+}
+
+// UpdateQuotaFallbackModel sets the "quota_fallback_model" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateQuotaFallbackModel() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateQuotaFallbackModel()
+	})
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (u *GroupUpsertBulk) SetModelRouting(v map[string][]int64) *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
@@ -4656,6 +5269,34 @@ func (u *GroupUpsertBulk) SetModelsListConfig(v domain.GroupModelsListConfig) *G
 func (u *GroupUpsertBulk) UpdateModelsListConfig() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateModelsListConfig()
+	})
+}
+
+// SetModelPolicyMode sets the "model_policy_mode" field.
+func (u *GroupUpsertBulk) SetModelPolicyMode(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetModelPolicyMode(v)
+	})
+}
+
+// UpdateModelPolicyMode sets the "model_policy_mode" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateModelPolicyMode() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateModelPolicyMode()
+	})
+}
+
+// SetModelPolicyModel sets the "model_policy_model" field.
+func (u *GroupUpsertBulk) SetModelPolicyModel(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetModelPolicyModel(v)
+	})
+}
+
+// UpdateModelPolicyModel sets the "model_policy_model" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateModelPolicyModel() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateModelPolicyModel()
 	})
 }
 

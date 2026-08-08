@@ -88,18 +88,22 @@ type APIKey struct {
 }
 
 type Group struct {
-	ID             int64   `json:"id"`
-	Name           string  `json:"name"`
-	Description    string  `json:"description"`
-	Platform       string  `json:"platform"`
-	RateMultiplier float64 `json:"rate_multiplier"`
-	IsExclusive    bool    `json:"is_exclusive"`
-	Status         string  `json:"status"`
+	ID                     int64   `json:"id"`
+	Name                   string  `json:"name"`
+	Description            string  `json:"description"`
+	Platform               string  `json:"platform"`
+	RateMultiplier         float64 `json:"rate_multiplier"`
+	DisplayRateMultiplier  float64 `json:"display_rate_multiplier"`
+	UsageMultiplierEnabled bool    `json:"usage_multiplier_enabled"`
+	UsageMultiplier        float64 `json:"usage_multiplier"`
+	IsExclusive            bool    `json:"is_exclusive"`
+	Status                 string  `json:"status"`
 
 	SubscriptionType string   `json:"subscription_type"`
 	DailyLimitUSD    *float64 `json:"daily_limit_usd"`
 	WeeklyLimitUSD   *float64 `json:"weekly_limit_usd"`
 	MonthlyLimitUSD  *float64 `json:"monthly_limit_usd"`
+	TotalLimitUSD    *float64 `json:"total_limit_usd"`
 
 	// 图片生成计费配置（仅 antigravity 平台使用）
 	AllowImageGeneration         bool    `json:"allow_image_generation"`
@@ -129,6 +133,7 @@ type Group struct {
 	FallbackGroupID *int64 `json:"fallback_group_id"`
 	// 无效请求兜底分组
 	FallbackGroupIDOnInvalidRequest *int64 `json:"fallback_group_id_on_invalid_request"`
+	QuotaFallbackGroupID            *int64 `json:"quota_fallback_group_id"`
 
 	// OpenAI Messages 调度开关（用户侧需要此字段判断是否展示 Claude Code 教程）
 	AllowMessagesDispatch bool `json:"allow_messages_dispatch"`
@@ -155,9 +160,10 @@ type Group struct {
 type AdminGroup struct {
 	Group
 
-	// 分组利润控制（五个 token 平台分组可启用；margin/buffer 为小数存储）。
-	// 仅管理员可见：这三个字段与同响应中的 rate_multiplier 相乘即可反推出
-	// 运营方的上游成本上限，属于内部经营信息，不得下放到 dto.Group。
+	// BillingRateMultiplier is the internal multiplier used for actual billing.
+	BillingRateMultiplier float64 `json:"billing_rate_multiplier"`
+
+	// Profit-control values are internal operating data and are never included in Group.
 	ProfitControlEnabled bool    `json:"profit_control_enabled"`
 	ProfitMinMargin      float64 `json:"profit_min_margin"`
 	ProfitSafetyBuffer   float64 `json:"profit_safety_buffer"`
@@ -173,6 +179,8 @@ type AdminGroup struct {
 	DefaultMappedModel          string                                   `json:"default_mapped_model"`
 	MessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
 	ModelsListConfig            domain.GroupModelsListConfig             `json:"models_list_config"`
+	ModelPolicyMode             string                                   `json:"model_policy_mode"`
+	ModelPolicyModel            string                                   `json:"model_policy_model"`
 
 	// 支持的模型系列（仅 antigravity 平台使用）
 	SupportedModelScopes    []string       `json:"supported_model_scopes"`
@@ -552,6 +560,10 @@ type UsageLog struct {
 type AdminUsageLog struct {
 	UsageLog
 
+	// User is the administrator view of the usage record owner. It includes
+	// internal notes, which must remain absent from the embedded user-facing DTO.
+	User *AdminUser `json:"user,omitempty"`
+
 	// UpstreamModel is the actual model sent to the upstream provider after mapping.
 	// Omitted when no mapping was applied (requested model was used as-is).
 	UpstreamModel *string `json:"upstream_model,omitempty"`
@@ -568,7 +580,7 @@ type AdminUsageLog struct {
 	BillingTier *string `json:"billing_tier,omitempty"`
 
 	// AccountRateMultiplier 账号计费倍率快照（nil 表示按 1.0 处理）
-	AccountRateMultiplier *float64 `json:"account_rate_multiplier"`
+	AccountRateMultiplier *float64 `json:"account_rate_multiplier,omitempty"`
 	// AccountStatsCost 自定义定价规则计算的账号统计费用（nil 表示使用默认公式）
 	AccountStatsCost *float64 `json:"account_stats_cost,omitempty"`
 
@@ -637,6 +649,7 @@ type UserSubscription struct {
 	DailyUsageUSD   float64 `json:"daily_usage_usd"`
 	WeeklyUsageUSD  float64 `json:"weekly_usage_usd"`
 	MonthlyUsageUSD float64 `json:"monthly_usage_usd"`
+	TotalUsageUSD   float64 `json:"total_usage_usd"`
 
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
@@ -655,7 +668,8 @@ type AdminUserSubscription struct {
 	AssignedAt time.Time `json:"assigned_at"`
 	Notes      string    `json:"notes"`
 
-	AssignedByUser *User `json:"assigned_by_user,omitempty"`
+	User           *AdminUser `json:"user,omitempty"`
+	AssignedByUser *User      `json:"assigned_by_user,omitempty"`
 }
 
 type BulkAssignResult struct {

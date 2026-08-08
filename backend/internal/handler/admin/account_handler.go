@@ -26,6 +26,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -223,7 +224,7 @@ func (h *AccountHandler) accountResponseFromService(account *service.Account) *d
 	return out
 }
 
-func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, account *service.Account) AccountWithConcurrency {
+func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, account *service.Account, viewMode service.UsageViewMode) AccountWithConcurrency {
 	item := AccountWithConcurrency{
 		Account:            h.accountResponseFromService(account),
 		CurrentConcurrency: 0,
@@ -241,7 +242,7 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	if account.IsAnthropicOAuthOrSetupToken() {
 		if h.accountUsageService != nil && account.GetWindowCostLimit() > 0 {
 			startTime := account.GetCurrentWindowStartTime()
-			if stats, err := h.accountUsageService.GetAccountWindowStats(ctx, account.ID, startTime); err == nil && stats != nil {
+			if stats, err := h.accountUsageService.GetAccountWindowStatsForView(ctx, account.ID, startTime, viewMode); err == nil && stats != nil {
 				cost := stats.StandardCost
 				item.CurrentWindowCost = &cost
 			}
@@ -538,6 +539,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	viewMode := usageViewModeFromContext(c)
 	if h.ollamaCloudUsage != nil && len(accounts) > 0 {
 		accountPointers := make([]*service.Account, len(accounts))
 		for index := range accounts {
@@ -634,7 +636,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 			g.Go(func() error {
 				// 使用统一的窗口开始时间计算逻辑（考虑窗口过期情况）
 				startTime := accCopy.GetCurrentWindowStartTime()
-				stats, err := h.accountUsageService.GetAccountWindowStats(gctx, accCopy.ID, startTime)
+				stats, err := h.accountUsageService.GetAccountWindowStatsForView(gctx, accCopy.ID, startTime, viewMode)
 				if err == nil && stats != nil {
 					mu.Lock()
 					windowCosts[accCopy.ID] = stats.StandardCost // 使用标准费用
@@ -772,7 +774,7 @@ func (h *AccountHandler) GetByID(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account, usageViewModeFromContext(c)))
 }
 
 // CheckMixedChannel handles checking mixed channel risk for account-group binding.
@@ -872,7 +874,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		h.adminService.ForceAntigravityPrivacy(ctx, account)
 		// OpenAI OAuth: 新账号直接设置隐私
 		h.adminService.ForceOpenAIPrivacy(ctx, account)
-		return h.buildAccountResponseWithRuntime(ctx, account), nil
+		return h.buildAccountResponseWithRuntime(ctx, account, usageViewModeFromContext(c)), nil
 	})
 	if err != nil {
 		// 检查是否为混合渠道错误
@@ -925,7 +927,7 @@ func (h *AccountHandler) Duplicate(c *gin.Context) {
 			if execErr != nil {
 				return nil, execErr
 			}
-			return h.buildAccountResponseWithRuntime(ctx, account), nil
+			return h.buildAccountResponseWithRuntime(ctx, account, usageViewModeFromContext(c)), nil
 		},
 	)
 	if err != nil {
@@ -936,7 +938,7 @@ func (h *AccountHandler) Duplicate(c *gin.Context) {
 				slog.Warn("account_duplicate_recovery_failed", "account_id", accountID, "actor_scope", actorScope, "reason", reason, "error", recoverErr)
 			} else if recovered != nil {
 				c.Header("X-Idempotency-Recovered", "true")
-				response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), recovered))
+				response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), recovered, usageViewModeFromContext(c)))
 				return
 			}
 		}
@@ -1015,7 +1017,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		h.scheduleOpenAIResponsesProbe(account)
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account, usageViewModeFromContext(c)))
 }
 
 // scheduleOpenAIResponsesProbe 异步触发 OpenAI APIKey 账号的 Responses API 能力探测。
@@ -1134,7 +1136,7 @@ func (h *AccountHandler) RecoverState(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account, usageViewModeFromContext(c)))
 }
 
 // SyncFromCRS handles syncing accounts from claude-relay-service (CRS)
@@ -1362,7 +1364,7 @@ func (h *AccountHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), updatedAccount))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), updatedAccount, usageViewModeFromContext(c)))
 }
 
 // ApplyOAuthCredentialsRequest is the payload for persisting re-authorized OAuth credentials.
@@ -1460,7 +1462,7 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(ctx, updatedAccount))
+	response.Success(c, h.buildAccountResponseWithRuntime(ctx, updatedAccount, usageViewModeFromContext(c)))
 }
 
 // GetStats handles getting account statistics
@@ -1485,13 +1487,58 @@ func (h *AccountHandler) GetStats(c *gin.Context) {
 	endTime := timezone.StartOfDay(now.AddDate(0, 0, 1))
 	startTime := timezone.StartOfDay(now.AddDate(0, 0, -days+1))
 
-	stats, err := h.accountUsageService.GetAccountUsageStats(c.Request.Context(), accountID, startTime, endTime)
+	viewMode := usageViewModeFromContext(c)
+	stats, err := h.accountUsageService.GetAccountUsageStatsForView(c.Request.Context(), accountID, startTime, endTime, viewMode)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	response.Success(c, stats)
+	response.Success(c, accountUsageStatsForView(stats, viewMode))
+}
+
+func accountUsageStatsForView(stats *usagestats.AccountUsageStatsResponse, viewMode service.UsageViewMode) *usagestats.AccountUsageStatsResponse {
+	if stats == nil || viewMode == service.UsageViewRaw {
+		return stats
+	}
+	out := *stats
+	out.History = append([]usagestats.AccountUsageHistory(nil), stats.History...)
+	for i := range out.History {
+		out.History[i].Cost = out.History[i].UserCost
+		out.History[i].ActualCost = out.History[i].UserCost
+	}
+	out.Summary.TotalCost = out.Summary.TotalUserCost
+	out.Summary.TotalStandardCost = out.Summary.TotalUserCost
+	out.Summary.AvgDailyCost = out.Summary.AvgDailyUserCost
+	if out.Summary.Today != nil {
+		today := *out.Summary.Today
+		today.Cost = today.UserCost
+		out.Summary.Today = &today
+	}
+	if out.Summary.HighestCostDay != nil {
+		highestCostDay := *out.Summary.HighestCostDay
+		highestCostDay.Cost = highestCostDay.UserCost
+		out.Summary.HighestCostDay = &highestCostDay
+	}
+	if out.Summary.HighestRequestDay != nil {
+		highestRequestDay := *out.Summary.HighestRequestDay
+		highestRequestDay.Cost = highestRequestDay.UserCost
+		out.Summary.HighestRequestDay = &highestRequestDay
+	}
+	out.Models = append([]usagestats.ModelStat(nil), stats.Models...)
+	for i := range out.Models {
+		out.Models[i].ActualCost = out.Models[i].Cost
+		out.Models[i].AccountCost = 0
+	}
+	out.Endpoints = append([]usagestats.EndpointStat(nil), stats.Endpoints...)
+	for i := range out.Endpoints {
+		out.Endpoints[i].ActualCost = out.Endpoints[i].Cost
+	}
+	out.UpstreamEndpoints = append([]usagestats.EndpointStat(nil), stats.UpstreamEndpoints...)
+	for i := range out.UpstreamEndpoints {
+		out.UpstreamEndpoints[i].ActualCost = out.UpstreamEndpoints[i].Cost
+	}
+	return &out
 }
 
 // ClearError handles clearing account error
@@ -1517,7 +1564,7 @@ func (h *AccountHandler) ClearError(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account, usageViewModeFromContext(c)))
 }
 
 // RevertProxyFallback handles reverting account proxy to original before fallback.
@@ -2330,7 +2377,7 @@ func (h *AccountHandler) ClearRateLimit(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account, usageViewModeFromContext(c)))
 }
 
 // ResetQuota handles resetting account quota usage
@@ -2353,7 +2400,7 @@ func (h *AccountHandler) ResetQuota(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account, usageViewModeFromContext(c)))
 }
 
 // GetTempUnschedulable handles getting temporary unschedulable status
@@ -2408,7 +2455,8 @@ func (h *AccountHandler) GetTodayStats(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.accountUsageService.GetTodayStats(c.Request.Context(), accountID)
+	viewMode := usageViewModeFromContext(c)
+	stats, err := h.accountUsageService.GetTodayStatsForView(c.Request.Context(), accountID, viewMode)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -2437,7 +2485,8 @@ func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
 		return
 	}
 
-	cacheKey := buildAccountTodayStatsBatchCacheKey(accountIDs)
+	viewMode := usageViewModeFromContext(c)
+	cacheKey := buildAccountTodayStatsBatchCacheKey(accountIDs, viewMode)
 	if cached, ok := accountTodayStatsBatchCache.Get(cacheKey); ok {
 		if cached.ETag != "" {
 			c.Header("ETag", cached.ETag)
@@ -2452,7 +2501,7 @@ func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.accountUsageService.GetTodayStatsBatch(c.Request.Context(), accountIDs)
+	stats, err := h.accountUsageService.GetTodayStatsBatchForView(c.Request.Context(), accountIDs, viewMode)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -2494,7 +2543,7 @@ func (h *AccountHandler) SetSchedulable(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account, usageViewModeFromContext(c)))
 }
 
 // GetAvailableModels handles getting available models for an account
@@ -2817,10 +2866,10 @@ func (h *AccountHandler) SetPrivacy(c *gin.Context) {
 			account.Extra = make(map[string]any)
 		}
 		account.Extra["privacy_mode"] = mode
-		response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+		response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account, usageViewModeFromContext(c)))
 		return
 	}
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), updated))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), updated, usageViewModeFromContext(c)))
 }
 
 // RefreshTier handles refreshing Google One tier for a single account

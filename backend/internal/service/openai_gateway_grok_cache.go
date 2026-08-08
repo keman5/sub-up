@@ -113,6 +113,9 @@ func explicitGrokCacheSeed(c *gin.Context, body []byte, explicitKey string) stri
 		seed = strings.TrimSpace(c.GetHeader(grokConversationIDHeader))
 	}
 	if seed == "" && len(body) > 0 {
+		seed = extractClaudeCodeSessionIDFromPayload(body)
+	}
+	if seed == "" && len(body) > 0 {
 		seed = strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String())
 	}
 	if seed == "" {

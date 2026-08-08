@@ -7,6 +7,8 @@ export default {
       colors: {
         // 主色调 - Teal/Cyan 青色系
         primary: {
+          DEFAULT: 'var(--primary)',
+          foreground: 'var(--primary-foreground)',
           50: '#f0fdfa',
           100: '#ccfbf1',
           200: '#99f6e4',
@@ -18,6 +20,19 @@ export default {
           800: '#115e59',
           900: '#134e4a',
           950: '#042f2e'
+        },
+        background: 'var(--background)',
+        foreground: 'var(--foreground)',
+        card: 'var(--card)',
+        muted: 'var(--muted)',
+        'muted-foreground': 'var(--muted-foreground)',
+        secondary: {
+          DEFAULT: 'var(--secondary)',
+          foreground: 'var(--secondary-foreground)'
+        },
+        success: {
+          DEFAULT: 'var(--success)',
+          foreground: 'var(--success-foreground)'
         },
         // 辅助色 - 深蓝灰
         accent: {

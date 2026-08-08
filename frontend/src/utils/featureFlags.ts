@@ -144,6 +144,29 @@ export function isFeatureFlagEnabled(flag: FeatureFlagDefinition): boolean {
   return flag.mode === 'opt-out'
 }
 
+function resolveFeatureFlagValue(
+  flag: FeatureFlagDefinition,
+  settings: PublicSettings | null | undefined,
+): boolean {
+  const raw = settings?.[flag.key] as boolean | undefined
+  if (typeof raw === 'boolean') return raw
+  return flag.mode === 'opt-out'
+}
+
+export async function refreshAndResolveFeatureFlag(
+  flag: FeatureFlagDefinition,
+): Promise<boolean> {
+  if (isFeatureFlagEnabled(flag)) return true
+
+  const appStore = useAppStore()
+  const refreshed = await appStore.fetchPublicSettings(true)
+  if (refreshed) {
+    return resolveFeatureFlagValue(flag, refreshed)
+  }
+
+  return isFeatureFlagEnabled(flag)
+}
+
 /**
  * Sidebar NavItem.featureFlag accepts a getter that returns
  * `false` to hide. Keeping the same contract lets callers swap in

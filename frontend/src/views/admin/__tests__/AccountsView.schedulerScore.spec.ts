@@ -232,6 +232,18 @@ describe('admin AccountsView scheduler score column', () => {
 
   it('requests scheduler scores when the migrated column settings explicitly show the column', async () => {
     localStorage.setItem('account-hidden-columns', JSON.stringify(['today_stats']))
+    localStorage.setItem('account-hidden-columns-version', 'today-stats-visible-activity-dates-hidden')
+
+    mountView()
+    await flushPromises()
+
+    expect(listAccounts.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
+      include_scheduler_score: '1'
+    }))
+  })
+
+  it('preserves an explicit scheduler score opt-in from the previous column-settings version', async () => {
+    localStorage.setItem('account-hidden-columns', JSON.stringify([]))
     localStorage.setItem('account-hidden-columns-version', 'scheduler-score-hidden-by-default')
 
     mountView()
@@ -240,6 +252,7 @@ describe('admin AccountsView scheduler score column', () => {
     expect(listAccounts.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
       include_scheduler_score: '1'
     }))
+    expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toEqual([])
   })
 
   it('still shows a dash when no scheduler score is available', async () => {

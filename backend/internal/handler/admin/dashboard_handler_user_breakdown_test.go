@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -18,9 +19,11 @@ import (
 
 type userBreakdownRepoCapture struct {
 	service.UsageLogRepository
-	capturedDim   usagestats.UserBreakdownDimension
-	capturedLimit int
-	result        []usagestats.UserBreakdownItem
+	capturedDim          usagestats.UserBreakdownDimension
+	capturedLimit        int
+	viewCalled           bool
+	capturedPresentation bool
+	result               []usagestats.UserBreakdownItem
 }
 
 func (r *userBreakdownRepoCapture) GetUserBreakdownStats(
@@ -35,11 +38,33 @@ func (r *userBreakdownRepoCapture) GetUserBreakdownStats(
 	return []usagestats.UserBreakdownItem{}, nil
 }
 
+func (r *userBreakdownRepoCapture) GetUserBreakdownStatsForView(
+	ctx context.Context,
+	startTime, endTime time.Time,
+	dim usagestats.UserBreakdownDimension,
+	limit int,
+	usePresentation bool,
+) ([]usagestats.UserBreakdownItem, error) {
+	r.viewCalled = true
+	r.capturedPresentation = usePresentation
+	return r.GetUserBreakdownStats(ctx, startTime, endTime, dim, limit)
+}
+
 func newUserBreakdownRouter(repo *userBreakdownRepoCapture) *gin.Engine {
+	return newUserBreakdownRouterForRole(repo, "")
+}
+
+func newUserBreakdownRouterForRole(repo *userBreakdownRepoCapture, role string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	svc := service.NewDashboardService(repo, nil, nil, nil)
 	h := NewDashboardHandler(svc, nil)
 	router := gin.New()
+	if role != "" {
+		router.Use(func(c *gin.Context) {
+			c.Set(string(middleware2.ContextKeyUserRole), role)
+			c.Next()
+		})
+	}
 	router.GET("/admin/dashboard/user-breakdown", h.GetUserBreakdown)
 	return router
 }
@@ -74,6 +99,34 @@ func TestGetUserBreakdown_SortBy(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, "total_tokens", repo.capturedDim.SortBy)
+}
+
+func TestGetUserBreakdown_UsesPresentationViewForOrdinaryAdmin(t *testing.T) {
+	repo := &userBreakdownRepoCapture{}
+	router := newUserBreakdownRouterForRole(repo, service.RoleAdmin)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/admin/dashboard/user-breakdown?start_date=2026-03-01&end_date=2026-03-16", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.True(t, repo.viewCalled)
+	require.True(t, repo.capturedPresentation)
+}
+
+func TestGetUserBreakdown_UsesRawViewForSuperAdmin(t *testing.T) {
+	repo := &userBreakdownRepoCapture{}
+	router := newUserBreakdownRouterForRole(repo, service.RoleSuperAdmin)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/admin/dashboard/user-breakdown?start_date=2026-03-01&end_date=2026-03-16", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.True(t, repo.viewCalled)
+	require.False(t, repo.capturedPresentation)
 }
 
 func TestGetUserBreakdown_ModelFilter(t *testing.T) {

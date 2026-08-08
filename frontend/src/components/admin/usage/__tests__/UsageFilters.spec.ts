@@ -104,17 +104,6 @@ function mountFilters(filters = defaultFilters()) {
   })
 }
 
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((promiseResolve, promiseReject) => {
-    resolve = promiseResolve
-    reject = promiseReject
-  })
-
-  return { promise, resolve, reject }
-}
-
 describe('UsageFilters — user search dropdown', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -142,7 +131,7 @@ describe('UsageFilters — user search dropdown', () => {
     await input.trigger('input')
 
     // Advance debounce timer (300ms) then flush the resolved promise
-    vi.advanceTimersByTime(300)
+    vi.advanceTimersByTime(600)
     await flushPromises()
 
     // --- (b) Sort: active user should appear BEFORE deleted user ---
@@ -166,7 +155,7 @@ describe('UsageFilters — user search dropdown', () => {
     expect(activeButton.text()).not.toContain('deleted')
 
     // --- (c) Selection: clicking active user button sets filters.user_id ---
-    await activeButton.trigger('click')
+    await activeButton.trigger('mousedown')
     await flushPromises()
 
     // The component emits 'update:modelValue' or modifies filters.user_id via toRef
@@ -180,54 +169,142 @@ describe('UsageFilters — user search dropdown', () => {
     expect(wrapper.props('modelValue').user_id).toBe(1)
   })
 
-  it('keeps results from the latest user search when responses arrive out of order', async () => {
-    const firstSearch = deferred<Array<{ id: number; email: string; deleted: boolean }>>()
-    const secondSearch = deferred<Array<{ id: number; email: string; deleted: boolean }>>()
-    mockSearchUsers
-      .mockImplementationOnce(() => firstSearch.promise)
-      .mockImplementationOnce(() => secondSearch.promise)
+  it('loads default user suggestions on focus when keyword is empty', async () => {
+    mockSearchUsers.mockResolvedValue([
+      { id: 3, email: 'focus@test.com', deleted: false, username: 'focus-user', notes: 'recent' },
+    ])
 
     const wrapper = mountFilters()
     const input = wrapper.find('input[type="text"]')
+
     await input.trigger('focus')
-
-    await input.setValue('a')
     vi.advanceTimersByTime(300)
     await flushPromises()
 
-    await input.setValue('ab')
-    vi.advanceTimersByTime(300)
-    await flushPromises()
+    expect(mockSearchUsers).toHaveBeenCalledWith('')
 
-    secondSearch.resolve([{ id: 2, email: 'ab@test.com', deleted: false }])
-    await flushPromises()
-    expect(wrapper.text()).toContain('ab@test.com')
-
-    firstSearch.resolve([{ id: 1, email: 'a@test.com', deleted: false }])
-    await flushPromises()
-    expect(wrapper.text()).toContain('ab@test.com')
-    expect(wrapper.text()).not.toContain('a@test.com')
+    const buttons = wrapper.findAll('.usage-filter-dropdown button[type="button"]')
+    expect(buttons.some((button) => button.text().includes('focus@test.com'))).toBe(true)
   })
 
-  it('does not restore stale user results after the search is cleared', async () => {
-    const pendingSearch = deferred<Array<{ id: number; email: string; deleted: boolean }>>()
-    mockSearchUsers.mockImplementationOnce(() => pendingSearch.promise)
+  it('closes the user dropdown on blur without emitting change', async () => {
+    mockSearchUsers.mockResolvedValue([
+      { id: 3, email: 'focus@test.com', deleted: false, username: 'focus-user', notes: 'recent' },
+    ])
 
     const wrapper = mountFilters()
     const input = wrapper.find('input[type="text"]')
+
     await input.trigger('focus')
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+    expect(wrapper.text()).toContain('focus@test.com')
 
-    await input.setValue('stale')
+    await input.trigger('blur')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('focus@test.com')
+    expect(wrapper.emitted('change')).toBeFalsy()
+  })
+
+  it('keeps the same user suggestion nodes when focus search returns the same results again', async () => {
+    mockSearchUsers.mockResolvedValue([
+      { id: 3, email: 'focus@test.com', deleted: false, username: 'focus-user', notes: 'recent' },
+    ])
+
+    const wrapper = mountFilters()
+    const input = wrapper.find('input[type="text"]')
+
+    await input.trigger('focus')
     vi.advanceTimersByTime(300)
     await flushPromises()
 
-    await input.setValue('')
+    const beforeNodes = wrapper.findAll('[data-test="search-suggest-option"]').map((node) => node.element)
+
+    await wrapper.findComponent({ name: 'SearchSuggestInput' }).vm.$emit('search', '')
     vi.advanceTimersByTime(300)
     await flushPromises()
 
-    pendingSearch.resolve([{ id: 3, email: 'stale@test.com', deleted: false }])
+    const afterNodes = wrapper.findAll('[data-test="search-suggest-option"]').map((node) => node.element)
+
+    expect(mockSearchUsers).toHaveBeenCalledTimes(2)
+    expect(afterNodes).toHaveLength(1)
+    expect(afterNodes[0]).toBe(beforeNodes[0])
+  })
+})
+
+describe('UsageFilters — account search dropdown', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    mockAccountsList.mockReset()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('loads default account suggestions on focus when keyword is empty', async () => {
+    mockAccountsList.mockResolvedValue({
+      items: [{ id: 11, name: 'focus-account' }],
+    })
+
+    const wrapper = mountFilters()
+    const inputs = wrapper.findAll('input[type="text"]')
+    const accountInput = inputs[2]
+
+    await accountInput.trigger('focus')
+    vi.advanceTimersByTime(300)
     await flushPromises()
-    expect(wrapper.text()).not.toContain('stale@test.com')
+
+    expect(mockAccountsList).toHaveBeenCalledWith(1, 20, { search: '' })
+    expect(wrapper.text()).toContain('focus-account')
+  })
+
+  it('closes the account dropdown on blur without emitting change', async () => {
+    mockAccountsList.mockResolvedValue({
+      items: [{ id: 11, name: 'focus-account' }],
+    })
+
+    const wrapper = mountFilters()
+    const inputs = wrapper.findAll('input[type="text"]')
+    const accountInput = inputs[2]
+
+    await accountInput.trigger('focus')
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+    expect(wrapper.text()).toContain('focus-account')
+
+    await accountInput.trigger('blur')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('focus-account')
+    expect(wrapper.emitted('change')).toBeFalsy()
+  })
+
+  it('keeps the same account suggestion nodes when focus search returns the same results again', async () => {
+    mockAccountsList.mockResolvedValue({
+      items: [{ id: 11, name: 'focus-account' }],
+    })
+
+    const wrapper = mountFilters()
+    const inputs = wrapper.findAll('input[type="text"]')
+    const accountInput = inputs[2]
+
+    await accountInput.trigger('focus')
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+
+    const beforeNodes = wrapper.findAll('[data-test="search-suggest-option"]').map((node) => node.element)
+
+    await wrapper.findAllComponents({ name: 'SearchSuggestInput' })[2].vm.$emit('search', '')
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+
+    const afterNodes = wrapper.findAll('[data-test="search-suggest-option"]').map((node) => node.element)
+
+    expect(mockAccountsList).toHaveBeenCalledTimes(2)
+    expect(afterNodes).toHaveLength(1)
+    expect(afterNodes[0]).toBe(beforeNodes[0])
   })
 })
 

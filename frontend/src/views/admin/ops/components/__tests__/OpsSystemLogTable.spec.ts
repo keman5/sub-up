@@ -9,6 +9,7 @@ const mockListSystemLogs = vi.fn()
 const mockCleanupSystemLogs = vi.fn()
 const mockGetSystemLogSinkHealth = vi.fn()
 const mockGetRuntimeLogConfig = vi.fn()
+const mockDialogConfirm = vi.fn()
 
 vi.mock('@/api/admin/ops', () => ({
   opsAPI: {
@@ -24,6 +25,10 @@ vi.mock('@/stores', () => ({
     showError: vi.fn(),
     showSuccess: vi.fn(),
   }),
+}))
+
+vi.mock('@/composables/useAppDialog', () => ({
+  useAppDialog: () => ({ confirm: mockDialogConfirm }),
 }))
 
 vi.mock('vue-i18n', async (importOriginal) => {
@@ -73,7 +78,7 @@ const sinkHealth = {
 describe('OpsSystemLogTable host support', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mockDialogConfirm.mockResolvedValue(true)
     mockListSystemLogs.mockResolvedValue({
       items: [
         {

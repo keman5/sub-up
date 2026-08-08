@@ -181,6 +181,9 @@ export default {
     totalCacheRead: '累计缓存读取',
     totalCost: '累计费用',
     avgDuration: '平均耗时',
+    avgFirstToken: '平均首 Token',
+    avgFullDuration: '平均完整耗时',
+    limitTotal: '总量上限',
     // Messages
     enterApiKey: '请输入 API Key',
     querySuccess: '查询成功',
@@ -243,10 +246,12 @@ export default {
     status: {
       testing: '测试中...',
       success: '连接成功',
+      connectionFailed: '连接失败',
       testConnection: '测试连接',
       installing: '安装中...',
       completeInstallation: '完成安装',
       completed: '安装完成！',
+      installationFailed: '安装失败',
       redirecting: '正在跳转到登录页面...',
       restarting: '服务正在重启，请稍候...',
       timeout: '服务重启时间超出预期，请手动刷新页面。'

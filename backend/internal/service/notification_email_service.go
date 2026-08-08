@@ -25,26 +25,30 @@ const (
 	NotificationEmailEventNotificationEmailVerifyCode = "notification_email.verify_code"
 	NotificationEmailEventSubscriptionPurchaseSuccess = "subscription.purchase_success"
 	NotificationEmailEventSubscriptionExpiryReminder  = "subscription.expiry_reminder"
+	NotificationEmailEventSubscriptionExpiredAdmin    = "subscription.expired_admin"
+	NotificationEmailEventAnnouncementPublish         = "announcement.publish"
 	NotificationEmailEventBalanceLow                  = "balance.low"
 	NotificationEmailEventBalanceRechargeSuccess      = "balance.recharge_success"
 	NotificationEmailEventAccountQuotaAlert           = "account.quota_alert"
+	NotificationEmailEventAccountPoolUnavailable      = "account.pool_unavailable"
 	NotificationEmailEventContentModerationViolation  = "content_moderation.violation_notice"
 	NotificationEmailEventContentModerationDisabled   = "content_moderation.account_disabled"
 	NotificationEmailEventCyberPolicyNotice           = "content_moderation.cyber_policy_notice"
 	NotificationEmailEventOpsAlert                    = "ops.alert"
 	NotificationEmailEventOpsScheduledReport          = "ops.scheduled_report"
 
-	notificationEmailTemplateKeyPrefix    = "notification_email_template:"
-	notificationEmailPreferenceKeyPrefix  = "notification_email_preference:"
-	notificationEmailDeliveryKeyPrefix    = "notification_email_delivery:"
-	notificationEmailLocaleUserKeyPrefix  = "notification_email_locale:user:"
-	notificationEmailLocaleEmailKeyPrefix = "notification_email_locale:email:"
-	notificationEmailUnsubscribeSecretKey = "notification_email_unsubscribe_secret"
-	notificationEmailDefaultLocale        = "en"
-	notificationEmailLocaleChinese        = "zh"
-	notificationEmailMaxSubjectLength     = 200
-	notificationEmailMaxHTMLLength        = 30000
-	notificationEmailUnsubscribeTTL       = 365 * 24 * time.Hour
+	notificationEmailTemplateKeyPrefix       = "notification_email_template:"
+	notificationEmailPreferenceKeyPrefix     = "notification_email_preference:"
+	notificationEmailDeliveryKeyPrefix       = "notification_email_delivery:"
+	notificationEmailLocaleUserKeyPrefix     = "notification_email_locale:user:"
+	notificationEmailLocaleEmailKeyPrefix    = "notification_email_locale:email:"
+	notificationEmailUnsubscribeSecretKey    = "notification_email_unsubscribe_secret"
+	notificationEmailDefaultLocale           = "en"
+	notificationEmailLocaleChinese           = "zh"
+	notificationEmailConfiguredDefaultLocale = notificationEmailLocaleChinese
+	notificationEmailMaxSubjectLength        = 200
+	notificationEmailMaxHTMLLength           = 30000
+	notificationEmailUnsubscribeTTL          = 365 * 24 * time.Hour
 )
 
 var (
@@ -446,7 +450,7 @@ func (s *NotificationEmailService) RememberRecipientLocale(ctx context.Context, 
 
 func (s *NotificationEmailService) ResolveRecipientLocale(ctx context.Context, userID int64, email string) string {
 	if s == nil || s.settingRepo == nil {
-		return notificationEmailDefaultLocale
+		return notificationEmailConfiguredDefaultLocale
 	}
 	if userID > 0 {
 		if locale, err := s.settingRepo.GetValue(ctx, notificationEmailLocaleUserKeyPrefix+strconv.FormatInt(userID, 10)); err == nil && strings.TrimSpace(locale) != "" {
@@ -458,7 +462,10 @@ func (s *NotificationEmailService) ResolveRecipientLocale(ctx context.Context, u
 			return normalizeNotificationLocale(locale)
 		}
 	}
-	return notificationEmailDefaultLocale
+	if locale, err := s.settingRepo.GetValue(ctx, SettingKeyNotificationEmailDefaultLocale); err == nil && strings.TrimSpace(locale) != "" {
+		return normalizeNotificationLocale(locale)
+	}
+	return notificationEmailConfiguredDefaultLocale
 }
 
 func (s *NotificationEmailService) IsUnsubscribed(ctx context.Context, email, event string) (bool, error) {
@@ -764,7 +771,9 @@ func renderNotificationEmailString(event, raw string, variables map[string]strin
 }
 
 func notificationEmailRawHTMLAllowed(event, placeholder string) bool {
-	return event == NotificationEmailEventOpsScheduledReport && placeholder == "report_html"
+	return (event == NotificationEmailEventOpsScheduledReport && placeholder == "report_html") ||
+		(event == NotificationEmailEventSubscriptionExpiredAdmin && placeholder == "expired_subscriptions") ||
+		(event == NotificationEmailEventAccountPoolUnavailable && placeholder == "accounts")
 }
 
 func notificationEmailAllowedPlaceholderSet(event string) map[string]struct{} {
@@ -898,97 +907,107 @@ func isSafeNotificationEmailURL(raw string) bool {
 func notificationEmailSampleVariables(locale string) map[string]string {
 	if normalizeNotificationLocale(locale) == notificationEmailLocaleChinese {
 		variables := map[string]string{
-			"site_name":           defaultSiteName,
-			"recipient_name":      "张三",
-			"recipient_email":     "user@example.com",
-			"verification_code":   "123456",
-			"expires_in_minutes":  "15",
-			"reset_url":           "https://example.com/reset-password?token=preview",
-			"subscription_group":  "Claude Pro",
-			"subscription_days":   "30",
-			"expiry_time":         "2026-06-18 12:00",
-			"days_remaining":      "3",
-			"current_balance":     "12.34",
-			"threshold":           "20.00",
-			"recharge_url":        "https://example.com/recharge",
-			"recharge_amount":     "50.00",
-			"order_id":            "1024",
-			"unsubscribe_url":     "https://example.com/unsubscribe",
-			"account_id":          "1001",
-			"account_name":        "openai-main",
-			"platform":            "openai",
-			"quota_dimension":     "每日额度",
-			"quota_used":          "80.00",
-			"quota_limit":         "100.00",
-			"quota_remaining":     "20.00",
-			"quota_threshold":     "20%",
-			"triggered_at":        "2026-05-20 12:00:00",
-			"group_name":          "默认分组",
-			"moderation_category": "violence",
-			"moderation_score":    "0.982",
-			"violation_count":     "2",
-			"ban_threshold":       "3",
-			"rule_name":           "错误率过高",
-			"severity":            "critical",
-			"alert_status":        "firing",
-			"metric_type":         "error_rate",
-			"operator":            ">=",
-			"metric_value":        "12.50",
-			"threshold_value":     "10.00",
-			"alert_description":   "最近 10 分钟错误率超过阈值",
-			"report_name":         "日报",
-			"report_type":         "daily_summary",
-			"report_start_time":   "2026-07-18T01:00:26Z",
-			"report_end_time":     "2026-07-19T01:00:26Z",
-			"report_html":         "<h2>日报</h2><p>请求量：2,374</p>",
+			"site_name":             defaultSiteName,
+			"recipient_name":        "张三",
+			"recipient_email":       "user@example.com",
+			"verification_code":     "123456",
+			"expires_in_minutes":    "15",
+			"reset_url":             "https://example.com/reset-password?token=preview",
+			"subscription_group":    "Claude Pro",
+			"expired_count":         "2",
+			"expired_subscriptions": "<table><tbody><tr><td>user@example.com</td></tr></tbody></table>",
+			"subscription_days":     "30",
+			"expiry_time":           "2026-06-18 12:00",
+			"days_remaining":        "3",
+			"current_balance":       "12.34",
+			"threshold":             "20.00",
+			"recharge_url":          "https://example.com/recharge",
+			"recharge_amount":       "50.00",
+			"order_id":              "1024",
+			"unsubscribe_url":       "https://example.com/unsubscribe",
+			"account_id":            "1001",
+			"account_name":          "openai-main",
+			"platform":              "openai",
+			"quota_dimension":       "每日额度",
+			"quota_used":            "80.00",
+			"quota_limit":           "100.00",
+			"quota_remaining":       "20.00",
+			"quota_threshold":       "20%",
+			"account_count":         "2",
+			"checked_at":            "2026-07-01 10:00:00",
+			"accounts":              "<table><tbody><tr><td>openai-main</td></tr></tbody></table>",
+			"triggered_at":          "2026-05-20 12:00:00",
+			"group_name":            "默认分组",
+			"moderation_category":   "violence",
+			"moderation_score":      "0.982",
+			"violation_count":       "2",
+			"ban_threshold":         "3",
+			"rule_name":             "错误率过高",
+			"severity":              "critical",
+			"alert_status":          "firing",
+			"metric_type":           "error_rate",
+			"operator":              ">=",
+			"metric_value":          "12.50",
+			"threshold_value":       "10.00",
+			"alert_description":     "最近 10 分钟错误率超过阈值",
+			"report_name":           "日报",
+			"report_type":           "daily_summary",
+			"report_start_time":     "2026-05-19 12:00",
+			"report_end_time":       "2026-05-20 12:00",
+			"report_html":           "<h2>日报</h2><p>请求量：1024</p>",
 		}
 		addNotificationEmailOpsSummarySampleVariables(variables)
 		return variables
 	}
 	variables := map[string]string{
-		"site_name":           defaultSiteName,
-		"recipient_name":      "Alex",
-		"recipient_email":     "user@example.com",
-		"verification_code":   "123456",
-		"expires_in_minutes":  "15",
-		"reset_url":           "https://example.com/reset-password?token=preview",
-		"subscription_group":  "Claude Pro",
-		"subscription_days":   "30",
-		"expiry_time":         "2026-06-18 12:00",
-		"days_remaining":      "3",
-		"current_balance":     "12.34",
-		"threshold":           "20.00",
-		"recharge_url":        "https://example.com/recharge",
-		"recharge_amount":     "50.00",
-		"order_id":            "1024",
-		"unsubscribe_url":     "https://example.com/unsubscribe",
-		"account_id":          "1001",
-		"account_name":        "openai-main",
-		"platform":            "openai",
-		"quota_dimension":     "Daily quota",
-		"quota_used":          "80.00",
-		"quota_limit":         "100.00",
-		"quota_remaining":     "20.00",
-		"quota_threshold":     "20%",
-		"triggered_at":        "2026-05-20 12:00:00",
-		"group_name":          "Default group",
-		"moderation_category": "violence",
-		"moderation_score":    "0.982",
-		"violation_count":     "2",
-		"ban_threshold":       "3",
-		"rule_name":           "High error rate",
-		"severity":            "critical",
-		"alert_status":        "firing",
-		"metric_type":         "error_rate",
-		"operator":            ">=",
-		"metric_value":        "12.50",
-		"threshold_value":     "10.00",
-		"alert_description":   "Error rate exceeded threshold in the last 10 minutes.",
-		"report_name":         "Daily summary",
-		"report_type":         "daily_summary",
-		"report_start_time":   "2026-07-18T01:00:26Z",
-		"report_end_time":     "2026-07-19T01:00:26Z",
-		"report_html":         "<h2>Daily summary</h2><p>Requests: 2,374</p>",
+		"site_name":             defaultSiteName,
+		"recipient_name":        "Alex",
+		"recipient_email":       "user@example.com",
+		"verification_code":     "123456",
+		"expires_in_minutes":    "15",
+		"reset_url":             "https://example.com/reset-password?token=preview",
+		"subscription_group":    "Claude Pro",
+		"expired_count":         "2",
+		"expired_subscriptions": "<table><tbody><tr><td>user@example.com</td></tr></tbody></table>",
+		"subscription_days":     "30",
+		"expiry_time":           "2026-06-18 12:00",
+		"days_remaining":        "3",
+		"current_balance":       "12.34",
+		"threshold":             "20.00",
+		"recharge_url":          "https://example.com/recharge",
+		"recharge_amount":       "50.00",
+		"order_id":              "1024",
+		"unsubscribe_url":       "https://example.com/unsubscribe",
+		"account_id":            "1001",
+		"account_name":          "openai-main",
+		"platform":              "openai",
+		"quota_dimension":       "Daily quota",
+		"quota_used":            "80.00",
+		"quota_limit":           "100.00",
+		"quota_remaining":       "20.00",
+		"quota_threshold":       "20%",
+		"account_count":         "2",
+		"checked_at":            "2026-07-01 10:00:00",
+		"accounts":              "<table><tbody><tr><td>openai-main</td></tr></tbody></table>",
+		"triggered_at":          "2026-05-20 12:00:00",
+		"group_name":            "Default group",
+		"moderation_category":   "violence",
+		"moderation_score":      "0.982",
+		"violation_count":       "2",
+		"ban_threshold":         "3",
+		"rule_name":             "High error rate",
+		"severity":              "critical",
+		"alert_status":          "firing",
+		"metric_type":           "error_rate",
+		"operator":              ">=",
+		"metric_value":          "12.50",
+		"threshold_value":       "10.00",
+		"alert_description":     "Error rate exceeded threshold in the last 10 minutes.",
+		"report_name":           "Daily summary",
+		"report_type":           "daily_summary",
+		"report_start_time":     "2026-05-19 12:00",
+		"report_end_time":       "2026-05-20 12:00",
+		"report_html":           "<h2>Daily summary</h2><p>Requests: 1024</p>",
 	}
 	addNotificationEmailOpsSummarySampleVariables(variables)
 	return variables
@@ -1026,9 +1045,12 @@ var notificationEmailEventOrder = []string{
 	NotificationEmailEventNotificationEmailVerifyCode,
 	NotificationEmailEventSubscriptionPurchaseSuccess,
 	NotificationEmailEventSubscriptionExpiryReminder,
+	NotificationEmailEventSubscriptionExpiredAdmin,
+	NotificationEmailEventAnnouncementPublish,
 	NotificationEmailEventBalanceLow,
 	NotificationEmailEventBalanceRechargeSuccess,
 	NotificationEmailEventAccountQuotaAlert,
+	NotificationEmailEventAccountPoolUnavailable,
 	NotificationEmailEventContentModerationViolation,
 	NotificationEmailEventContentModerationDisabled,
 	NotificationEmailEventCyberPolicyNotice,
@@ -1077,6 +1099,24 @@ var notificationEmailEventDefinitions = map[string]NotificationEmailEventInfo{
 		Optional:     true,
 		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...), "subscription_group", "expiry_time", "days_remaining", "unsubscribe_url"),
 	},
+	NotificationEmailEventSubscriptionExpiredAdmin: {
+		Event:       NotificationEmailEventSubscriptionExpiredAdmin,
+		Label:       "Subscription expired admin alert",
+		Description: "Sent to configured admin notification emails after a subscription expires.",
+		Category:    "admin",
+		Optional:    false,
+		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...),
+			"subscription_id", "subscription_group", "user_id", "user_email", "user_name", "expiry_time", "expired_count", "expired_subscriptions"),
+	},
+	NotificationEmailEventAnnouncementPublish: {
+		Event:       NotificationEmailEventAnnouncementPublish,
+		Label:       "Announcement email push",
+		Description: "Optional email push sent to selected users or all active users when an admin saves an announcement.",
+		Category:    "announcement",
+		Optional:    false,
+		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...),
+			"announcement_id", "announcement_title", "announcement_content", "announcement_url"),
+	},
 	NotificationEmailEventBalanceLow: {
 		Event:        NotificationEmailEventBalanceLow,
 		Label:        "Low balance alert",
@@ -1101,6 +1141,15 @@ var notificationEmailEventDefinitions = map[string]NotificationEmailEventInfo{
 		Optional:    false,
 		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...),
 			"account_id", "account_name", "platform", "quota_dimension", "quota_used", "quota_limit", "quota_remaining", "quota_threshold"),
+	},
+	NotificationEmailEventAccountPoolUnavailable: {
+		Event:       NotificationEmailEventAccountPoolUnavailable,
+		Label:       "Account pool unavailable alert",
+		Description: "Sent to configured admin notification emails when no account remains schedulable.",
+		Category:    "admin",
+		Optional:    false,
+		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...),
+			"account_count", "checked_at", "accounts"),
 	},
 	NotificationEmailEventContentModerationViolation: {
 		Event:       NotificationEmailEventContentModerationViolation,
@@ -1254,6 +1303,42 @@ var notificationEmailOfficialTemplates = map[string]map[string]notificationEmail
 <p class="muted"><a href="{{unsubscribe_url}}">退订此类订阅提醒</a></p>`),
 		},
 	},
+	NotificationEmailEventSubscriptionExpiredAdmin: {
+		notificationEmailDefaultLocale: {
+			Subject: "[{{site_name}}] {{expired_count}} subscription(s) expired",
+			HTML: notificationEmailCard("#dc2626", "Subscriptions expired", `
+<p>Hello {{recipient_name}},</p>
+<p><strong>{{expired_count}}</strong> user subscription(s) expired in the last aggregation window.</p>
+{{expired_subscriptions}}`),
+		},
+		notificationEmailLocaleChinese: {
+			Subject: "[{{site_name}}] {{expired_count}} 个订阅已过期",
+			HTML: notificationEmailCard("#dc2626", "订阅已过期", `
+<p>{{recipient_name}}，您好：</p>
+<p>最近一个聚合窗口内有 <strong>{{expired_count}}</strong> 个用户订阅已过期。</p>
+{{expired_subscriptions}}`),
+		},
+	},
+	NotificationEmailEventAnnouncementPublish: {
+		notificationEmailDefaultLocale: {
+			Subject: "[{{site_name}}] {{announcement_title}}",
+			HTML: notificationEmailCard("#2563eb", "Announcement", `
+<p>Hello {{recipient_name}},</p>
+<p>A new announcement has been published:</p>
+<p><strong>{{announcement_title}}</strong></p>
+<p style="white-space: pre-wrap;">{{announcement_content}}</p>
+<p><a class="button" href="{{announcement_url}}">View announcement</a></p>`),
+		},
+		notificationEmailLocaleChinese: {
+			Subject: "[{{site_name}}] {{announcement_title}}",
+			HTML: notificationEmailCard("#2563eb", "系统公告", `
+<p>{{recipient_name}}，您好：</p>
+<p>有一条新的系统公告：</p>
+<p><strong>{{announcement_title}}</strong></p>
+<p style="white-space: pre-wrap;">{{announcement_content}}</p>
+<p><a class="button" href="{{announcement_url}}">查看公告</a></p>`),
+		},
+	},
 	NotificationEmailEventBalanceLow: {
 		notificationEmailDefaultLocale: {
 			Subject: "[{{site_name}}] Low balance alert",
@@ -1318,6 +1403,24 @@ var notificationEmailOfficialTemplates = map[string]map[string]notificationEmail
   <tr><td>剩余额度</td><td>{{quota_remaining}}</td></tr>
   <tr><td>告警阈值</td><td>{{quota_threshold}}</td></tr>
 </table>`),
+		},
+	},
+	NotificationEmailEventAccountPoolUnavailable: {
+		notificationEmailDefaultLocale: {
+			Subject: "[{{site_name}}] All upstream accounts unavailable",
+			HTML: notificationEmailCard("#b91c1c", "All accounts unavailable", `
+<p>No upstream account is currently schedulable. API requests may fail until at least one account returns to normal.</p>
+<p>Checked at: <strong>{{checked_at}}</strong></p>
+<p>Total accounts checked: <strong>{{account_count}}</strong></p>
+{{accounts}}`),
+		},
+		notificationEmailLocaleChinese: {
+			Subject: "[{{site_name}}] 所有上游账号均不可调度",
+			HTML: notificationEmailCard("#b91c1c", "所有账号不可用", `
+<p>当前没有任何上游账号处于可调度状态，API 请求可能会失败，请尽快检查账号状态。</p>
+<p>检查时间：<strong>{{checked_at}}</strong></p>
+<p>检查账号数：<strong>{{account_count}}</strong></p>
+{{accounts}}`),
 		},
 	},
 	NotificationEmailEventContentModerationViolation: {

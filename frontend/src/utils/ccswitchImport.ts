@@ -63,11 +63,18 @@ export function resolveCcSwitchImportConfig(
 
 export function buildCcSwitchImportDeeplink(input: CcSwitchImportDeeplinkInput): string {
   const config = resolveCcSwitchImportConfig(input.platform, input.clientType, input.baseUrl)
+  const homepage = (() => {
+    try {
+      return new URL(input.baseUrl).origin
+    } catch {
+      return input.baseUrl.replace(/\/+$/, '')
+    }
+  })()
   const entries: [string, string][] = [
     ['resource', 'provider'],
     ['app', config.app],
     ['name', input.providerName],
-    ['homepage', input.baseUrl],
+    ['homepage', homepage],
     ['endpoint', config.endpoint],
     ['apiKey', input.apiKey],
     ['configFormat', 'json'],

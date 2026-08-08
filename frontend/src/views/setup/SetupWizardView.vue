@@ -595,7 +595,7 @@ async function testDatabaseConnection() {
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string }
     errorMessage.value =
-      err.response?.data?.detail || err.response?.data?.message || err.message || 'Connection failed'
+      err.response?.data?.detail || err.response?.data?.message || err.message || t('setup.status.connectionFailed')
   } finally {
     testingDb.value = false
   }
@@ -612,7 +612,7 @@ async function testRedisConnection() {
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string }
     errorMessage.value =
-      err.response?.data?.detail || err.response?.data?.message || err.message || 'Connection failed'
+      err.response?.data?.detail || err.response?.data?.message || err.message || t('setup.status.connectionFailed')
   } finally {
     testingRedis.value = false
   }
@@ -637,7 +637,7 @@ async function performInstall() {
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string }
     errorMessage.value =
-      err.response?.data?.detail || err.response?.data?.message || err.message || 'Installation failed'
+      err.response?.data?.detail || err.response?.data?.message || err.message || t('setup.status.installationFailed')
   } finally {
     installing.value = false
   }

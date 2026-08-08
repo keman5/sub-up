@@ -21,6 +21,12 @@ const (
 )
 
 const (
+	AnnouncementEmailPushModeNone     = "none"
+	AnnouncementEmailPushModeAll      = "all"
+	AnnouncementEmailPushModeSelected = "selected"
+)
+
+const (
 	AnnouncementConditionTypeSubscription = domain.AnnouncementConditionTypeSubscription
 	AnnouncementConditionTypeBalance      = domain.AnnouncementConditionTypeBalance
 )

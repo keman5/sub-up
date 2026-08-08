@@ -17,7 +17,7 @@
             v-model="filters.status"
             :options="filterStatusOptions"
             class="w-36"
-            @change="loadCodes"
+            @change="applyCodeFilters"
           />
 
           <!-- Right: Action buttons -->
@@ -391,6 +391,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { adminAPI } from '@/api/admin'
 import { formatDateTime, formatDateTimeLocalInput } from '@/utils/format'
 import type { PromoCode, PromoCodeUsage } from '@/types'
@@ -428,6 +429,13 @@ const pagination = reactive({
 const sortState = reactive({
   sort_by: 'created_at',
   sort_order: 'desc' as 'asc' | 'desc'
+})
+
+const promoRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'search', get: () => searchQuery.value, set: (value) => { searchQuery.value = value }, defaultValue: '' },
+    { queryKey: 'status', get: () => filters.status, set: (value) => { filters.status = value }, defaultValue: '', defaultQueryValue: 'all' },
+  ],
 })
 
 // Dialogs
@@ -512,6 +520,7 @@ const getStatusLabel = (status: string, row: PromoCode) => {
 let abortController: AbortController | null = null
 
 const loadCodes = async () => {
+  void promoRouteQuerySync.syncToRoute()
   if (abortController) {
     abortController.abort()
   }
@@ -558,9 +567,13 @@ let searchTimeout: ReturnType<typeof setTimeout>
 const handleSearch = () => {
   clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => {
-    pagination.page = 1
-    loadCodes()
+    applyCodeFilters()
   }, 300)
+}
+
+const applyCodeFilters = () => {
+  pagination.page = 1
+  loadCodes()
 }
 
 const handlePageChange = (page: number) => {
@@ -737,6 +750,7 @@ const handleUsagesPageChange = (page: number) => {
 }
 
 onMounted(() => {
+  promoRouteQuerySync.restoreFromRoute()
   loadCodes()
 })
 

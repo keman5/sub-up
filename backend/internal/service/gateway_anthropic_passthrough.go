@@ -536,6 +536,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			}
 
 			line := ev.line
+			clientLine := line
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
 				observer.ObserveAnthropic([]byte(trimmed))
@@ -546,6 +547,26 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
 				}
+				if trimmed != "" && trimmed != "[DONE]" {
+					multiplier := ResolveGatewayResponsePresentationMultiplier(
+						c,
+						claudeUsageInputTokensFromBytes([]byte(data)),
+						claudeUsageOutputTokensFromBytes([]byte(data)),
+						claudeUsageCacheCreationTokensFromBytes([]byte(data)),
+						claudeUsageCacheReadTokensFromBytes([]byte(data)),
+						claudeUsageImageOutputTokensFromBytes([]byte(data)),
+					)
+					var event map[string]any
+					if err := json.Unmarshal([]byte(data), &event); err == nil {
+						if patch := s.extractSSEUsagePatch(event); patch != nil {
+							multiplier = resolveClaudeUsagePatchPresentationMultiplier(gatewayResponsePresentationGroup(c), usage, patch)
+						}
+					}
+					clientData := rewriteClaudeUsageForPresentation([]byte(data), multiplier)
+					if !bytes.Equal(clientData, []byte(data)) {
+						clientLine = "data: " + string(clientData)
+					}
+				}
 				s.parseSSEUsagePassthrough(data, usage)
 			} else {
 				trimmed := strings.TrimSpace(line)
@@ -555,7 +576,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			}
 
 			if !clientDisconnected {
-				restored := string(reverseToolNamesIfPresent(c, []byte(line)))
+				restored := string(reverseToolNamesIfPresent(c, []byte(clientLine)))
 				if _, err := io.WriteString(w, restored); err != nil {
 					clientDisconnected = true
 					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
@@ -638,6 +659,7 @@ func (s *GatewayService) parseSSEUsagePassthrough(data string, usage *ClaudeUsag
 			usage.InputTokens = int(msgUsage.Get("input_tokens").Int())
 			usage.CacheCreationInputTokens = int(msgUsage.Get("cache_creation_input_tokens").Int())
 			usage.CacheReadInputTokens = int(msgUsage.Get("cache_read_input_tokens").Int())
+			usage.ImageOutputTokens = int(msgUsage.Get("image_output_tokens").Int())
 
 			// 保持与通用解析一致：message_start 允许覆盖 5m/1h 明细（包括 0）。
 			cc5m := msgUsage.Get("cache_creation.ephemeral_5m_input_tokens")
@@ -655,6 +677,9 @@ func (s *GatewayService) parseSSEUsagePassthrough(data string, usage *ClaudeUsag
 			}
 			if v := deltaUsage.Get("output_tokens").Int(); v > 0 {
 				usage.OutputTokens = int(v)
+			}
+			if v := deltaUsage.Get("image_output_tokens").Int(); v > 0 {
+				usage.ImageOutputTokens = int(v)
 			}
 			if v := deltaUsage.Get("cache_creation_input_tokens").Int(); v > 0 {
 				usage.CacheCreationInputTokens = int(v)
@@ -712,6 +737,7 @@ func parseClaudeUsageFromResponseBody(body []byte) *ClaudeUsage {
 	usage.OutputTokens = int(usageNode.Get("output_tokens").Int())
 	usage.CacheCreationInputTokens = int(usageNode.Get("cache_creation_input_tokens").Int())
 	usage.CacheReadInputTokens = int(usageNode.Get("cache_read_input_tokens").Int())
+	usage.ImageOutputTokens = int(usageNode.Get("image_output_tokens").Int())
 
 	cc5m := usageNode.Get("cache_creation.ephemeral_5m_input_tokens").Int()
 	cc1h := usageNode.Get("cache_creation.ephemeral_1h_input_tokens").Int()
@@ -816,6 +842,14 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 		contentType = "application/json"
 	}
 	body = reverseToolNamesIfPresent(c, body)
+	body = rewriteClaudeUsageForPresentation(body, ResolveGatewayResponsePresentationMultiplier(
+		c,
+		usage.InputTokens,
+		usage.OutputTokens,
+		usage.CacheCreationInputTokens,
+		usage.CacheReadInputTokens,
+		usage.ImageOutputTokens,
+	))
 	c.Data(resp.StatusCode, contentType, body)
 	return usage, nil
 }

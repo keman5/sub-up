@@ -95,6 +95,7 @@ import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { BatchUpdateUserLimitsRequest } from '@/api/admin/users'
 import { useAppStore } from '@/stores/app'
+import { useAppDialog } from '@/composables/useAppDialog'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Toggle from '@/components/common/Toggle.vue'
 
@@ -110,6 +111,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const appDialog = useAppDialog()
 const enableConcurrency = ref(false)
 const enableRPMLimit = ref(false)
 const concurrencyValue = ref<string | number>('')
@@ -185,7 +187,7 @@ const handleSubmit = async () => {
     )
   }
 
-  const confirmed = window.confirm(
+  const confirmed = await appDialog.confirm(
     t('admin.users.bulkLimits.confirm', {
       count: props.selectedIds.length,
       fields: fields.join(', ')

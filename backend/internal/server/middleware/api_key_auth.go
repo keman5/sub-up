@@ -9,6 +9,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -157,6 +158,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
 			return
 		}
+		c.Request = c.Request.WithContext(service.WithOpenAIFastPolicyUserID(c.Request.Context(), apiKey.User.ID))
 		if abortIfAPIKeyGroupUnavailable(c, apiKey) {
 			return
 		}
@@ -237,25 +239,42 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			// 订阅模式：验证订阅限额
 			if subscription != nil {
 				needsMaintenance, validateErr := subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
-				if needsMaintenance {
+				if needsMaintenance && validateErr == nil {
 					refreshed, maintenanceErr := subscriptionService.EnsureWindowMaintenance(c.Request.Context(), subscription)
 					if maintenanceErr != nil {
-						AbortWithError(c, 500, "SUBSCRIPTION_MAINTENANCE_FAILED", "Failed to maintain subscription usage windows")
+						AbortWithError(c, http.StatusServiceUnavailable, "SUBSCRIPTION_MAINTENANCE_FAILED", "Failed to maintain subscription usage windows")
 						return
 					}
 					subscription = refreshed
 					_, validateErr = subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
 				}
 				if validateErr != nil {
-					code := "SUBSCRIPTION_INVALID"
-					status := 403
-					if errors.Is(validateErr, service.ErrDailyLimitExceeded) ||
-						errors.Is(validateErr, service.ErrWeeklyLimitExceeded) ||
-						errors.Is(validateErr, service.ErrMonthlyLimitExceeded) {
-						code = "USAGE_LIMIT_EXCEEDED"
-						status = 429
+					if fallback, fallbackErr := subscriptionService.ResolveQuotaFallback(c.Request.Context(), apiKey.User.ID, apiKey.Group, validateErr); fallbackErr == nil && fallback != nil && fallback.Group != nil && fallback.Subscription != nil {
+						fallbackAPIKey := *apiKey
+						fallbackGroupID := fallback.Group.ID
+						fallbackAPIKey.GroupID = &fallbackGroupID
+						fallbackAPIKey.Group = fallback.Group
+						apiKey = &fallbackAPIKey
+						subscription = fallback.Subscription
+						if fallback.NeedsMaintenance {
+							maintenanceCopy := *fallback.Subscription
+							subscriptionService.DoWindowMaintenance(&maintenanceCopy)
+						}
+						goto billingValidated
 					}
-					AbortWithError(c, status, code, validateErr.Error())
+					code := pkgerrors.Reason(validateErr)
+					if code == "" {
+						code = "SUBSCRIPTION_INVALID"
+					}
+					status := pkgerrors.Code(validateErr)
+					if status < http.StatusBadRequest {
+						status = http.StatusForbidden
+					}
+					message := pkgerrors.Message(validateErr)
+					if message == "" {
+						message = "Subscription is not available"
+					}
+					AbortWithError(c, status, code, message)
 					return
 				}
 			} else {
@@ -266,6 +285,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 				}
 			}
 		}
+	billingValidated:
 
 		// ── 7. 设置上下文 → Next ─────────────────────────────────────
 

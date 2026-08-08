@@ -141,6 +141,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useAppDialog } from '@/composables/useAppDialog'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import type { PromptAuditEndpointDraft, PromptProbeResult } from '../types'
 import { cloneData, createDefaultEndpoint } from '../viewModel'
@@ -155,6 +156,7 @@ const emit = defineEmits<{
   (event: 'probe', endpoint: PromptAuditEndpointDraft): void
 }>()
 const { t } = useI18n()
+const appDialog = useAppDialog()
 const editing = ref<PromptAuditEndpointDraft | null>(null)
 const editingIndex = ref(-1)
 
@@ -183,8 +185,8 @@ function saveEditor() {
 function toggleEndpoint(id: string) {
   emit('update:endpoints', props.endpoints.map((item) => item.id === id ? { ...item, enabled: !item.enabled } : cloneData(item)))
 }
-function removeEndpoint(endpoint: PromptAuditEndpointDraft) {
-  if (!window.confirm(t('admin.promptAudit.pool.deleteConfirm', { name: endpoint.name }))) return
+async function removeEndpoint(endpoint: PromptAuditEndpointDraft) {
+  if (!(await appDialog.confirm(t('admin.promptAudit.pool.deleteConfirm', { name: endpoint.name })))) return
   emit('update:endpoints', props.endpoints.filter((item) => item.id !== endpoint.id).map((item) => cloneData(item)))
 }
 function hasCredential(endpoint: PromptAuditEndpointDraft): boolean {

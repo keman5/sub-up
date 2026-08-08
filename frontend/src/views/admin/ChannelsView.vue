@@ -25,7 +25,7 @@
               :options="statusFilterOptions"
               :placeholder="t('admin.channels.allStatus', 'All Status')"
               class="w-40"
-              @change="loadChannels"
+              @change="applyChannelFilters"
             />
           </div>
 
@@ -628,6 +628,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
 import type { Channel, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
@@ -729,6 +730,13 @@ const pagination = reactive({
 const sortState = reactive({
   sort_by: 'created_at',
   sort_order: 'desc' as 'asc' | 'desc'
+})
+
+const channelRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'search', get: () => searchQuery.value, set: (value) => { searchQuery.value = value }, defaultValue: '' },
+    { queryKey: 'status', get: () => filters.status, set: (value) => { filters.status = value }, defaultValue: '', defaultQueryValue: 'all' },
+  ],
 })
 
 // Dialog state
@@ -1240,6 +1248,7 @@ function apiToForm(channel: Channel): PlatformSection[] {
 
 // ── Load data ──
 async function loadChannels() {
+  void channelRouteQuerySync.syncToRoute()
   if (abortController) abortController.abort()
   const ctrl = new AbortController()
   abortController = ctrl
@@ -1293,9 +1302,13 @@ let searchTimeout: ReturnType<typeof setTimeout>
 function handleSearch() {
   clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => {
-    pagination.page = 1
-    loadChannels()
+    applyChannelFilters()
   }, 300)
+}
+
+function applyChannelFilters() {
+  pagination.page = 1
+  loadChannels()
 }
 
 function handlePageChange(page: number) {
@@ -1608,6 +1621,7 @@ async function confirmDelete() {
 
 // ── Lifecycle ──
 onMounted(() => {
+  channelRouteQuerySync.restoreFromRoute()
   loadChannels()
   loadGroups()
   loadWebSearchGlobalState()

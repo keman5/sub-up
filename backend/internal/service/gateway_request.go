@@ -290,8 +290,9 @@ type ParsedRequest struct {
 	messagesRange jsonRange // messages/contents 的 raw JSON 范围，绑定 Body 当前内容
 	inputRange    jsonRange // Responses API input 的 raw JSON 范围，绑定 Body 当前内容
 
-	// GroupID 请求所属分组 ID（来自 API Key）
+	// GroupID/Group 请求所属分组（来自 API Key）
 	GroupID *int64
+	Group   *Group
 
 	// OnUpstreamAccepted 上游接受请求后立即调用（用于提前释放串行锁）
 	// 流式请求在收到 2xx 响应头后调用，避免持锁等流完成

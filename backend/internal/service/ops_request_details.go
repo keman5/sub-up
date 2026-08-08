@@ -32,6 +32,9 @@ type OpsRequestDetail struct {
 	Severity string `json:"severity,omitempty"`
 	Message  string `json:"message,omitempty"`
 
+	SubscriptionID        *int64 `json:"subscription_id,omitempty"`
+	SubscriptionGroupName string `json:"subscription_group_name,omitempty"`
+
 	UserID    *int64 `json:"user_id,omitempty"`
 	APIKeyID  *int64 `json:"api_key_id,omitempty"`
 	AccountID *int64 `json:"account_id,omitempty"`

@@ -69,7 +69,6 @@ vi.mock('@/api/auth', async () => {
     persistOAuthTokenContext: vi.fn(),
   }
 })
-
 vi.mock('@/composables/useClipboard', () => ({
   useClipboard: () => ({
     copyToClipboard: (...args: any[]) => copyToClipboardMock(...args),

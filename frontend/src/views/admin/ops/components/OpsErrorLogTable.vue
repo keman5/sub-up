@@ -165,6 +165,7 @@
       </DataTable>
     </div>
 
+
     <div class="flex-shrink-0">
       <Pagination
         v-if="total > 0"
@@ -174,6 +175,7 @@
         @update:page="emit('update:page', $event)"
         @update:pageSize="emit('update:pageSize', $event)"
       />
+
     </div>
   </div>
 </template>

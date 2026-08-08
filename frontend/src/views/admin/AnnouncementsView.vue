@@ -215,6 +215,57 @@
           v-model="form.targeting"
           :groups="subscriptionGroups"
         />
+
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-700">
+          <label class="input-label">{{ t('admin.announcements.form.emailPush') }}</label>
+          <Select v-model="form.email_push_mode" :options="emailPushModeOptions" />
+          <p class="input-hint">{{ t('admin.announcements.form.emailPushHint') }}</p>
+
+          <div v-if="form.email_push_mode === 'selected'" class="mt-3 space-y-3">
+            <div class="relative">
+              <input
+                v-model="emailPushUserSearch"
+                type="text"
+                class="input"
+                :placeholder="t('admin.announcements.form.emailPushUserPlaceholder')"
+                @input="handleEmailPushUserSearch"
+                @focus="handleEmailPushUserSearch"
+              />
+              <div
+                v-if="showEmailPushUserDropdown && emailPushUserResults.length > 0"
+                class="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border border-gray-200 bg-white shadow-lg dark:border-dark-700 dark:bg-dark-800"
+              >
+                <button
+                  v-for="user in emailPushUserResults"
+                  :key="user.id"
+                  type="button"
+                  class="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-dark-700"
+                  @click="addEmailPushUser(user)"
+                >
+                  <span class="truncate text-gray-900 dark:text-white">{{ user.email }}</span>
+                  <span class="ml-3 shrink-0 text-xs text-gray-500 dark:text-dark-400">#{{ user.id }}</span>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="form.email_push_users.length > 0" class="flex flex-wrap gap-2">
+              <span
+                v-for="user in form.email_push_users"
+                :key="user.id"
+                class="inline-flex items-center gap-1 rounded-full bg-primary-50 px-2.5 py-1 text-sm text-primary-700 dark:bg-primary-900/30 dark:text-primary-200"
+              >
+                <span>{{ user.email }}</span>
+                <button
+                  type="button"
+                  class="text-primary-500 hover:text-primary-700 dark:text-primary-300 dark:hover:text-primary-100"
+                  @click="removeEmailPushUser(user.id)"
+                >
+                  <Icon name="x" size="xs" class="h-3 w-3" />
+                </button>
+              </span>
+            </div>
+          </div>
+        </div>
       </form>
 
       <template #footer>
@@ -261,9 +312,10 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { adminAPI } from '@/api/admin'
 import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
-import type { AdminGroup, Announcement, AnnouncementTargeting } from '@/types'
+import type { AdminGroup, AdminUser, Announcement, AnnouncementEmailPushMode, AnnouncementTargeting } from '@/types'
 import type { Column } from '@/components/common/types'
 
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -303,6 +355,13 @@ const sortState = reactive({
   sort_order: 'desc' as 'asc' | 'desc'
 })
 
+const announcementRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'search', get: () => searchQuery.value, set: (value) => { searchQuery.value = value }, defaultValue: '' },
+    { queryKey: 'status', get: () => filters.status, set: (value) => { filters.status = value }, defaultValue: '', defaultQueryValue: 'all' },
+  ],
+})
+
 const statusFilterOptions = computed(() => [
   { value: '', label: t('admin.announcements.allStatus') },
   { value: 'draft', label: t('admin.announcements.statusLabels.draft') },
@@ -319,6 +378,12 @@ const statusOptions = computed(() => [
 const notifyModeOptions = computed(() => [
   { value: 'silent', label: t('admin.announcements.notifyModeLabels.silent') },
   { value: 'popup', label: t('admin.announcements.notifyModeLabels.popup') }
+])
+
+const emailPushModeOptions = computed(() => [
+  { value: 'none', label: t('admin.announcements.emailPushModeLabels.none') },
+  { value: 'all', label: t('admin.announcements.emailPushModeLabels.all') },
+  { value: 'selected', label: t('admin.announcements.emailPushModeLabels.selected') }
 ])
 
 const columns = computed<Column[]>(() => [
@@ -348,6 +413,7 @@ const targetingSummary = (targeting: AnnouncementTargeting) => {
 let currentController: AbortController | null = null
 
 async function loadAnnouncements() {
+  void announcementRouteQuerySync.syncToRoute()
   currentController?.abort()
   const requestController = new AbortController()
   currentController = requestController
@@ -430,14 +496,20 @@ const isEditing = computed(() => !!editingAnnouncement.value)
 const form = reactive({
   title: '',
   content: '',
-  status: 'draft',
-  notify_mode: 'silent',
+  status: 'active',
+  notify_mode: 'popup',
   starts_at_str: '',
   ends_at_str: '',
-  targeting: { any_of: [] } as AnnouncementTargeting
+  targeting: { any_of: [] } as AnnouncementTargeting,
+  email_push_mode: 'none' as AnnouncementEmailPushMode,
+  email_push_users: [] as AdminUser[]
 })
 
 const subscriptionGroups = ref<AdminGroup[]>([])
+const emailPushUserSearch = ref('')
+const emailPushUserResults = ref<AdminUser[]>([])
+const showEmailPushUserDropdown = ref(false)
+let emailPushUserSearchTimeout: number | null = null
 
 async function loadSubscriptionGroups() {
   try {
@@ -452,11 +524,16 @@ async function loadSubscriptionGroups() {
 function resetForm() {
   form.title = ''
   form.content = ''
-  form.status = 'draft'
-  form.notify_mode = 'silent'
+  form.status = 'active'
+  form.notify_mode = 'popup'
   form.starts_at_str = ''
   form.ends_at_str = ''
   form.targeting = { any_of: [] }
+  form.email_push_mode = 'none'
+  form.email_push_users = []
+  emailPushUserSearch.value = ''
+  emailPushUserResults.value = []
+  showEmailPushUserDropdown.value = false
 }
 
 function fillFormFromAnnouncement(a: Announcement) {
@@ -470,6 +547,11 @@ function fillFormFromAnnouncement(a: Announcement) {
   form.ends_at_str = a.ends_at ? formatDateTimeLocalInput(Math.floor(new Date(a.ends_at).getTime() / 1000)) : ''
 
   form.targeting = a.targeting ?? { any_of: [] }
+  form.email_push_mode = 'none'
+  form.email_push_users = []
+  emailPushUserSearch.value = ''
+  emailPushUserResults.value = []
+  showEmailPushUserDropdown.value = false
 }
 
 function openCreateDialog() {
@@ -500,7 +582,11 @@ function buildCreatePayload() {
     notify_mode: form.notify_mode as any,
     targeting: form.targeting,
     starts_at: startsAt ?? undefined,
-    ends_at: endsAt ?? undefined
+    ends_at: endsAt ?? undefined,
+    email_push_mode: form.email_push_mode,
+    email_push_user_ids: form.email_push_mode === 'selected'
+      ? form.email_push_users.map((u) => u.id)
+      : []
   }
 }
 
@@ -530,8 +616,52 @@ function buildUpdatePayload(original: Announcement) {
   if (JSON.stringify(form.targeting ?? {}) !== JSON.stringify(original.targeting ?? {})) {
     payload.targeting = form.targeting
   }
+  payload.email_push_mode = form.email_push_mode
+  payload.email_push_user_ids = form.email_push_mode === 'selected'
+    ? form.email_push_users.map((u) => u.id)
+    : []
 
   return payload
+}
+
+function handleEmailPushUserSearch() {
+  if (emailPushUserSearchTimeout) window.clearTimeout(emailPushUserSearchTimeout)
+  const keyword = emailPushUserSearch.value.trim()
+  if (!keyword) {
+    emailPushUserResults.value = []
+    showEmailPushUserDropdown.value = false
+    return
+  }
+  emailPushUserSearchTimeout = window.setTimeout(async () => {
+    try {
+      const response = await adminAPI.users.list(1, 10, {
+        search: keyword,
+        status: 'active',
+        sort_by: 'email',
+        sort_order: 'asc'
+      })
+      const selected = new Set(form.email_push_users.map((u) => u.id))
+      emailPushUserResults.value = response.items.filter((u) => !selected.has(u.id))
+      showEmailPushUserDropdown.value = true
+    } catch (error) {
+      console.error('Failed to search announcement email push users:', error)
+      emailPushUserResults.value = []
+      showEmailPushUserDropdown.value = false
+    }
+  }, 300)
+}
+
+function addEmailPushUser(user: AdminUser) {
+  if (!form.email_push_users.some((u) => u.id === user.id)) {
+    form.email_push_users.push(user)
+  }
+  emailPushUserSearch.value = ''
+  emailPushUserResults.value = []
+  showEmailPushUserDropdown.value = false
+}
+
+function removeEmailPushUser(userId: number) {
+  form.email_push_users = form.email_push_users.filter((u) => u.id !== userId)
 }
 
 async function handleSave() {
@@ -614,12 +744,14 @@ function openReadStatus(row: Announcement) {
 }
 
 onMounted(async () => {
+  announcementRouteQuerySync.restoreFromRoute()
   await loadSubscriptionGroups()
   await loadAnnouncements()
 })
 
 onUnmounted(() => {
   if (searchDebounceTimer) window.clearTimeout(searchDebounceTimer)
+  if (emailPushUserSearchTimeout) window.clearTimeout(emailPushUserSearchTimeout)
   currentController?.abort()
 })
 </script>

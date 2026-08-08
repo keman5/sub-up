@@ -117,16 +117,22 @@
       </div>
     </div>
 
-    <!-- Avg Response Time -->
+    <!-- Response Latency -->
     <div class="card p-4">
       <div class="flex items-center gap-3">
         <div class="rounded-lg bg-rose-100 p-2 dark:bg-rose-900/30">
           <Icon name="clock" size="md" class="text-rose-600 dark:text-rose-400" :stroke-width="2" />
         </div>
-        <div>
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.avgResponse') }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatDuration(stats?.average_duration_ms || 0) }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.averageTime') }}</p>
+        <div class="flex-1">
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.responseLatency') }}</p>
+          <div class="flex items-baseline gap-2">
+            <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatDuration(stats?.average_first_token_ms || 0) }}</p>
+            <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.firstToken') }}</span>
+          </div>
+          <div class="flex items-baseline gap-2">
+            <p class="text-sm font-semibold text-rose-600 dark:text-rose-400">{{ formatDuration(stats?.average_duration_ms || 0) }}</p>
+            <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.fullDuration') }}</span>
+          </div>
         </div>
       </div>
     </div>

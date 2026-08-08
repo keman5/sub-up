@@ -217,6 +217,33 @@ func TestCalculateProgress_AllLimits(t *testing.T) {
 	assert.Equal(t, 60.0, progress.Monthly.Percentage)
 }
 
+func TestCalculateProgress_TotalUsage(t *testing.T) {
+	svc := newTestSubscriptionService()
+	now := time.Now()
+	startsAt := now.Add(-24 * time.Hour)
+
+	sub := &UserSubscription{
+		ID:            1,
+		StartsAt:      startsAt,
+		ExpiresAt:     now.Add(10 * 24 * time.Hour),
+		TotalUsageUSD: 25.0,
+	}
+	group := &Group{
+		Name:          "Capped",
+		TotalLimitUSD: ptrFloat64(100.0),
+	}
+
+	progress := svc.calculateProgress(sub, group)
+
+	require.NotNil(t, progress.Total, "有总量限额时 Total 不应为 nil")
+	assert.Equal(t, 100.0, progress.Total.LimitUSD)
+	assert.Equal(t, 25.0, progress.Total.UsedUSD)
+	assert.Equal(t, 75.0, progress.Total.RemainingUSD)
+	assert.Equal(t, 25.0, progress.Total.Percentage)
+	assert.Equal(t, startsAt, progress.Total.WindowStart)
+	assert.Equal(t, sub.ExpiresAt, progress.Total.ResetsAt)
+}
+
 func TestCalculateProgress_ExpiredSubscription(t *testing.T) {
 	svc := newTestSubscriptionService()
 

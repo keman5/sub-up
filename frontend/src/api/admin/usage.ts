@@ -21,6 +21,7 @@ export interface AdminUsageStatsResponse {
   total_actual_cost: number
   total_account_cost: number
   average_duration_ms: number
+  average_first_token_ms?: number
   endpoints?: EndpointStat[]
   upstream_endpoints?: EndpointStat[]
   endpoint_paths?: EndpointStat[]
@@ -30,6 +31,8 @@ export interface SimpleUser {
   id: number
   email: string
   deleted: boolean
+  username?: string
+  notes?: string
 }
 
 export interface SimpleApiKey {

@@ -21,6 +21,13 @@ type Group struct {
 	Description    string
 	Platform       string
 	RateMultiplier float64
+	// DisplayRateMultiplier is the user-facing multiplier shown in UI only.
+	// Billing continues to use RateMultiplier.
+	DisplayRateMultiplier float64
+	// UsageMultiplierEnabled controls whether new usage rows snapshot UsageMultiplier
+	// for non-super-admin presentation.
+	UsageMultiplierEnabled bool
+	UsageMultiplier        float64
 	// 高峰时段倍率：peak_rate_enabled 为 true 且当前时刻处于 [PeakStart, PeakEnd) 时，
 	// token 计费倍率额外乘以 PeakRateMultiplier。详见 PeakMultiplierAt。
 	PeakRateEnabled    bool
@@ -38,6 +45,7 @@ type Group struct {
 	DailyLimitUSD       *float64
 	WeeklyLimitUSD      *float64
 	MonthlyLimitUSD     *float64
+	TotalLimitUSD       *float64
 	DefaultValidityDays int
 
 	// 图片生成计费配置（antigravity 和 gemini 平台使用）
@@ -64,6 +72,9 @@ type Group struct {
 	FallbackGroupID *int64
 	// 无效请求兜底分组（仅 anthropic 平台使用）
 	FallbackGroupIDOnInvalidRequest *int64
+	// 订阅额度耗尽后自动切换使用的附属套餐分组。
+	QuotaFallbackGroupID *int64
+	// 切换到附属套餐时强制使用的模型；空值表示保留用户请求模型。
 
 	// 模型路由配置
 	// key: 模型匹配模式（支持 * 通配符，如 "claude-opus-*"）
@@ -89,6 +100,8 @@ type Group struct {
 	DefaultMappedModel          string
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
 	ModelsListConfig            GroupModelsListConfig
+	ModelPolicyMode             string
+	ModelPolicyModel            string
 
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制）。
 	// 一旦设置即接管该分组用户的限流（覆盖用户级 rpm_limit），可被 user-group rpm_override 进一步覆盖。
@@ -135,6 +148,10 @@ func (g *Group) HasWeeklyLimit() bool {
 
 func (g *Group) HasMonthlyLimit() bool {
 	return g.MonthlyLimitUSD != nil && *g.MonthlyLimitUSD > 0
+}
+
+func (g *Group) HasTotalLimit() bool {
+	return g.TotalLimitUSD != nil && *g.TotalLimitUSD > 0
 }
 
 // GetImagePrice 根据 image_size 返回对应的图片生成价格

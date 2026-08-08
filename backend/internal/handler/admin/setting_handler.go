@@ -113,7 +113,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 	}
 
 	// Check if ops monitoring is enabled (respects config.ops.enabled)
-	opsEnabled := h.opsService != nil && h.opsService.IsMonitoringEnabled(c.Request.Context())
+	opsEnabled := h.opsService == nil || h.opsService.IsMonitoringEnabled(c.Request.Context())
 	defaultSubscriptions := make([]dto.DefaultSubscriptionSetting, 0, len(settings.DefaultSubscriptions))
 	for _, sub := range settings.DefaultSubscriptions {
 		defaultSubscriptions = append(defaultSubscriptions, dto.DefaultSubscriptionSetting{

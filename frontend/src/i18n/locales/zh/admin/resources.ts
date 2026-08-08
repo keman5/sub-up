@@ -37,7 +37,12 @@ export default {
       maxResultsTooltipExample: '例如填写 100，表示最多保存最近 100 次测试结果；第 101 次结果写入后，最早的一条会被清理。',
       maxResultsTooltipRange: '推荐填写范围：一般可填 20 到 200。只关注近期可用性时可填 20-50；需要回看较长时间的波动趋势时可填 100-200。',
       autoRecover: '自动恢复',
-      autoRecoverHelp: '测试成功后自动恢复异常状态的账号'
+      autoRecoverHelp: '测试成功后自动恢复异常状态的账号',
+      loadPlansFailed: '加载定时测试计划失败',
+      loadResultsFailed: '加载定时测试结果失败',
+      createPlanFailed: '创建定时测试计划失败',
+      updatePlanFailed: '更新定时测试计划失败',
+      deletePlanFailed: '删除定时测试计划失败'
     },
 
     // Proxies Management
@@ -396,6 +401,11 @@ export default {
         silent: '静默',
         popup: '弹窗'
       },
+      emailPushModeLabels: {
+        none: '不推送邮件',
+        all: '推送给全部用户',
+        selected: '推送给指定用户'
+      },
       form: {
         title: '标题',
         content: '内容（支持 Markdown）',
@@ -409,6 +419,9 @@ export default {
         targetingMode: '展示条件',
         targetingAll: '所有用户',
         targetingCustom: '按条件',
+        emailPush: '邮件推送',
+        emailPushHint: '邮件推送是保存公告时的一次性动作；编辑公告默认不再次推送。',
+        emailPushUserPlaceholder: '搜索用户邮箱或名称',
         addOrGroup: '添加 OR 条件组',
         addAndCondition: '添加 AND 条件',
         conditionType: '条件类型',

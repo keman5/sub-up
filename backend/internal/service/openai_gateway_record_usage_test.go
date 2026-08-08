@@ -332,6 +332,75 @@ func TestOpenAIGatewayServiceRecordUsage_ZeroUsageStillWritesUsageLog(t *testing
 	require.Zero(t, billingRepo.lastCmd.AccountQuotaCost)
 }
 
+func TestOpenAIGatewayServiceRecordUsage_SnapshotsPresentationMultiplier(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "resp_presentation_multiplier",
+			Model:     "gpt-5.5",
+			Usage: OpenAIUsage{
+				InputTokens:              800,
+				OutputTokens:             100,
+				CacheCreationInputTokens: 100,
+				CacheReadInputTokens:     100,
+			},
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{
+			ID:      1001,
+			Quota:   100,
+			GroupID: i64p(88),
+			Group: &Group{
+				ID:                     88,
+				RateMultiplier:         1,
+				UsageMultiplierEnabled: true,
+				UsageMultiplier:        2,
+			},
+		},
+		User:    &User{ID: 42},
+		Account: &Account{ID: 7, Platform: PlatformOpenAI},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, 2.0, usageRepo.lastLog.PresentationMultiplier, 1e-12)
+}
+
+func TestOpenAIGatewayServiceRecordUsage_SnapshotsPresentationMultiplierForImageOutputTokens(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "resp_presentation_multiplier_image_output",
+			Model:     "gpt-image-2",
+			Usage: OpenAIUsage{
+				ImageOutputTokens: 1000,
+			},
+			Duration: time.Second,
+		},
+		APIKey: &APIKey{
+			ID:      1001,
+			Quota:   100,
+			GroupID: i64p(88),
+			Group: &Group{
+				ID:                     88,
+				RateMultiplier:         1,
+				UsageMultiplierEnabled: true,
+				UsageMultiplier:        2,
+			},
+		},
+		User:    &User{ID: 42},
+		Account: &Account{ID: 7, Platform: PlatformOpenAI},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, 2.0, usageRepo.lastLog.PresentationMultiplier, 1e-12)
+}
+
 func TestOpenAIGatewayServiceRecordUsage_MissingPricingRecordsZeroCostUsageLog(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}

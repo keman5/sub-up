@@ -17,13 +17,13 @@
             v-model="filters.type"
             :options="filterTypeOptions"
             class="w-36"
-            @change="loadCodes"
+            @change="applyCodeFilters"
           />
           <Select
             v-model="filters.status"
             :options="filterStatusOptions"
             class="w-36"
-            @change="loadCodes"
+            @change="applyCodeFilters"
           />
 
           <!-- Right: Action buttons -->
@@ -614,6 +614,7 @@ import { useAppStore } from '@/stores/app'
 import { useClipboard } from '@/composables/useClipboard'
 import { useTableSelection } from '@/composables/useTableSelection'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { adminAPI } from '@/api/admin'
 import { formatDateTime } from '@/utils/format'
 import type {
@@ -784,6 +785,14 @@ const sortState = reactive({
   sort_order: 'desc' as 'asc' | 'desc'
 })
 
+const redeemRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'search', get: () => searchQuery.value, set: (value) => { searchQuery.value = value }, defaultValue: '' },
+    { queryKey: 'type', get: () => filters.type, set: (value) => { filters.type = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'status', get: () => filters.status, set: (value) => { filters.status = value }, defaultValue: '', defaultQueryValue: 'all' },
+  ],
+})
+
 let abortController: AbortController | null = null
 
 const showDeleteDialog = ref(false)
@@ -858,6 +867,7 @@ const buildRedeemQueryFilters = () => ({
 })
 
 const loadCodes = async () => {
+  void redeemRouteQuerySync.syncToRoute()
   if (abortController) {
     abortController.abort()
   }
@@ -901,9 +911,13 @@ let searchTimeout: ReturnType<typeof setTimeout>
 const handleSearch = () => {
   clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => {
-    pagination.page = 1
-    loadCodes()
+    applyCodeFilters()
   }, 300)
+}
+
+const applyCodeFilters = () => {
+  pagination.page = 1
+  loadCodes()
 }
 
 const handlePageChange = (page: number) => {
@@ -1178,6 +1192,7 @@ const loadSubscriptionGroups = async () => {
 }
 
 onMounted(() => {
+  redeemRouteQuerySync.restoreFromRoute()
   loadCodes()
   loadSubscriptionGroups()
 })

@@ -207,3 +207,54 @@ func TestValidateAndCheckLimits_DailyCardDoesNotAllowSecondQuotaAfterMidnight(t 
 	require.True(t, errors.Is(err, ErrDailyLimitExceeded))
 	require.Equal(t, dailyLimit+0.01, sub.DailyUsageUSD, "热路径不应清零日卡已用额度")
 }
+
+func TestUserSubscriptionCheckTotalLimit(t *testing.T) {
+	totalLimit := 100.0
+	sub := &UserSubscription{TotalUsageUSD: 95}
+	group := &Group{TotalLimitUSD: &totalLimit}
+
+	require.True(t, sub.CheckTotalLimit(group, 5))
+	require.False(t, sub.CheckTotalLimit(group, 5.01))
+
+	sub.TotalUsageUSD = totalLimit
+	require.False(t, sub.CheckTotalLimit(group, 0), "already exhausted total quota must block the next request")
+}
+
+func TestValidateAndCheckLimits_TotalLimitExceeded(t *testing.T) {
+	totalLimit := 100.0
+	sub := &UserSubscription{
+		Status:        SubscriptionStatusActive,
+		StartsAt:      time.Now().Add(-24 * time.Hour),
+		ExpiresAt:     time.Now().Add(24 * time.Hour),
+		TotalUsageUSD: totalLimit + 0.01,
+	}
+	group := &Group{
+		SubscriptionType: SubscriptionTypeSubscription,
+		TotalLimitUSD:    &totalLimit,
+	}
+	svc := NewSubscriptionService(groupRepoNoop{}, userSubRepoNoop{}, nil, nil, nil)
+
+	needsMaintenance, err := svc.ValidateAndCheckLimits(sub, group)
+
+	require.True(t, needsMaintenance)
+	require.True(t, errors.Is(err, ErrTotalLimitExceeded))
+}
+
+func TestValidateAndCheckLimits_TotalLimitExactlyExhausted(t *testing.T) {
+	totalLimit := 100.0
+	sub := &UserSubscription{
+		Status:        SubscriptionStatusActive,
+		StartsAt:      time.Now().Add(-24 * time.Hour),
+		ExpiresAt:     time.Now().Add(24 * time.Hour),
+		TotalUsageUSD: totalLimit,
+	}
+	group := &Group{
+		SubscriptionType: SubscriptionTypeSubscription,
+		TotalLimitUSD:    &totalLimit,
+	}
+	svc := NewSubscriptionService(groupRepoNoop{}, userSubRepoNoop{}, nil, nil, nil)
+
+	_, err := svc.ValidateAndCheckLimits(sub, group)
+
+	require.True(t, errors.Is(err, ErrTotalLimitExceeded))
+}

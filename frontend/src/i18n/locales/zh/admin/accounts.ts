@@ -20,6 +20,10 @@ export default {
       moreActions: '更多操作',
       dataActions: '数据操作',
       toolActions: '工具',
+      bulkResetStatusTitle: '批量重置账号状态',
+      bulkResetStatusConfirm: '确定要重置选中的 {count} 个账号状态吗？系统会清除错误、限流和临时不可调度等运行状态，账号可能重新参与调度。',
+      bulkRefreshTokenTitle: '批量刷新账号令牌',
+      bulkRefreshTokenConfirm: '确定要刷新选中的 {count} 个账号令牌吗？系统会向上游重新换取访问令牌，失败账号会保留原状态。',
       viewColumns: '列显示',
       selectedCount: '已选 {count}',
       dataExportConfirmMessage: '导出的数据包含账号与代理的敏感信息，请妥善保存。',
@@ -44,6 +48,7 @@ export default {
       dataImportErrors: '失败详情',
       dataImportSuccess: '导入完成：账号 {account_created}，失败 {account_failed}',
       dataImportCompletedWithErrors: '导入完成但有错误：账号失败 {account_failed}，代理失败 {proxy_failed}',
+      messages: { accountCreated: '账号创建成功' },
       syncFromCrsTitle: '从 CRS 同步账号',
       syncFromCrsDesc:
         '将 claude-relay-service（CRS）中的账号同步到当前系统（不会在浏览器侧直接请求 CRS）。',
@@ -298,6 +303,8 @@ export default {
       rateLimitCleared: '速率限制已清除',
       setupToken: 'Setup Token',
       apiKey: 'API Key',
+      fromModel: '请求模型，例如 gpt-5.4',
+      toModel: '上游模型，例如 gpt-5.4-compact',
       deleteConfirm: "确定要删除账号 '{name}' 吗？此操作无法撤销。",
       failedToClearRateLimit: '清除速率限制失败',
       platforms: {
@@ -412,7 +419,9 @@ export default {
         grokLastProbe: '探测 {time}',
         grokLastHeadersSeen: '响应头 {time}',
         passiveSampled: '被动采样',
-        activeQuery: '查询'
+        activeQuery: '查询',
+        openaiCodexSparkShow: 'Spark 使用量',
+        openaiCodexSparkHide: 'Spark 使用量'
       },
       openaiQuotaReset: {
         count: '次数',
@@ -965,6 +974,10 @@ export default {
         pleaseEnterSessionKey: '请输入至少一个有效的 sessionKey',
         authFailed: '授权失败',
         cookieAuthFailed: 'Cookie 授权失败',
+        failedToGenerateAuthUrl: '生成授权链接失败',
+        failedToExchangeAuthCode: '授权码兑换失败',
+        missingAuthCodeOrSession: '缺少授权码或授权会话',
+        cookieAuthorizationFailed: 'Cookie 授权失败',
         keyAuthFailed: '密钥 {index}: {error}',
         successCreated: '成功创建 {count} 个账号',
         batchSuccess: '成功创建 {count} 个账号',
@@ -990,6 +1003,8 @@ export default {
           failedToGenerateUrl: '生成 OpenAI 授权链接失败',
           failedToExchangeCode: 'OpenAI 授权码兑换失败',
           failedToValidateRT: '验证 Refresh Token 失败',
+          missingExchangeParams: '缺少授权码、会话 ID 或 state',
+          missingRefreshToken: '缺少 Refresh Token',
           errors: {
             OPENAI_OAUTH_PROXY_REQUIRED:
               '未设置代理，当前服务器无法直连 OpenAI，导致 OpenAI OAuth 请求失败。请先选择可访问 OpenAI 的代理后重试；如果授权码已失效，请重新生成授权链接。'
@@ -1371,6 +1386,8 @@ export default {
         dailyAvgTokens: '日均 Token',
         performance: '性能',
         avgResponseTime: '平均响应',
+        avgFirstTokenTime: '平均首 Token',
+        avgFullDuration: '平均完整耗时',
         daysActive: '活跃天数',
         recentActivity: '最近统计',
         todayRequests: '今日请求',

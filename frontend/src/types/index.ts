@@ -84,7 +84,7 @@ export interface User {
   linuxdo_bound?: boolean
   oidc_bound?: boolean
   wechat_bound?: boolean
-  role: 'admin' | 'user' // User role for authorization
+  role: 'admin' | 'super_admin' | 'user' // User role for authorization
   balance: number // User balance for API usage
   frozen_balance?: number // Balance currently held by async batch jobs
   concurrency: number // Allowed concurrent requests
@@ -269,6 +269,7 @@ export interface PublicSettings {
   service_quota_enabled: boolean
   affiliate_enabled: boolean
   allow_user_view_error_requests?: boolean
+  ops_host_health_visible?: boolean
 }
 
 export interface AuthResponse {
@@ -318,6 +319,7 @@ export interface UpdateSubscriptionRequest {
 
 export type AnnouncementStatus = 'draft' | 'active' | 'archived'
 export type AnnouncementNotifyMode = 'silent' | 'popup'
+export type AnnouncementEmailPushMode = 'none' | 'all' | 'selected'
 
 export type AnnouncementConditionType = 'subscription' | 'balance'
 
@@ -373,6 +375,8 @@ export interface CreateAnnouncementRequest {
   targeting: AnnouncementTargeting
   starts_at?: number
   ends_at?: number
+  email_push_mode?: AnnouncementEmailPushMode
+  email_push_user_ids?: number[]
 }
 
 export interface UpdateAnnouncementRequest {
@@ -383,6 +387,8 @@ export interface UpdateAnnouncementRequest {
   targeting?: AnnouncementTargeting
   starts_at?: number
   ends_at?: number
+  email_push_mode?: AnnouncementEmailPushMode
+  email_push_user_ids?: number[]
 }
 
 export interface AnnouncementUserReadStatus {
@@ -542,6 +548,10 @@ export interface Group {
   description: string | null
   platform: GroupPlatform
   rate_multiplier: number
+  display_rate_multiplier?: number
+  billing_rate_multiplier?: number
+  usage_multiplier_enabled?: boolean
+  usage_multiplier?: number
   rpm_limit?: number // Group-level RPM cap (0 = unlimited); overrides user-level rpm_limit when set
   max_reasoning_effort?: string // OpenAI/Codex reasoning ceiling; empty means unlimited
   reasoning_effort_mappings?: ReasoningEffortMapping[]
@@ -551,6 +561,7 @@ export interface Group {
   daily_limit_usd: number | null
   weekly_limit_usd: number | null
   monthly_limit_usd: number | null
+  total_limit_usd: number | null
   // 图片生成计费配置
   allow_image_generation: boolean
   allow_batch_image_generation: boolean
@@ -577,12 +588,15 @@ export interface Group {
   claude_code_only: boolean
   fallback_group_id: number | null
   fallback_group_id_on_invalid_request: number | null
+  quota_fallback_group_id: number | null
   // OpenAI Messages 调度开关（用户侧需要此字段判断是否展示 Claude Code 教程）
   allow_messages_dispatch?: boolean
   // OpenAI Live 接口开关
   allow_live: boolean
   default_mapped_model?: string
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
+  model_policy_mode?: string
+  model_policy_model?: string
   require_oauth_only: boolean
   require_privacy_set: boolean
   created_at: string
@@ -740,6 +754,7 @@ export interface UpdateApiKeyRequest {
   rate_limit_1d?: number
   rate_limit_7d?: number
   reset_rate_limit_usage?: boolean
+  reset_rate_limit_window?: '5h' | '1d' | '7d'
 }
 
 export interface CreateGroupRequest {
@@ -747,11 +762,15 @@ export interface CreateGroupRequest {
   description?: string | null
   platform?: GroupPlatform
   rate_multiplier?: number
+  display_rate_multiplier?: number
+  usage_multiplier_enabled?: boolean
+  usage_multiplier?: number
   is_exclusive?: boolean
   subscription_type?: SubscriptionType
   daily_limit_usd?: number | null
   weekly_limit_usd?: number | null
   monthly_limit_usd?: number | null
+  total_limit_usd?: number | null
   allow_image_generation?: boolean
   allow_batch_image_generation?: boolean
   image_rate_independent?: boolean
@@ -778,6 +797,7 @@ export interface CreateGroupRequest {
   claude_code_only?: boolean
   fallback_group_id?: number | null
   fallback_group_id_on_invalid_request?: number | null
+  quota_fallback_group_id?: number | null
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
   models_list_config?: ModelsListConfig
@@ -785,6 +805,8 @@ export interface CreateGroupRequest {
   allow_live?: boolean
   default_mapped_model?: string
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
+  model_policy_mode?: string
+  model_policy_model?: string
   model_routing?: Record<string, number[]> | null
   model_routing_enabled?: boolean
   rpm_limit?: number
@@ -801,12 +823,16 @@ export interface UpdateGroupRequest {
   description?: string | null
   platform?: GroupPlatform
   rate_multiplier?: number
+  display_rate_multiplier?: number
+  usage_multiplier_enabled?: boolean
+  usage_multiplier?: number
   is_exclusive?: boolean
   status?: 'active' | 'inactive'
   subscription_type?: SubscriptionType
   daily_limit_usd?: number | null
   weekly_limit_usd?: number | null
   monthly_limit_usd?: number | null
+  total_limit_usd?: number | null
   allow_image_generation?: boolean
   allow_batch_image_generation?: boolean
   image_rate_independent?: boolean
@@ -833,6 +859,7 @@ export interface UpdateGroupRequest {
   claude_code_only?: boolean
   fallback_group_id?: number | null
   fallback_group_id_on_invalid_request?: number | null
+  quota_fallback_group_id?: number | null
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
   models_list_config?: ModelsListConfig
@@ -840,6 +867,8 @@ export interface UpdateGroupRequest {
   allow_live?: boolean
   default_mapped_model?: string
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
+  model_policy_mode?: string
+  model_policy_model?: string
   model_routing?: Record<string, number[]> | null
   model_routing_enabled?: boolean
   rpm_limit?: number
@@ -1271,13 +1300,15 @@ export interface GrokBillingSummary {
   failed_windows?: string[]
 }
 
-export interface AccountUsageInfo {
+export interface AccountUsageInfo extends CodexUsageSnapshot {
   source?: 'passive' | 'active'
   updated_at: string | null
   five_hour: UsageProgress | null
   seven_day: UsageProgress | null
   seven_day_sonnet: UsageProgress | null
   seven_day_fable?: UsageProgress | null
+  codex_primary?: UsageProgress | null
+  codex_secondary?: UsageProgress | null
   gemini_shared_daily?: UsageProgress | null
   gemini_pro_daily?: UsageProgress | null
   gemini_flash_daily?: UsageProgress | null
@@ -1333,7 +1364,19 @@ export interface CodexUsageSnapshot {
   codex_secondary_used_percent?: number // Usage percentage (check window_minutes for actual window type)
   codex_secondary_reset_after_seconds?: number // Seconds until reset
   codex_secondary_window_minutes?: number // Window in minutes
+  codex_secondary_reset_at?: string // Secondary window absolute reset time (RFC3339)
   codex_primary_over_secondary_percent?: number // Overflow ratio
+
+  // Main Codex model quota snapshot (non-Spark)
+  codex_main_5h_used_percent?: number
+  codex_main_5h_reset_after_seconds?: number
+  codex_main_5h_reset_at?: string
+  codex_main_5h_window_minutes?: number
+  codex_main_7d_used_percent?: number
+  codex_main_7d_reset_after_seconds?: number
+  codex_main_7d_reset_at?: string
+  codex_main_7d_window_minutes?: number
+  codex_main_usage_updated_at?: string
 
   // Canonical fields (normalized by backend, use these preferentially)
   codex_5h_used_percent?: number // 5-hour window usage percentage
@@ -1344,6 +1387,7 @@ export interface CodexUsageSnapshot {
   codex_7d_reset_after_seconds?: number // Seconds until 7d window reset
   codex_7d_reset_at?: string // 7-day window absolute reset time (RFC3339)
   codex_7d_window_minutes?: number // 7d window in minutes (should be ~10080)
+  codex_primary_reset_at?: string // Primary window absolute reset time (RFC3339)
 
   codex_usage_updated_at?: string // Last update timestamp
 }
@@ -1647,7 +1691,11 @@ export interface UsageLogAccountSummary {
   name: string
 }
 
-export interface AdminUsageLog extends UsageLog {
+export interface AdminUsageLog extends Omit<UsageLog, 'user'> {
+  // The admin usage endpoint includes internal notes for the record owner.
+  // UsageTable is also reused by the user-facing history page, where notes are absent.
+  user?: User & { notes?: string | null }
+
   upstream_model?: string | null
   upstream_response_model?: string | null
   upstream_model_mismatch?: boolean | null
@@ -1784,6 +1832,7 @@ export interface DashboardStats {
 
   // 系统运行统计
   average_duration_ms: number // 平均响应时间
+  average_first_token_ms?: number
   uptime: number // 系统运行时间(秒)
 
   // 性能指标
@@ -1803,6 +1852,7 @@ export interface UsageStatsResponse {
   total_cost: number // 标准计费
   total_actual_cost: number // 实际扣除
   average_duration_ms: number
+  average_first_token_ms?: number
   models?: Record<string, number>
   endpoints?: EndpointStat[]
   upstream_endpoints?: EndpointStat[]
@@ -1857,6 +1907,7 @@ export interface GroupStat {
 export interface UserBreakdownItem {
   user_id: number
   email: string
+  notes: string
   requests: number
   input_tokens: number
   output_tokens: number
@@ -1938,6 +1989,7 @@ export interface UserSubscription {
   daily_usage_usd: number
   weekly_usage_usd: number
   monthly_usage_usd: number
+  total_usage_usd: number
   daily_window_start: string | null
   weekly_window_start: string | null
   monthly_window_start: string | null
@@ -1945,29 +1997,46 @@ export interface UserSubscription {
   updated_at: string
   revoked_at?: string | null
   expires_at: string | null
-  user?: User
+  user?: User & { notes?: string | null }
   group?: Group
 }
 
 export interface SubscriptionProgress {
   subscription_id: number
   daily: {
+    used_usd?: number
     used: number
     limit: number | null
     percentage: number
+    window_start?: string
     reset_in_seconds: number | null
   } | null
   weekly: {
+    used_usd?: number
     used: number
     limit: number | null
     percentage: number
+    window_start?: string
     reset_in_seconds: number | null
   } | null
   monthly: {
+    used_usd?: number
     used: number
     limit: number | null
     percentage: number
+    window_start?: string
     reset_in_seconds: number | null
+  } | null
+  total?: {
+    used_usd?: number
+    used?: number
+    limit_usd?: number
+    limit?: number | null
+    percentage: number
+    window_start?: string
+    resets_at?: string
+    resets_in_seconds?: number
+    reset_in_seconds?: number | null
   } | null
   expires_at: string | null
   days_remaining: number | null
@@ -1977,6 +2046,7 @@ export interface AssignSubscriptionRequest {
   user_id: number
   group_id: number
   validity_days?: number
+  confirm_duplicate?: boolean
 }
 
 export interface BulkAssignSubscriptionRequest {
@@ -2073,6 +2143,7 @@ export interface AccountUsageSummary {
   avg_daily_requests: number
   avg_daily_tokens: number
   avg_duration_ms: number
+  avg_first_token_ms?: number
   today: {
     date: string
     cost: number

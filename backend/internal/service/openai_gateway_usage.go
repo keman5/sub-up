@@ -294,12 +294,20 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		CacheReadTokens:       result.Usage.CacheReadInputTokens,
 		ImageInputTokens:      result.Usage.ImageInputTokens,
 		ImageOutputTokens:     result.Usage.ImageOutputTokens,
-		ImageCount:            result.ImageCount,
-		ImageSize:             optionalTrimmedStringPtr(result.ImageSize),
-		ImageInputSize:        optionalTrimmedStringPtr(result.ImageInputSize),
-		ImageOutputSize:       optionalTrimmedStringPtr(result.ImageOutputSize),
-		ImageSizeSource:       optionalTrimmedStringPtr(result.ImageSizeSource),
-		ImageSizeBreakdown:    result.ImageSizeBreakdown,
+		PresentationMultiplier: ResolvePresentationMultiplierWithImageOutput(
+			apiKey.Group,
+			result.Usage.InputTokens,
+			result.Usage.OutputTokens,
+			result.Usage.CacheCreationInputTokens,
+			result.Usage.CacheReadInputTokens,
+			result.Usage.ImageOutputTokens,
+		),
+		ImageCount:         result.ImageCount,
+		ImageSize:          optionalTrimmedStringPtr(result.ImageSize),
+		ImageInputSize:     optionalTrimmedStringPtr(result.ImageInputSize),
+		ImageOutputSize:    optionalTrimmedStringPtr(result.ImageOutputSize),
+		ImageSizeSource:    optionalTrimmedStringPtr(result.ImageSizeSource),
+		ImageSizeBreakdown: result.ImageSizeBreakdown,
 	}
 	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
 	if isVideoUsage {
@@ -684,8 +692,49 @@ func (s *OpenAIGatewayService) resolveOpenAIChannelPricing(ctx context.Context, 
 // ParseCodexRateLimitHeaders extracts Codex usage limits from response headers.
 // Exported for use in ratelimit_service when handling OpenAI 429 responses.
 func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
+	return parseCodexRateLimitHeadersWithPrefix(headers, "")
+}
+
+const (
+	openAICodexUsageFamilyMain  = "main"
+	openAICodexUsageFamilySpark = "spark"
+)
+
+func openAICodexUsageFamily(modelOrFamily string) string {
+	normalized := strings.ToLower(strings.TrimSpace(modelOrFamily))
+	if normalized == openAICodexUsageFamilySpark || strings.Contains(normalized, "spark") || strings.Contains(normalized, "bengalfox") {
+		return openAICodexUsageFamilySpark
+	}
+	return openAICodexUsageFamilyMain
+}
+
+func ParseCodexRateLimitHeadersForModel(headers http.Header, modelOrFamily string) *OpenAICodexUsageSnapshot {
+	if headers == nil {
+		return nil
+	}
+	if openAICodexUsageFamily(modelOrFamily) == openAICodexUsageFamilySpark {
+		activeLimit := strings.ToLower(strings.TrimSpace(headers.Get("x-codex-active-limit")))
+		if strings.Contains(activeLimit, "bengalfox") || headers.Get("x-codex-bengalfox-primary-used-percent") != "" || headers.Get("x-codex-bengalfox-secondary-used-percent") != "" {
+			if snapshot := parseCodexRateLimitHeadersWithPrefix(headers, "bengalfox"); snapshot != nil {
+				return snapshot
+			}
+		}
+	}
+	return ParseCodexRateLimitHeaders(headers)
+}
+
+func parseCodexRateLimitHeadersWithPrefix(headers http.Header, limitPrefix string) *OpenAICodexUsageSnapshot {
+	if headers == nil {
+		return nil
+	}
 	snapshot := &OpenAICodexUsageSnapshot{}
 	hasData := false
+	key := func(name string) string {
+		if strings.TrimSpace(limitPrefix) == "" {
+			return "x-codex-" + name
+		}
+		return "x-codex-" + strings.TrimSpace(limitPrefix) + "-" + name
+	}
 
 	// Helper to parse float64 from header
 	parseFloat := func(key string) *float64 {
@@ -708,35 +757,35 @@ func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 	}
 
 	// Primary (weekly) limits
-	if v := parseFloat("x-codex-primary-used-percent"); v != nil {
+	if v := parseFloat(key("primary-used-percent")); v != nil {
 		snapshot.PrimaryUsedPercent = v
 		hasData = true
 	}
-	if v := parseInt("x-codex-primary-reset-after-seconds"); v != nil {
+	if v := parseInt(key("primary-reset-after-seconds")); v != nil {
 		snapshot.PrimaryResetAfterSeconds = v
 		hasData = true
 	}
-	if v := parseInt("x-codex-primary-window-minutes"); v != nil {
+	if v := parseInt(key("primary-window-minutes")); v != nil {
 		snapshot.PrimaryWindowMinutes = v
 		hasData = true
 	}
 
 	// Secondary (5h) limits
-	if v := parseFloat("x-codex-secondary-used-percent"); v != nil {
+	if v := parseFloat(key("secondary-used-percent")); v != nil {
 		snapshot.SecondaryUsedPercent = v
 		hasData = true
 	}
-	if v := parseInt("x-codex-secondary-reset-after-seconds"); v != nil {
+	if v := parseInt(key("secondary-reset-after-seconds")); v != nil {
 		snapshot.SecondaryResetAfterSeconds = v
 		hasData = true
 	}
-	if v := parseInt("x-codex-secondary-window-minutes"); v != nil {
+	if v := parseInt(key("secondary-window-minutes")); v != nil {
 		snapshot.SecondaryWindowMinutes = v
 		hasData = true
 	}
 
 	// Overflow ratio
-	if v := parseFloat("x-codex-primary-over-secondary-limit-percent"); v != nil {
+	if v := parseFloat(key("primary-over-secondary-limit-percent")); v != nil {
 		snapshot.PrimaryOverSecondaryPercent = v
 		hasData = true
 	}
@@ -838,12 +887,57 @@ func buildCodexUsageExtraUpdates(snapshot *OpenAICodexUsageSnapshot, fallbackNow
 	return updates
 }
 
+func buildCodexUsageExtraUpdatesForFamily(snapshot *OpenAICodexUsageSnapshot, fallbackNow time.Time, modelOrFamily string) map[string]any {
+	if snapshot == nil {
+		return nil
+	}
+	if strings.TrimSpace(modelOrFamily) == "" || openAICodexUsageFamily(modelOrFamily) == openAICodexUsageFamilySpark {
+		return buildCodexUsageExtraUpdates(snapshot, fallbackNow)
+	}
+
+	baseTime := codexSnapshotBaseTime(snapshot, fallbackNow)
+	updates := map[string]any{"codex_main_usage_updated_at": baseTime.Format(time.RFC3339)}
+	if snapshot.PrimaryOverSecondaryPercent != nil {
+		updates["codex_main_primary_over_secondary_percent"] = *snapshot.PrimaryOverSecondaryPercent
+	}
+	if normalized := snapshot.Normalize(); normalized != nil {
+		if normalized.Used5hPercent != nil {
+			updates["codex_main_5h_used_percent"] = *normalized.Used5hPercent
+		}
+		if normalized.Reset5hSeconds != nil {
+			updates["codex_main_5h_reset_after_seconds"] = *normalized.Reset5hSeconds
+		}
+		if normalized.Window5hMinutes != nil {
+			updates["codex_main_5h_window_minutes"] = *normalized.Window5hMinutes
+		}
+		if normalized.Used7dPercent != nil {
+			updates["codex_main_7d_used_percent"] = *normalized.Used7dPercent
+		}
+		if normalized.Reset7dSeconds != nil {
+			updates["codex_main_7d_reset_after_seconds"] = *normalized.Reset7dSeconds
+		}
+		if normalized.Window7dMinutes != nil {
+			updates["codex_main_7d_window_minutes"] = *normalized.Window7dMinutes
+		}
+		if reset5hAt := codexResetAtRFC3339(baseTime, normalized.Reset5hSeconds); reset5hAt != nil {
+			updates["codex_main_5h_reset_at"] = *reset5hAt
+		}
+		if reset7dAt := codexResetAtRFC3339(baseTime, normalized.Reset7dSeconds); reset7dAt != nil {
+			updates["codex_main_7d_reset_at"] = *reset7dAt
+		}
+	}
+	if len(updates) == 1 {
+		return nil
+	}
+	return updates
+}
+
 // updateCodexUsageSnapshot saves the Codex usage snapshot to account's Extra field
 // updateCodexUsageSnapshot 把 /responses 的 x-codex-* 全局头快照写入账号 codex_* Extra。
 // ⚠️ 调用方必须排除 spark 影子账号(account.IsShadow()):影子的 codex_* 仅由 QueryUsage
 // (/wham/usage bengalfox 道)更新,不能被全局头口径污染(外审第7轮 P1)。本函数仅持 accountID,
 // 无法在此自检影子,故守卫前置到各调用点。
-func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, accountID int64, snapshot *OpenAICodexUsageSnapshot) {
+func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, accountID int64, snapshot *OpenAICodexUsageSnapshot, modelOrFamily ...string) {
 	if snapshot == nil {
 		return
 	}
@@ -852,7 +946,11 @@ func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, acc
 	}
 
 	now := time.Now()
-	updates := buildCodexUsageExtraUpdates(snapshot, now)
+	family := ""
+	if len(modelOrFamily) > 0 {
+		family = modelOrFamily[0]
+	}
+	updates := buildCodexUsageExtraUpdatesForFamily(snapshot, now, family)
 	if len(updates) == 0 {
 		return
 	}
@@ -867,11 +965,15 @@ func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, acc
 	}()
 }
 
-func (s *OpenAIGatewayService) UpdateCodexUsageSnapshotFromHeaders(ctx context.Context, accountID int64, headers http.Header) {
+func (s *OpenAIGatewayService) UpdateCodexUsageSnapshotFromHeaders(ctx context.Context, accountID int64, headers http.Header, modelOrFamily ...string) {
 	if accountID <= 0 || headers == nil {
 		return
 	}
-	if snapshot := ParseCodexRateLimitHeaders(headers); snapshot != nil {
-		s.updateCodexUsageSnapshot(ctx, accountID, snapshot)
+	family := ""
+	if len(modelOrFamily) > 0 {
+		family = modelOrFamily[0]
+	}
+	if snapshot := ParseCodexRateLimitHeadersForModel(headers, family); snapshot != nil {
+		s.updateCodexUsageSnapshot(ctx, accountID, snapshot, family)
 	}
 }

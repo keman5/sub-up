@@ -27,6 +27,9 @@ export default {
       cacheToday: '今日缓存',
       performance: '性能指标',
       avgResponse: '平均响应',
+      firstToken: '首 Token',
+      fullDuration: '完整耗时',
+      responseLatency: '响应耗时',
       averageTime: '平均时间',
       active: '活跃',
       ok: '正常',
@@ -543,6 +546,7 @@ export default {
       userCreated: '用户创建成功',
       userUpdated: '用户更新成功',
       userDeleted: '用户删除成功',
+      passwordCopied: '密码已复制',
       userEnabled: '用户已启用',
       userDisabled: '用户已禁用',
       failedToLoad: '加载用户列表失败',
@@ -827,6 +831,9 @@ export default {
         descriptionPlaceholder: '请输入描述（可选）',
         rateMultiplierLabel: '费率倍数',
         rateMultiplierHint: '1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
+        usageMultiplierEnabled: '启用用量展示倍率',
+        usageMultiplier: '用量展示倍率',
+        displayRateMultiplier: '用户显示倍率',
         rpmLimit: '每分钟请求数 (RPM)',
         rpmLimitPlaceholder: '0 表示不限制',
         rpmLimitHint: '每用户在本分组每分钟最大请求数，0 = 不限制；一旦设置即接管该用户的限流（覆盖用户级 rpm_limit）',
@@ -870,6 +877,8 @@ export default {
           '公开分组费率 0.8，您可以创建一个费率 0.7 的专属分组，手动分配给 VIP 用户，让他们享受更优惠的价格。'
       },
       rateMultiplierHint: '1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
+      usageMultiplierHint: '开启后，仅新请求且真实输入/输出/cache 合计达到 1000 token 时，用户和普通管理员看到的用量按该倍率展示；真实计费数据不变。',
+      displayRateMultiplierHint: '仅用户端展示使用，默认 1 倍，不影响实际扣费。',
       platforms: {
         all: '全部平台',
         anthropic: 'Anthropic',
@@ -916,6 +925,7 @@ export default {
       limitDay: '日',
       limitWeek: '周',
       limitMonth: '月',
+      limitTotal: '总',
       groupCreated: '分组创建成功',
       groupUpdated: '分组更新成功',
       groupDeleted: '分组删除成功',
@@ -958,6 +968,7 @@ export default {
         dailyLimit: '每日限额（USD）',
         weeklyLimit: '每周限额（USD）',
         monthlyLimit: '每月限额（USD）',
+        totalLimit: '总量上限（USD）',
         defaultValidityDays: '默认有效期（天）',
         validityHint: '分配给用户时订阅的有效天数',
         noLimit: '无限制'
@@ -1142,14 +1153,6 @@ export default {
         selectAccounts: '选择账号',
         noAccounts: '此分组暂无账号',
         loadingAccounts: '加载账号中...',
-      claudeMaxSimulation: {
-        title: 'Claude Max 用量模拟',
-        tooltip:
-          '启用后，对于没有上游缓存写入用量的 Claude 模型，系统会确定性地将 token 映射为少量输入加 1h 缓存创建，同时保持总 token 不变。',
-        enabled: '已启用（模拟 1h 缓存）',
-        disabled: '已禁用',
-        hint: '仅调整用量计费日志中的 token 类别。不会持久化每个请求的映射状态。'
-      },
         removeRule: '删除规则',
         noRules: '暂无路由规则',
         noRulesHint: '添加路由规则以将特定模型请求优先路由到指定账号',
@@ -1161,6 +1164,13 @@ export default {
         tooltip: '启用后，当请求包含 MCP 工具时，会在 system prompt 中注入 XML 格式调用协议提示词。关闭此选项可避免对某些客户端造成干扰。',
         enabled: '已启用',
         disabled: '已禁用'
+      },
+      claudeMaxSimulation: {
+        title: 'Claude Max 用量模拟',
+        tooltip: '启用后，对于没有上游缓存写入用量的 Claude 模型，系统会确定性地将 token 映射为少量输入加 1h 缓存创建，同时保持总 token 不变。',
+        enabled: '已启用（模拟 1h 缓存）',
+        disabled: '已禁用',
+        hint: '仅调整用量计费日志中的 token 类别。不会持久化每个请求的映射状态。'
       },
       supportedScopes: {
         title: '支持的模型系列',

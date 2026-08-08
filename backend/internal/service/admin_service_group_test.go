@@ -342,6 +342,26 @@ func TestAdminService_CreateGroup_NilImagePricing(t *testing.T) {
 	require.Nil(t, repo.created.ImagePrice4K)
 }
 
+func TestAdminService_CreateGroup_WithUsagePresentationMultiplier(t *testing.T) {
+	repo := &groupRepoStubForAdmin{}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	input := &CreateGroupInput{
+		Name:                   "test-group",
+		Platform:               PlatformAnthropic,
+		RateMultiplier:         1.0,
+		UsageMultiplierEnabled: true,
+		UsageMultiplier:        2.0,
+	}
+
+	group, err := svc.CreateGroup(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.NotNil(t, repo.created)
+	require.True(t, repo.created.UsageMultiplierEnabled)
+	require.InDelta(t, 2.0, repo.created.UsageMultiplier, 1e-12)
+}
+
 func TestAdminService_CreateGroup_DefaultsGrokMediaGenerationEnabled(t *testing.T) {
 	repo := &groupRepoStubForAdmin{}
 	svc := &adminServiceImpl{groupRepo: repo}
@@ -449,6 +469,32 @@ func TestAdminService_UpdateGroup_WithImagePricing(t *testing.T) {
 	require.InDelta(t, 0.12, *repo.updated.ImagePrice1K, 0.0001)
 	require.InDelta(t, 0.18, *repo.updated.ImagePrice2K, 0.0001)
 	require.InDelta(t, 0.36, *repo.updated.ImagePrice4K, 0.0001)
+}
+
+func TestAdminService_UpdateGroup_WithUsagePresentationMultiplier(t *testing.T) {
+	existingGroup := &Group{
+		ID:                     1,
+		Name:                   "existing-group",
+		Platform:               PlatformAnthropic,
+		Status:                 StatusActive,
+		RateMultiplier:         1,
+		UsageMultiplierEnabled: false,
+		UsageMultiplier:        1,
+	}
+	repo := &groupRepoStubForAdmin{getByID: existingGroup}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	enabled := true
+	multiplier := 2.5
+	group, err := svc.UpdateGroup(context.Background(), 1, &UpdateGroupInput{
+		UsageMultiplierEnabled: &enabled,
+		UsageMultiplier:        &multiplier,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.NotNil(t, repo.updated)
+	require.True(t, repo.updated.UsageMultiplierEnabled)
+	require.InDelta(t, 2.5, repo.updated.UsageMultiplier, 1e-12)
 }
 
 func TestAdminService_UpdateGroup_WithVideoPricing(t *testing.T) {

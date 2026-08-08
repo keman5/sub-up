@@ -188,6 +188,7 @@ import { saveAs } from 'file-saver'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'; import { adminAPI } from '@/api/admin'; import { adminUsageAPI } from '@/api/admin/usage'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { formatReasoningEffort } from '@/utils/format'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
 import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination from '@/components/common/Pagination.vue'; import Select from '@/components/common/Select.vue'; import DateRangePicker from '@/components/common/DateRangePicker.vue'
@@ -203,13 +204,19 @@ import type { OpsErrorLog } from '@/api/admin/ops'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'; import GroupDistributionChart from '@/components/charts/GroupDistributionChart.vue'; import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import Icon from '@/components/icons/Icon.vue'
-import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
+import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams, SimpleApiKey, SimpleUser } from '@/api/admin/usage'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
 type ModelDistributionSource = 'requested' | 'upstream' | 'mapping'
+type UsageFilterState = AdminUsageQueryParams & {
+  user_search?: string
+  api_key_search?: string
+  account_search?: string
+}
+type SimpleAccountFilter = { id: number; name: string }
 const route = useRoute()
 const usageStats = ref<AdminUsageStatsResponse | null>(null); const usageLogs = ref<AdminUsageLog[]>([]); const loading = ref(false); const exporting = ref(false)
 const trendData = ref<TrendDataPoint[]>([]); const requestedModelStats = ref<ModelStat[]>([]); const upstreamModelStats = ref<ModelStat[]>([]); const mappingModelStats = ref<ModelStat[]>([]); const groupStats = ref<GroupStat[]>([]); const chartsLoading = ref(false); const modelStatsLoading = ref(false); const granularity = ref<'day' | 'hour'>('hour')
@@ -295,7 +302,18 @@ const getGranularityForRange = (start: string, end: string): 'day' | 'hour' => {
 }
 const defaultRange = getLast24HoursRangeDates()
 const startDate = ref(defaultRange.start); const endDate = ref(defaultRange.end)
-const filters = ref<AdminUsageQueryParams>({ user_id: undefined, model: undefined, group_id: undefined, request_type: undefined, billing_type: null, start_date: startDate.value, end_date: endDate.value })
+const filters = ref<UsageFilterState>({
+  user_id: undefined,
+  user_search: '',
+  api_key_search: '',
+  account_search: '',
+  model: undefined,
+  group_id: undefined,
+  request_type: undefined,
+  billing_type: null,
+  start_date: startDate.value,
+  end_date: endDate.value
+})
 const pagination = reactive({ page: 1, page_size: getPersistedPageSize(), total: 0 })
 const sortState = reactive({
   sort_by: 'created_at',
@@ -335,6 +353,50 @@ const applyRouteQueryFilters = () => {
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
 }
 
+const usageApiFilters = (): AdminUsageQueryParams => {
+  const {
+    user_search: _userSearch,
+    api_key_search: _apiKeySearch,
+    account_search: _accountSearch,
+    ...apiFilters
+  } = filters.value
+  return apiFilters
+}
+
+const adminUsageRouteQuerySync = useRouteQuerySync({
+  fields: [
+    {
+      queryKey: 'start_date',
+      get: () => startDate.value,
+      set: (value) => {
+        startDate.value = value
+        filters.value.start_date = value
+      },
+      defaultValue: defaultRange.start
+    },
+    {
+      queryKey: 'end_date',
+      get: () => endDate.value,
+      set: (value) => {
+        endDate.value = value
+        filters.value.end_date = value
+      },
+      defaultValue: defaultRange.end
+    },
+    { queryKey: 'user_id', get: () => null, set: (value) => { filters.value.user_id = value }, parse: 'number', defaultValue: null },
+    { queryKey: 'user_search', get: () => filters.value.user_search, set: (value) => { filters.value.user_search = value }, defaultValue: '' },
+    { queryKey: 'api_key_id', get: () => null, set: (value) => { filters.value.api_key_id = value }, parse: 'number', defaultValue: null },
+    { queryKey: 'api_key_search', get: () => filters.value.api_key_search, set: (value) => { filters.value.api_key_search = value }, defaultValue: '' },
+    { queryKey: 'account_id', get: () => null, set: (value) => { filters.value.account_id = value }, parse: 'number', defaultValue: null },
+    { queryKey: 'account_search', get: () => filters.value.account_search, set: (value) => { filters.value.account_search = value }, defaultValue: '' },
+    { queryKey: 'group_id', get: () => filters.value.group_id, set: (value) => { filters.value.group_id = value }, parse: 'number', defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'model', get: () => filters.value.model, set: (value) => { filters.value.model = value }, defaultValue: '', defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'request_type', get: () => filters.value.request_type, set: (value) => { filters.value.request_type = value }, defaultValue: '', defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'billing_type', get: () => filters.value.billing_type as any, set: (value) => { filters.value.billing_type = value }, parse: 'number', defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+    { queryKey: 'billing_mode', get: () => filters.value.billing_mode, set: (value) => { filters.value.billing_mode = value }, defaultValue: null, defaultQueryValue: 'all', emptyQueryValue: 'all' },
+  ],
+})
+
 const loadRouteUserFilterLabel = async () => {
   const requestedUserId = filters.value.user_id
   if (!requestedUserId) return
@@ -367,6 +429,84 @@ const onDateRangeChange = (range: { startDate: string; endDate: string; preset: 
   applyFilters()
 }
 
+const findUsageUserMatch = (users: SimpleUser[], keyword: string): SimpleUser | null => {
+  const normalizedKeyword = keyword.trim().toLowerCase()
+  if (!normalizedKeyword) return null
+
+  const exactEmail = users.find((user) => user.email.toLowerCase() === normalizedKeyword)
+  if (exactEmail) return exactEmail
+
+  const exactUsername = users.find((user) => user.username?.trim().toLowerCase() === normalizedKeyword)
+  if (exactUsername) return exactUsername
+
+  return normalizedKeyword.includes('@') && users.length === 1 ? users[0] : null
+}
+
+const findUsageApiKeyMatch = (keys: SimpleApiKey[], keyword: string): SimpleApiKey | null => {
+  const normalizedKeyword = keyword.trim().toLowerCase()
+  if (!normalizedKeyword) return null
+
+  const exactName = keys.find((key) => (key.name || String(key.id)).trim().toLowerCase() === normalizedKeyword)
+  if (exactName) return exactName
+
+  return keys.length === 1 ? keys[0] : null
+}
+
+const findUsageAccountMatch = (accounts: SimpleAccountFilter[], keyword: string): SimpleAccountFilter | null => {
+  const normalizedKeyword = keyword.trim().toLowerCase()
+  if (!normalizedKeyword) return null
+
+  const exactName = accounts.find((account) => account.name.trim().toLowerCase() === normalizedKeyword)
+  if (exactName) return exactName
+
+  return accounts.length === 1 ? accounts[0] : null
+}
+
+const restoreUsageSearchBackedIds = async () => {
+  const userKeyword = String(filters.value.user_search || '').trim()
+  if (userKeyword && !filters.value.user_id) {
+    try {
+      const users = await adminAPI.usage.searchUsers(userKeyword)
+      const matchedUser = findUsageUserMatch(users, userKeyword)
+      if (matchedUser) {
+        filters.value.user_id = matchedUser.id
+        filters.value.user_search = matchedUser.email
+      }
+    } catch (error) {
+      console.error('Failed to restore usage user filter from route:', error)
+    }
+  }
+
+  const apiKeyKeyword = String(filters.value.api_key_search || '').trim()
+  if (apiKeyKeyword && !filters.value.api_key_id) {
+    try {
+      const keys = await adminAPI.usage.searchApiKeys(filters.value.user_id, apiKeyKeyword)
+      const matchedKey = findUsageApiKeyMatch(keys, apiKeyKeyword)
+      if (matchedKey) {
+        filters.value.api_key_id = matchedKey.id
+        filters.value.api_key_search = matchedKey.name || String(matchedKey.id)
+      }
+    } catch (error) {
+      console.error('Failed to restore usage API key filter from route:', error)
+    }
+  }
+
+  const accountKeyword = String(filters.value.account_search || '').trim()
+  if (accountKeyword && !filters.value.account_id) {
+    try {
+      const response = await adminAPI.accounts.list(1, 20, { search: accountKeyword })
+      const accounts = response.items.map((account) => ({ id: account.id, name: account.name }))
+      const matchedAccount = findUsageAccountMatch(accounts, accountKeyword)
+      if (matchedAccount) {
+        filters.value.account_id = matchedAccount.id
+        filters.value.account_search = matchedAccount.name
+      }
+    } catch (error) {
+      console.error('Failed to restore usage account filter from route:', error)
+    }
+  }
+}
+
 const buildUsageListParams = (
   page: number,
   pageSize: number,
@@ -378,7 +518,7 @@ const buildUsageListParams = (
     page,
     page_size: pageSize,
     exact_total: exactTotal,
-    ...filters.value,
+    ...usageApiFilters(),
     stream: legacyStream === null ? undefined : legacyStream,
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
@@ -402,7 +542,7 @@ const loadStats = async (force = false) => {
     const requestType = filters.value.request_type
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
     const s = await adminAPI.usage.getStats({
-      ...filters.value,
+      ...usageApiFilters(),
       stream: legacyStream === null ? undefined : legacyStream,
       ...(force ? { nocache: 1 } : {}),
     })
@@ -514,6 +654,7 @@ const loadChartData = async () => {
 }
 const applyFilters = () => {
   pagination.page = 1
+  void adminUsageRouteQuerySync.syncToRoute()
   invalidateModelStatsCache()
   loadLogs()
   loadStats()
@@ -539,7 +680,16 @@ const resetFilters = () => {
   const range = getLast24HoursRangeDates()
   startDate.value = range.start
   endDate.value = range.end
-  filters.value = { start_date: startDate.value, end_date: endDate.value, request_type: undefined, billing_type: null, billing_mode: undefined }
+  filters.value = {
+    start_date: startDate.value,
+    end_date: endDate.value,
+    user_search: '',
+    api_key_search: '',
+    account_search: '',
+    request_type: undefined,
+    billing_type: null,
+    billing_mode: undefined
+  }
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
   applyFilters()
 }
@@ -594,8 +744,8 @@ const exportToExcel = async () => {
       )
       if (c.signal.aborted) break; if (p === 1) { total = res.total; exportProgress.total = total }
       const rows = (res.items || []).map((log: AdminUsageLog) => [
-        log.created_at, log.user?.email || '', log.api_key?.name || '', log.account?.name || '', log.model,
-        log.upstream_model || log.model, log.upstream_response_model || '', log.upstream_model_mismatch == null ? '' : t(log.upstream_model_mismatch ? 'common.yes' : 'common.no'), formatReasoningEffort(log.reasoning_effort), log.group?.name || '',
+		log.created_at, log.user?.email || '', log.api_key?.name || '', log.account?.name || '', log.model,
+		log.upstream_model || log.model, log.upstream_response_model || '', log.upstream_model_mismatch == null ? '' : t(log.upstream_model_mismatch ? 'common.yes' : 'common.no'), formatReasoningEffort(log.reasoning_effort), log.group?.name || '',
         log.inbound_endpoint || '', log.upstream_endpoint || '', getRequestTypeLabel(log),
         log.input_tokens, log.output_tokens, log.cache_read_tokens, log.cache_creation_tokens,
         log.input_cost?.toFixed(6) || '0.000000', log.output_cost?.toFixed(6) || '0.000000',
@@ -842,9 +992,13 @@ const handleColumnClickOutside = (event: MouseEvent) => {
   }
 }
 
-onMounted(() => {
+const initializeUsageView = async () => {
   applyRouteQueryFilters()
-  void loadRouteUserFilterLabel()
+  adminUsageRouteQuerySync.restoreFromRoute()
+  await restoreUsageSearchBackedIds()
+  await loadRouteUserFilterLabel()
+  granularity.value = getGranularityForRange(startDate.value, endDate.value)
+  void adminUsageRouteQuerySync.syncToRoute()
   loadLogs()
   loadStats()
   loadModelStats(modelDistributionSource.value, true)
@@ -854,6 +1008,10 @@ onMounted(() => {
   loadSavedColumns()
   loadSavedErrColumns()
   document.addEventListener('click', handleColumnClickOutside)
+}
+
+onMounted(() => {
+  void initializeUsageView()
 })
 onUnmounted(() => { abortController?.abort(); exportAbortController?.abort(); document.removeEventListener('click', handleColumnClickOutside) })
 

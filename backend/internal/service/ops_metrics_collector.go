@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/mem"
 )
 
@@ -35,6 +36,7 @@ const (
 	opsMetricsCollectorHeartbeatTimeout = 2 * time.Second
 
 	bytesPerMB = 1024 * 1024
+	bytesPerGB = 1024 * 1024 * 1024
 )
 
 var opsMetricsCollectorAdvisoryLockID = hashAdvisoryLockID(opsMetricsCollectorLeaderLockKey)
@@ -341,6 +343,9 @@ func (c *OpsMetricsCollector) collectAndPersist(ctx context.Context) error {
 		MemoryUsedMB:       sys.memoryUsedMB,
 		MemoryTotalMB:      sys.memoryTotalMB,
 		MemoryUsagePercent: sys.memoryUsagePercent,
+		DiskUsedGB:         sys.diskUsedGB,
+		DiskTotalGB:        sys.diskTotalGB,
+		DiskUsagePercent:   sys.diskUsagePercent,
 
 		DBOK:    boolPtr(dbOK),
 		RedisOK: boolPtr(redisOK),
@@ -591,6 +596,9 @@ type opsCollectedSystemStats struct {
 	memoryUsedMB       *int64
 	memoryTotalMB      *int64
 	memoryUsagePercent *float64
+	diskUsedGB         *int64
+	diskTotalGB        *int64
+	diskUsagePercent   *float64
 }
 
 func (c *OpsMetricsCollector) collectSystemStats(ctx context.Context) (*opsCollectedSystemStats, error) {
@@ -647,6 +655,15 @@ func (c *OpsMetricsCollector) collectSystemStats(ctx context.Context) (*opsColle
 				}
 			}
 		}
+	}
+
+	if usage, err := disk.UsageWithContext(ctx, "/"); err == nil && usage != nil {
+		usedGB := int64(usage.Used / bytesPerGB)
+		totalGB := int64(usage.Total / bytesPerGB)
+		out.diskUsedGB = &usedGB
+		out.diskTotalGB = &totalGB
+		pct := roundTo1DP(usage.UsedPercent)
+		out.diskUsagePercent = &pct
 	}
 
 	return out, nil

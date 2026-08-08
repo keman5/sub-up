@@ -93,6 +93,8 @@ WITH combined AS (
     COALESCE(NULLIF(g.platform, ''), NULLIF(a.platform, ''), '') AS platform,
     ul.model AS model,
     ul.duration_ms AS duration_ms,
+    ul.subscription_id AS subscription_id,
+    COALESCE(gs.name, '') AS subscription_group_name,
     NULL::INT AS status_code,
     NULL::BIGINT AS error_id,
     NULL::TEXT AS phase,
@@ -105,6 +107,8 @@ WITH combined AS (
     ul.stream AS stream
   FROM usage_logs ul
   LEFT JOIN groups g ON g.id = ul.group_id
+  LEFT JOIN user_subscriptions us2 ON us2.id = ul.subscription_id
+  LEFT JOIN groups gs ON gs.id = us2.group_id
   LEFT JOIN accounts a ON a.id = ul.account_id
   WHERE ul.created_at >= $1 AND ul.created_at < $2
 
@@ -117,6 +121,8 @@ WITH combined AS (
     COALESCE(NULLIF(o.platform, ''), NULLIF(g.platform, ''), NULLIF(a.platform, ''), '') AS platform,
     o.model AS model,
     o.duration_ms AS duration_ms,
+    NULL::BIGINT AS subscription_id,
+    ''::TEXT AS subscription_group_name,
     o.status_code AS status_code,
     o.id AS error_id,
     o.error_phase AS phase,
@@ -166,6 +172,8 @@ SELECT
   platform,
   model,
   duration_ms,
+  subscription_id,
+  subscription_group_name,
   status_code,
   error_id,
   phase,
@@ -207,11 +215,13 @@ LIMIT $%d OFFSET $%d
 	out := make([]*service.OpsRequestDetail, 0, pageSize)
 	for rows.Next() {
 		var (
-			kind      string
-			createdAt time.Time
-			requestID sql.NullString
-			platform  sql.NullString
-			model     sql.NullString
+			kind                  string
+			createdAt             time.Time
+			requestID             sql.NullString
+			platform              sql.NullString
+			model                 sql.NullString
+			subscriptionID        sql.NullInt64
+			subscriptionGroupName sql.NullString
 
 			durationMs sql.NullInt64
 			statusCode sql.NullInt64
@@ -236,6 +246,8 @@ LIMIT $%d OFFSET $%d
 			&platform,
 			&model,
 			&durationMs,
+			&subscriptionID,
+			&subscriptionGroupName,
 			&statusCode,
 			&errorID,
 			&phase,
@@ -251,11 +263,13 @@ LIMIT $%d OFFSET $%d
 		}
 
 		item := &service.OpsRequestDetail{
-			Kind:      service.OpsRequestKind(kind),
-			CreatedAt: createdAt,
-			RequestID: strings.TrimSpace(requestID.String),
-			Platform:  strings.TrimSpace(platform.String),
-			Model:     strings.TrimSpace(model.String),
+			Kind:                  service.OpsRequestKind(kind),
+			CreatedAt:             createdAt,
+			RequestID:             strings.TrimSpace(requestID.String),
+			Platform:              strings.TrimSpace(platform.String),
+			Model:                 strings.TrimSpace(model.String),
+			SubscriptionID:        toInt64Ptr(subscriptionID),
+			SubscriptionGroupName: strings.TrimSpace(subscriptionGroupName.String),
 
 			DurationMs: toIntPtr(durationMs),
 			StatusCode: toIntPtr(statusCode),

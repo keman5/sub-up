@@ -89,6 +89,12 @@ vi.mock('@/stores/onboarding', () => ({
   }),
 }))
 
+vi.mock('@/stores/subscriptions', () => ({
+  useSubscriptionStore: () => ({
+    fetchActiveSubscriptions: vi.fn().mockResolvedValue([]),
+  }),
+}))
+
 vi.mock('@/composables/useClipboard', () => ({
   useClipboard: () => ({
     copyToClipboard,
@@ -192,8 +198,8 @@ const SelectStub = {
   template: '<select :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"></select>',
 }
 
-const SearchInputStub = {
-  name: 'SearchInput',
+const SearchSuggestInputStub = {
+  name: 'SearchSuggestInput',
   props: ['modelValue'],
   emits: ['update:modelValue', 'search'],
   template: '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
@@ -227,7 +233,7 @@ const mountView = async () => {
         ConfirmDialog: true,
         EmptyState: true,
         Select: SelectStub,
-        SearchInput: SearchInputStub,
+        SearchSuggestInput: SearchSuggestInputStub,
         Icon: IconStub,
         UseKeyModal: true,
         EndpointPopover: true,
@@ -410,8 +416,8 @@ describe('user KeysView column settings', () => {
     await wrapper.get('[data-test="page-size-50"]').trigger('click')
     await flushPromises()
 
-    await wrapper.findComponent({ name: 'SearchInput' }).vm.$emit('update:modelValue', 'target')
-    await wrapper.findComponent({ name: 'SearchInput' }).vm.$emit('search')
+    await wrapper.findComponent({ name: 'SearchSuggestInput' }).vm.$emit('update:modelValue', 'target')
+    await wrapper.findComponent({ name: 'SearchSuggestInput' }).vm.$emit('search', 'target')
     await flushPromises()
 
     const selects = wrapper.findAllComponents({ name: 'Select' })

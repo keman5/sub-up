@@ -942,6 +942,9 @@ func evaluateOpenAIFastPolicyWithSettings(settings *OpenAIFastPolicySettings, us
 			if ruleTier != "" && ruleTier != OpenAIFastTierAny && ruleTier != tier {
 				continue
 			}
+			if openAIFastPolicyBypassAllowlistMatches(rule, userID, account) {
+				return BetaPolicyActionPass, ""
+			}
 			eff := BetaPolicyRule{
 				Action:               rule.Action,
 				ErrorMessage:         rule.ErrorMessage,
@@ -955,6 +958,34 @@ func evaluateOpenAIFastPolicyWithSettings(settings *OpenAIFastPolicySettings, us
 	return BetaPolicyActionPass, ""
 }
 
+func openAIFastPolicyBypassAllowlistMatches(rule OpenAIFastPolicyRule, userID int64, account *Account) bool {
+	userAllowlistConfigured := len(rule.AccountAllowlist) > 0
+	openAIAccountAllowlistConfigured := len(rule.OpenAIAccountAllowlist) > 0
+	if !userAllowlistConfigured && !openAIAccountAllowlistConfigured {
+		return false
+	}
+
+	userMatched := !userAllowlistConfigured || int64SliceContains(rule.AccountAllowlist, userID)
+	accountID := int64(0)
+	if account != nil {
+		accountID = account.ID
+	}
+	openAIAccountMatched := !openAIAccountAllowlistConfigured || int64SliceContains(rule.OpenAIAccountAllowlist, accountID)
+	return userMatched && openAIAccountMatched
+}
+
+func int64SliceContains(values []int64, target int64) bool {
+	if target <= 0 {
+		return false
+	}
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
 func openAIFastPolicyUserID(ctx context.Context) int64 {
 	if ctx == nil {
 		return 0
@@ -964,6 +995,13 @@ func openAIFastPolicyUserID(ctx context.Context) int64 {
 		return 0
 	}
 	return userID
+}
+
+func WithOpenAIFastPolicyUserID(ctx context.Context, userID int64) context.Context {
+	if ctx == nil || userID <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, ctxkey.UserID, userID)
 }
 
 func openAIFastPolicyUserMatches(ruleUserIDs []int64, userID int64) bool {

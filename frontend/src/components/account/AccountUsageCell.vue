@@ -89,7 +89,7 @@
             type="button"
             class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors"
             :disabled="activeQueryLoading"
-            @click="loadActiveUsage"
+            @click="refreshActiveUsage"
           >
             <svg
               class="h-2.5 w-2.5"
@@ -120,37 +120,66 @@
 
     <!-- OpenAI OAuth accounts: single source from /usage API -->
     <template v-else-if="account.platform === 'openai' && account.type === 'oauth'">
-      <div v-if="hasOpenAIUsageFallback" class="space-y-1">
+      <div v-if="hasOpenAIUsageFallback || hasOpenAICodexSparkUsage" class="space-y-1">
         <UsageProgressBar
-          v-if="usageInfo?.five_hour"
+          v-if="openAIMainFiveHour"
           label="5h"
-          :utilization="usageInfo.five_hour.utilization"
-          :resets-at="usageInfo.five_hour.resets_at"
-          :window-stats="usageInfo.five_hour.window_stats"
+          :utilization="openAIMainFiveHour.utilization"
+          :resets-at="openAIMainFiveHour.resets_at"
+          :window-stats="openAIMainFiveHour.window_stats"
           :show-now-when-idle="true"
           color="indigo"
         />
         <UsageProgressBar
-          v-if="usageInfo?.seven_day"
+          v-if="openAIMainSevenDay"
           label="7d"
-          :utilization="usageInfo.seven_day.utilization"
-          :resets-at="usageInfo.seven_day.resets_at"
-          :window-stats="usageInfo.seven_day.window_stats"
+          :utilization="openAIMainSevenDay.utilization"
+          :resets-at="openAIMainSevenDay.resets_at"
+          :window-stats="openAIMainSevenDay.window_stats"
           :show-now-when-idle="true"
           color="emerald"
         />
+        <div v-if="hasOpenAICodexSparkUsage" class="flex items-center justify-end">
+          <button
+            type="button"
+            class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors"
+            :aria-expanded="isOpenAICodexSparkExpanded ? 'true' : 'false'"
+            @click="toggleOpenAICodexSparkExpanded"
+          >
+            <svg class="h-2.5 w-2.5 transition-transform" :class="{ 'rotate-180': isOpenAICodexSparkExpanded }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+            {{ isOpenAICodexSparkExpanded ? t('admin.accounts.usageWindow.openaiCodexSparkHide') : t('admin.accounts.usageWindow.openaiCodexSparkShow') }}
+          </button>
+        </div>
+        <div v-if="isOpenAICodexSparkExpanded && hasOpenAICodexSparkUsage" class="space-y-1">
+          <UsageProgressBar
+            v-for="sparkWindow in openAICodexSparkWindows"
+            :key="sparkWindow.label"
+            :label="sparkWindow.label"
+            :utilization="sparkWindow.progress.utilization"
+            :resets-at="sparkWindow.progress.resets_at"
+            :window-stats="sparkWindow.progress.window_stats"
+            :show-now-when-idle="true"
+            :color="sparkWindow.label === '5h' ? 'purple' : 'amber'"
+          />
+        </div>
         <!--
           Upstream codex /wham/usage quota query + reset. The local active-sampling
           refresh button is rendered via the pre-actions slot so the user sees a
           single row of related buttons instead of two stacked rows.
         -->
-        <OpenAIQuotaResetCell :account="account" @account-updated="handleQuotaResetAccountUpdated">
+        <OpenAIQuotaResetCell
+          :account="account"
+          @queried="handleOpenAIQuotaQueried"
+          @account-updated="handleQuotaResetAccountUpdated"
+        >
           <template #pre-actions>
             <button
               type="button"
               class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="activeQueryLoading"
-              @click="loadActiveUsage"
+              @click="refreshActiveUsage"
             >
               <svg
                 class="h-2.5 w-2.5"
@@ -189,6 +218,7 @@
         <OpenAIQuotaResetCell
           :account="account"
           class="mt-1"
+          @queried="handleOpenAIQuotaQueried"
           @account-updated="handleQuotaResetAccountUpdated"
         />
       </div>
@@ -630,10 +660,11 @@ import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'v
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { GrokQuotaProbeResult } from '@/api/admin/grok'
-import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '@/types'
+import type { Account, AccountUsageInfo, GeminiCredentials, UsageProgress, WindowStats } from '@/types'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
-import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
+import { enqueueActiveUsageRefresh, enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import { formatCompactNumber, formatRelativeTime } from '@/utils/format'
+import { queryOpenAIQuota } from '@/api/admin/accounts'
 import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
@@ -661,6 +692,7 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
+  'runtime-state-updated': []
   'account-updated': [account: Account]
 }>()
 
@@ -674,6 +706,7 @@ const loading = ref(false)
 const activeQueryLoading = ref(false)
 const error = ref<string | null>(null)
 const usageInfo = ref<AccountUsageInfo | null>(null)
+const isOpenAICodexSparkExpanded = ref(false)
 const suppressOpenAIUsageRefreshUntil = ref(0)
 const rootRef = ref<HTMLElement | null>(null)
 const isDesktopViewport = ref(
@@ -730,10 +763,92 @@ const geminiUsageAvailable = computed(() => {
 
 const hasOpenAIUsageFallback = computed(() => {
   if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return false
-  return !!usageInfo.value?.five_hour || !!usageInfo.value?.seven_day
+  return !!openAIMainFiveHour.value || !!openAIMainSevenDay.value || !!usageInfo.value?.codex_primary || !!usageInfo.value?.codex_secondary
+})
+
+const toNumber = (value: unknown): number | null => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+const toResetAt = (resetAt: unknown, resetAfterSeconds: unknown): string | undefined => {
+  if (typeof resetAt === 'string' && resetAt.trim()) return resetAt
+  const resetAfter = toNumber(resetAfterSeconds)
+  return resetAfter == null || resetAfter < 0 ? undefined : new Date(Date.now() + resetAfter * 1000).toISOString()
+}
+
+const openAIProgress = (utilized: unknown, resetAfterSeconds: unknown, resetAt: unknown): UsageProgress | null => {
+  const utilization = toNumber(utilized)
+  if (utilization == null) return null
+  const resetsAt = toResetAt(resetAt, resetAfterSeconds)
+  const expired = resetsAt ? new Date(resetsAt).getTime() <= Date.now() : false
+  return {
+    utilization: expired ? 0 : utilization,
+    resets_at: resetsAt ?? null,
+    remaining_seconds: expired ? 0 : (toNumber(resetAfterSeconds) ?? 0),
+    window_stats: null
+  }
+}
+
+const openAIMainFiveHour = computed<UsageProgress | null>(() => {
+  const usage = usageInfo.value
+  return usage ? openAIProgress(usage.codex_main_5h_used_percent, usage.codex_main_5h_reset_after_seconds, usage.codex_main_5h_reset_at) ?? usage.five_hour : null
+})
+
+const openAIMainSevenDay = computed<UsageProgress | null>(() => {
+  const usage = usageInfo.value
+  return usage ? openAIProgress(usage.codex_main_7d_used_percent, usage.codex_main_7d_reset_after_seconds, usage.codex_main_7d_reset_at) ?? usage.seven_day : null
+})
+
+const openAICodexSparkWindows = computed(() => {
+  const usage = usageInfo.value
+  if (!usage) return []
+
+  const hasExplicitSparkSnapshot = Boolean(usage.codex_usage_updated_at)
+  const primaryMinutes = toNumber(usage.codex_primary_window_minutes)
+  const secondaryMinutes = toNumber(usage.codex_secondary_window_minutes)
+  const rawWindows = [
+    {
+      minutes: primaryMinutes,
+      progress: openAIProgress(usage.codex_primary_used_percent, usage.codex_primary_reset_after_seconds, usage.codex_primary_reset_at) ?? usage.codex_primary,
+    },
+    {
+      minutes: secondaryMinutes,
+      progress: openAIProgress(usage.codex_secondary_used_percent, usage.codex_secondary_reset_after_seconds, usage.codex_secondary_reset_at) ?? usage.codex_secondary,
+    },
+  ]
+  let fiveHour = openAIProgress(usage.codex_5h_used_percent, usage.codex_5h_reset_after_seconds, usage.codex_5h_reset_at)
+  let sevenDay = openAIProgress(usage.codex_7d_used_percent, usage.codex_7d_reset_after_seconds, usage.codex_7d_reset_at)
+
+  if (hasExplicitSparkSnapshot) {
+    const sorted = [...rawWindows].sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0))
+    fiveHour ||= sorted[0]?.progress ?? null
+    sevenDay ||= sorted[sorted.length - 1]?.progress ?? null
+  }
+
+  const bars: Array<{ label: '5h' | '7d'; progress: UsageProgress }> = []
+  if (fiveHour) bars.push({ label: '5h', progress: fiveHour })
+  if (sevenDay) bars.push({ label: '7d', progress: sevenDay })
+  return bars
+})
+
+const hasOpenAICodexSparkUsage = computed(() => {
+  return props.account.platform === 'openai' &&
+    props.account.type === 'oauth' &&
+    openAICodexSparkWindows.value.length > 0
 })
 
 const openAIUsageRefreshKey = computed(() => buildOpenAIUsageRefreshKey(props.account))
+
+const toggleOpenAICodexSparkExpanded = () => {
+  if (hasOpenAICodexSparkUsage.value) {
+    isOpenAICodexSparkExpanded.value = !isOpenAICodexSparkExpanded.value
+  }
+}
 
 const shouldAutoLoadUsageOnMount = computed(() => {
   return shouldFetchUsage.value
@@ -1273,7 +1388,7 @@ const isAnthropicOAuthOrSetupToken = computed(() => {
   return props.account.platform === 'anthropic' && (props.account.type === 'oauth' || props.account.type === 'setup-token')
 })
 
-const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?: boolean }) => {
+const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?: boolean; force?: boolean }) => {
   if (!shouldFetchUsage.value) return
 
   // Check cache
@@ -1290,9 +1405,7 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
   error.value = null
 
   try {
-    const fetchFn = () => options?.source
-      ? adminAPI.accounts.getUsage(props.account.id, options.source)
-      : adminAPI.accounts.getUsage(props.account.id)
+    const fetchFn = () => adminAPI.accounts.getUsage(props.account.id, options?.source, options?.force)
     const result = await enqueueUsageRequest(props.account, fetchFn)
     if (!unmounted.value) {
       usageInfo.value = result
@@ -1358,15 +1471,49 @@ const attachVisibilityObserver = () => {
   visibilityObserver.observe(rootRef.value)
 }
 
-const loadActiveUsage = async () => {
+const loadActiveUsage = async (options?: {
+  refreshQuotaFromUpstream?: boolean
+  queued?: boolean
+  notifyRuntimeState?: boolean
+}) => {
+  const { refreshQuotaFromUpstream = false } = options ?? {}
   activeQueryLoading.value = true
+
+  const fetchUsage = async () => {
+    if (refreshQuotaFromUpstream && props.account.platform === 'openai' && props.account.type === 'oauth') {
+      try {
+        await queryOpenAIQuota(props.account.id)
+      } catch (e) {
+        console.error('Failed to refresh OpenAI quota before active usage refresh:', e)
+      }
+    }
+
+    const result = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
+    usageInfo.value = result
+    _usageCache.set(props.account.id, { data: result, ts: Date.now() })
+    if (options?.notifyRuntimeState) emit('runtime-state-updated')
+  }
+
   try {
-    usageInfo.value = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
+    if (options?.queued) {
+      await enqueueActiveUsageRefresh(fetchUsage)
+    } else {
+      await fetchUsage()
+    }
   } catch (e: any) {
     console.error('Failed to load active usage:', e)
   } finally {
     activeQueryLoading.value = false
   }
+}
+
+const refreshActiveUsage = async () => {
+  await loadActiveUsage({ refreshQuotaFromUpstream: true, notifyRuntimeState: true })
+}
+
+const handleOpenAIQuotaQueried = async () => {
+  await loadActiveUsage()
+  emit('runtime-state-updated')
 }
 
 const handleGrokProbed = (result: GrokQuotaProbeResult) => {
@@ -1530,6 +1677,18 @@ onMounted(() => {
   }
 
   if (!shouldAutoLoadUsageOnMount.value) return
+  if (props.manualRefreshToken > 0) {
+    // A virtualized or mobile row can mount after the page has requested its
+    // initial refresh. Honor that request instead of falling back to passive data.
+    loadActiveUsage({
+      refreshQuotaFromUpstream: true,
+      queued: true,
+      notifyRuntimeState: true
+    }).catch((e) => {
+      console.error('Failed to refresh active usage on list entry:', e)
+    })
+    return
+  }
   const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
   requestAutoLoad(source)
 })
@@ -1543,7 +1702,9 @@ watch(openAIUsageRefreshKey, (nextKey, prevKey) => {
   }
 
   _usageCache.delete(props.account.id)
-  requestAutoLoad()
+  loadUsage({ bypassCache: true, force: true }).catch((e) => {
+    console.error('Failed to refresh OpenAI usage after account update:', e)
+  })
 })
 
 watch(
@@ -1552,10 +1713,13 @@ watch(
     if (nextToken === prevToken) return
     if (!shouldFetchUsage.value) return
 
-    const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
     _usageCache.delete(props.account.id)
-    loadUsage({ source, bypassCache: true }).catch((e) => {
-      console.error('Failed to refresh usage after manual refresh:', e)
+    loadActiveUsage({
+      refreshQuotaFromUpstream: true,
+      queued: true,
+      notifyRuntimeState: true
+    }).catch((e) => {
+      console.error('Failed to refresh active usage after list refresh:', e)
     })
   }
 )

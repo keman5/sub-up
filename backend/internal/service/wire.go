@@ -85,6 +85,18 @@ func ProvideOAuthRefreshAPI(accountRepo AccountRepository, tokenCache GeminiToke
 	return NewOAuthRefreshAPI(accountRepo, tokenCache)
 }
 
+// ProvideAccountPoolHealthNotifyService creates and starts AccountPoolHealthNotifyService.
+func ProvideAccountPoolHealthNotifyService(accountRepo AccountRepository, settingRepo SettingRepository, notificationEmailService *NotificationEmailService) *AccountPoolHealthNotifyService {
+	svc := NewAccountPoolHealthNotifyService(accountRepo, settingRepo, notificationEmailService, time.Minute)
+	svc.Start()
+	return svc
+}
+
+// ProvideAnnouncementUserRepository exposes the narrow repository contract used by AnnouncementService.
+func ProvideAnnouncementUserRepository(userRepo UserRepository) AnnouncementUserRepository {
+	return userRepo
+}
+
 func ProvideBatchImageModelPricingResolver(resolver *ModelPricingResolver) *BatchImageModelPricingResolver {
 	return &BatchImageModelPricingResolver{Resolver: resolver}
 }
@@ -749,6 +761,7 @@ var ProviderSet = wire.NewSet(
 	NewBillingService,
 	ProvideBillingCacheService,
 	NewAnnouncementService,
+	ProvideAnnouncementUserRepository,
 	NewAdminService,
 	NewGatewayService,
 	NewOpenAIGatewayService,
@@ -808,6 +821,7 @@ var ProviderSet = wire.NewSet(
 	ProvideUserMessageQueueService,
 	NewUsageRecordWorkerPool,
 	ProvideSchedulerSnapshotService,
+	ProvideAccountPoolHealthNotifyService,
 	NewIdentityService,
 	NewCRSSyncService,
 	ProvideUpdateService,

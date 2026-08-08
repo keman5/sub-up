@@ -45,6 +45,7 @@ type subscriptionCacheData struct {
 	DailyUsage   float64
 	WeeklyUsage  float64
 	MonthlyUsage float64
+	TotalUsage   float64
 	Version      int64
 }
 
@@ -447,6 +448,7 @@ func (s *BillingCacheService) convertFromPortsData(data *SubscriptionCacheData) 
 		DailyUsage:   data.DailyUsage,
 		WeeklyUsage:  data.WeeklyUsage,
 		MonthlyUsage: data.MonthlyUsage,
+		TotalUsage:   data.TotalUsage,
 		Version:      data.Version,
 	}
 }
@@ -458,6 +460,7 @@ func (s *BillingCacheService) convertToPortsData(data *subscriptionCacheData) *S
 		DailyUsage:   data.DailyUsage,
 		WeeklyUsage:  data.WeeklyUsage,
 		MonthlyUsage: data.MonthlyUsage,
+		TotalUsage:   data.TotalUsage,
 		Version:      data.Version,
 	}
 }
@@ -475,6 +478,7 @@ func (s *BillingCacheService) getSubscriptionFromDB(ctx context.Context, userID,
 		DailyUsage:   sub.DailyUsageUSD,
 		WeeklyUsage:  sub.WeeklyUsageUSD,
 		MonthlyUsage: sub.MonthlyUsageUSD,
+		TotalUsage:   sub.TotalUsageUSD,
 		Version:      sub.UpdatedAt.Unix(),
 	}, nil
 }
@@ -922,16 +926,19 @@ func (s *BillingCacheService) checkSubscriptionEligibility(ctx context.Context, 
 	}
 
 	// 检查限额（使用传入的Group限额配置）
-	if group.HasDailyLimit() && subData.DailyUsage >= *group.DailyLimitUSD {
+	if group.HasDailyLimit() && subData.DailyUsage > *group.DailyLimitUSD {
 		return ErrDailyLimitExceeded
 	}
 
-	if group.HasWeeklyLimit() && subData.WeeklyUsage >= *group.WeeklyLimitUSD {
+	if group.HasWeeklyLimit() && subData.WeeklyUsage > *group.WeeklyLimitUSD {
 		return ErrWeeklyLimitExceeded
 	}
 
-	if group.HasMonthlyLimit() && subData.MonthlyUsage >= *group.MonthlyLimitUSD {
+	if group.HasMonthlyLimit() && subData.MonthlyUsage > *group.MonthlyLimitUSD {
 		return ErrMonthlyLimitExceeded
+	}
+	if group.HasTotalLimit() && subData.TotalUsage > *group.TotalLimitUSD {
+		return ErrTotalLimitExceeded
 	}
 
 	return nil

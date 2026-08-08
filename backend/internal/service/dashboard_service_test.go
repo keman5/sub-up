@@ -16,15 +16,20 @@ import (
 
 type usageRepoStub struct {
 	UsageLogRepository
-	stats      *usagestats.DashboardStats
-	rangeStats *usagestats.DashboardStats
-	err        error
-	rangeErr   error
-	calls      int32
-	rangeCalls int32
-	rangeStart time.Time
-	rangeEnd   time.Time
-	onCall     chan struct{}
+	stats            *usagestats.DashboardStats
+	rangeStats       *usagestats.DashboardStats
+	modelStats       []usagestats.ModelStat
+	groupStats       []usagestats.GroupStat
+	groupSummary     []usagestats.GroupUsageSummary
+	userBreakdown    []usagestats.UserBreakdownItem
+	err              error
+	rangeErr         error
+	calls            int32
+	rangeCalls       int32
+	rangeStart       time.Time
+	rangeEnd         time.Time
+	onCall           chan struct{}
+	lastPresentation bool
 }
 
 func (s *usageRepoStub) GetDashboardStats(ctx context.Context) (*usagestats.DashboardStats, error) {
@@ -52,6 +57,31 @@ func (s *usageRepoStub) GetDashboardStatsWithRange(ctx context.Context, start, e
 		return s.rangeStats, nil
 	}
 	return s.stats, nil
+}
+
+func (s *usageRepoStub) GetDashboardStatsForView(ctx context.Context, usePresentation bool) (*usagestats.DashboardStats, error) {
+	s.lastPresentation = usePresentation
+	return s.GetDashboardStats(ctx)
+}
+
+func (s *usageRepoStub) GetModelStatsWithFiltersBySourceForView(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8, source string, usePresentation bool) ([]usagestats.ModelStat, error) {
+	s.lastPresentation = usePresentation
+	return s.modelStats, nil
+}
+
+func (s *usageRepoStub) GetGroupStatsWithFiltersForView(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8, usePresentation bool) ([]usagestats.GroupStat, error) {
+	s.lastPresentation = usePresentation
+	return s.groupStats, nil
+}
+
+func (s *usageRepoStub) GetAllGroupUsageSummaryForView(ctx context.Context, todayStart time.Time, usePresentation bool) ([]usagestats.GroupUsageSummary, error) {
+	s.lastPresentation = usePresentation
+	return s.groupSummary, nil
+}
+
+func (s *usageRepoStub) GetUserBreakdownStatsForView(ctx context.Context, startTime, endTime time.Time, dim usagestats.UserBreakdownDimension, limit int, usePresentation bool) ([]usagestats.UserBreakdownItem, error) {
+	s.lastPresentation = usePresentation
+	return s.userBreakdown, nil
 }
 
 type dashboardCacheStub struct {
@@ -392,4 +422,87 @@ func TestDashboardService_AggDisabled_UsesUsageLogsFallback(t *testing.T) {
 	require.Equal(t, int32(1), atomic.LoadInt32(&repo.rangeCalls))
 	require.False(t, repo.rangeEnd.IsZero())
 	require.Equal(t, truncateToDayUTC(repo.rangeEnd.AddDate(0, 0, -7)), repo.rangeStart)
+}
+
+func TestDashboardService_GetDashboardStatsForViewMasksAccountCostForPresentation(t *testing.T) {
+	stats := &usagestats.DashboardStats{
+		TotalUsers:       42,
+		TotalAccountCost: 12.5,
+		TodayAccountCost: 3.25,
+	}
+	repo := &usageRepoStub{stats: stats}
+	svc := NewDashboardService(repo, nil, nil, &config.Config{
+		Dashboard: config.DashboardCacheConfig{Enabled: false},
+	})
+
+	got, err := svc.GetDashboardStatsForView(context.Background(), true)
+	require.NoError(t, err)
+	require.True(t, repo.lastPresentation)
+	require.Equal(t, int64(42), got.TotalUsers)
+	require.Zero(t, got.TotalAccountCost)
+	require.Zero(t, got.TodayAccountCost)
+	require.Equal(t, 12.5, stats.TotalAccountCost, "presentation view must not mutate raw stats")
+	require.Equal(t, 3.25, stats.TodayAccountCost, "presentation view must not mutate raw stats")
+
+	raw, err := svc.GetDashboardStatsForView(context.Background(), false)
+	require.NoError(t, err)
+	require.Equal(t, 12.5, raw.TotalAccountCost)
+	require.Equal(t, 3.25, raw.TodayAccountCost)
+}
+
+func TestDashboardService_ForViewMasksAccountCostSlicesForPresentation(t *testing.T) {
+	start := time.Now().Add(-time.Hour)
+	end := time.Now()
+	repo := &usageRepoStub{
+		modelStats: []usagestats.ModelStat{{
+			Model:       "gpt-5.5",
+			AccountCost: 8.8,
+		}},
+		groupStats: []usagestats.GroupStat{{
+			GroupID:     1,
+			GroupName:   "standard",
+			AccountCost: 9.9,
+		}},
+		userBreakdown: []usagestats.UserBreakdownItem{{
+			UserID:      2,
+			Email:       "u@example.com",
+			AccountCost: 7.7,
+		}},
+	}
+	svc := NewDashboardService(repo, nil, nil, &config.Config{})
+
+	models, err := svc.GetModelStatsWithFiltersBySourceForView(context.Background(), start, end, 0, 0, 0, 0, nil, nil, nil, usagestats.ModelSourceRequested, true)
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	require.Zero(t, models[0].AccountCost)
+	require.Equal(t, 8.8, repo.modelStats[0].AccountCost, "presentation view must not mutate raw model stats")
+
+	groups, err := svc.GetGroupStatsWithFiltersForView(context.Background(), start, end, 0, 0, 0, 0, nil, nil, nil, true)
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	require.Zero(t, groups[0].AccountCost)
+	require.Equal(t, 9.9, repo.groupStats[0].AccountCost, "presentation view must not mutate raw group stats")
+
+	users, err := svc.GetUserBreakdownStatsForView(context.Background(), start, end, usagestats.UserBreakdownDimension{}, 10, true)
+	require.NoError(t, err)
+	require.Len(t, users, 1)
+	require.Zero(t, users[0].AccountCost)
+	require.Equal(t, 7.7, repo.userBreakdown[0].AccountCost, "presentation view must not mutate raw user breakdown")
+
+	rawModels, err := svc.GetModelStatsWithFiltersBySourceForView(context.Background(), start, end, 0, 0, 0, 0, nil, nil, nil, usagestats.ModelSourceRequested, false)
+	require.NoError(t, err)
+	require.Equal(t, 8.8, rawModels[0].AccountCost)
+}
+
+func TestDashboardService_GetGroupUsageSummaryForViewUsesPresentation(t *testing.T) {
+	repo := &usageRepoStub{
+		groupSummary: []usagestats.GroupUsageSummary{{GroupID: 7, TodayCost: 2.5, TotalCost: 9.5}},
+	}
+	svc := NewDashboardService(repo, nil, nil, &config.Config{})
+
+	got, err := svc.GetGroupUsageSummaryForView(context.Background(), time.Date(2026, 6, 22, 0, 0, 0, 0, time.UTC), UsageViewPresentation)
+
+	require.NoError(t, err)
+	require.True(t, repo.lastPresentation)
+	require.Equal(t, []usagestats.GroupUsageSummary{{GroupID: 7, TodayCost: 2.5, TotalCost: 9.5}}, got)
 }

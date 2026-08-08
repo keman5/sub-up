@@ -1,6 +1,16 @@
 <template>
   <div v-if="siteKey" class="turnstile-wrapper">
-    <div ref="containerRef" class="turnstile-container"></div>
+    <button
+      v-if="loadFailed"
+      type="button"
+      class="turnstile-reload-prompt"
+      data-testid="turnstile-reload-prompt"
+      @click="reloadPage"
+    >
+      <span class="turnstile-reload-title">验证码加载失败</span>
+      <span class="turnstile-reload-desc">点击刷新页面</span>
+    </button>
+    <div v-else ref="containerRef" class="turnstile-container"></div>
   </div>
 </template>
 
@@ -50,11 +60,13 @@ const emit = defineEmits<{
 const containerRef = ref<HTMLElement | null>(null)
 const widgetId = ref<string | null>(null)
 const scriptLoaded = ref(false)
+const loadFailed = ref(false)
 
 const loadScript = (): Promise<void> => {
   return new Promise((resolve, reject) => {
     if (window.turnstile) {
       scriptLoaded.value = true
+      loadFailed.value = false
       resolve()
       return
     }
@@ -64,6 +76,7 @@ const loadScript = (): Promise<void> => {
     if (existingScript) {
       window.onTurnstileLoad = () => {
         scriptLoaded.value = true
+        loadFailed.value = false
         resolve()
       }
       return
@@ -76,6 +89,7 @@ const loadScript = (): Promise<void> => {
 
     window.onTurnstileLoad = () => {
       scriptLoaded.value = true
+      loadFailed.value = false
       resolve()
     }
 
@@ -85,6 +99,10 @@ const loadScript = (): Promise<void> => {
 
     document.head.appendChild(script)
   })
+}
+
+const reloadPage = () => {
+  window.location.reload()
 }
 
 const renderWidget = () => {
@@ -140,6 +158,7 @@ onMounted(async () => {
     renderWidget()
   } catch (error) {
     console.error('Failed to initialize Turnstile:', error)
+    loadFailed.value = true
     emit('error')
   }
 })
@@ -159,6 +178,7 @@ watch(
   () => props.siteKey,
   (newKey) => {
     if (newKey && scriptLoaded.value) {
+      loadFailed.value = false
       renderWidget()
     }
   }
@@ -173,6 +193,58 @@ watch(
 .turnstile-container {
   width: 100%;
   min-height: 65px;
+}
+
+.turnstile-reload-prompt {
+  display: flex;
+  min-height: 65px;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border-radius: 0.75rem;
+  border: 1px dashed rgb(239 68 68 / 0.45);
+  background: rgb(254 242 242 / 0.75);
+  padding: 0.875rem 1rem;
+  text-align: center;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.turnstile-reload-prompt:hover {
+  border-color: rgb(239 68 68 / 0.7);
+  background: rgb(254 226 226 / 0.9);
+}
+
+.turnstile-reload-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: rgb(185 28 28);
+}
+
+.turnstile-reload-desc {
+  font-size: 0.75rem;
+  color: rgb(220 38 38);
+}
+
+:global(.dark) .turnstile-reload-prompt {
+  border-color: rgb(248 113 113 / 0.45);
+  background: rgb(127 29 29 / 0.22);
+}
+
+:global(.dark) .turnstile-reload-prompt:hover {
+  border-color: rgb(248 113 113 / 0.7);
+  background: rgb(127 29 29 / 0.32);
+}
+
+:global(.dark) .turnstile-reload-title {
+  color: rgb(254 202 202);
+}
+
+:global(.dark) .turnstile-reload-desc {
+  color: rgb(252 165 165);
 }
 
 /* Make the Turnstile iframe fill the container width */

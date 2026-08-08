@@ -24,7 +24,7 @@
               v-model="filters.protocol"
               :options="protocolOptions"
               :placeholder="t('admin.proxies.allProtocols')"
-              @change="loadProxies"
+              @change="applyProxyFilters"
             />
           </div>
           <div class="w-full sm:w-36">
@@ -32,7 +32,7 @@
               v-model="filters.status"
               :options="statusOptions"
               :placeholder="t('admin.proxies.allStatus')"
-              @change="loadProxies"
+              @change="applyProxyFilters"
             />
           </div>
 
@@ -986,6 +986,7 @@ import { useClipboard } from '@/composables/useClipboard'
 import { useSwipeSelect } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { formatDateTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 
@@ -1055,6 +1056,14 @@ const pagination = reactive({
 const sortState = reactive({
   sort_by: 'id',
   sort_order: 'desc' as 'asc' | 'desc'
+})
+
+const proxyRouteQuerySync = useRouteQuerySync({
+  fields: [
+    { queryKey: 'search', get: () => searchQuery.value, set: (value) => { searchQuery.value = value }, defaultValue: '' },
+    { queryKey: 'protocol', get: () => filters.protocol, set: (value) => { filters.protocol = value }, defaultValue: '', defaultQueryValue: 'all' },
+    { queryKey: 'status', get: () => filters.status, set: (value) => { filters.status = value }, defaultValue: '', defaultQueryValue: 'all' },
+  ],
 })
 
 const showCreateModal = ref(false)
@@ -1188,6 +1197,7 @@ const buildProxyQueryFilters = () => ({
 })
 
 const loadProxies = async () => {
+  void proxyRouteQuerySync.syncToRoute()
   if (abortController) {
     abortController.abort()
   }
@@ -1225,9 +1235,13 @@ let searchTimeout: ReturnType<typeof setTimeout>
 const handleSearch = () => {
   clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => {
-    pagination.page = 1
-    loadProxies()
+    applyProxyFilters()
   }, 300)
+}
+
+const applyProxyFilters = () => {
+  pagination.page = 1
+  loadProxies()
 }
 
 const handlePageChange = (page: number) => {
@@ -2056,6 +2070,7 @@ function closeCopyMenu() {
 }
 
 onMounted(() => {
+  proxyRouteQuerySync.restoreFromRoute()
   loadProxies()
   loadBackupProxyOptions()
   document.addEventListener('click', closeCopyMenu)

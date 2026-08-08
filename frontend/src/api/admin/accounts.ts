@@ -865,6 +865,9 @@ export async function refreshOpenAIQuota(id: number): Promise<OpenAIQuotaRefresh
   return data
 }
 
+// Keep the fork's query call sites on the persisted refresh semantics introduced upstream.
+export const queryOpenAIQuota = refreshOpenAIQuota
+
 /**
  * Consume one rate-limit-reset credit for an OpenAI/Codex OAuth account.
  *

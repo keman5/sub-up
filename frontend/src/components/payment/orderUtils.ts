@@ -19,7 +19,9 @@ const STATUS_BADGE_MAP: Record<string, string> = {
   REFUND_FAILED: 'badge-danger',
 }
 
-const REFUNDABLE_STATUSES = ['COMPLETED', 'PARTIALLY_REFUNDED', 'REFUND_REQUESTED', 'REFUND_FAILED']
+// The backend does not accept PARTIALLY_REFUNDED until cumulative refunds have
+// independent attempt identifiers and complete pending/failed state tracking.
+const REFUNDABLE_STATUSES = ['COMPLETED', 'REFUND_REQUESTED', 'REFUND_FAILED']
 
 export function statusBadgeClass(status: string): string {
   return STATUS_BADGE_MAP[status] || 'badge-secondary'

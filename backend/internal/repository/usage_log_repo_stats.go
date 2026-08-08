@@ -695,21 +695,31 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		args = append(args, *filters.EndTime)
 	}
 
+	presentationFactor := usagePresentationFactorSQL("", filters.UsePresentationMultiplier)
+	inputTokensExpr := usagePresentationTokenSQL("input_tokens", presentationFactor)
+	outputTokensExpr := usagePresentationOutputTokensSQL("", presentationFactor)
+	cacheCreationTokensExpr := usagePresentationTokenSQL("cache_creation_tokens", presentationFactor)
+	cacheReadTokensExpr := usagePresentationTokenSQL("cache_read_tokens", presentationFactor)
+	totalCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
+	actualCostExpr := usagePresentationCostSQL("actual_cost", presentationFactor)
+	accountCostExpr := usagePresentationCostSQL("COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)", presentationFactor)
+
 	query := fmt.Sprintf(`
 		SELECT
 			COUNT(*) as total_requests,
-			COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-			COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
-			COALESCE(SUM(total_cost), 0) as total_cost,
-			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
-			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as total_account_cost,
-			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
+			COALESCE(SUM(%s), 0) as total_input_tokens,
+			COALESCE(SUM(%s), 0) as total_output_tokens,
+			COALESCE(SUM(%s + %s), 0) as total_cache_tokens,
+			COALESCE(SUM(%s), 0) as total_cache_creation_tokens,
+			COALESCE(SUM(%s), 0) as total_cache_read_tokens,
+			COALESCE(SUM(%s), 0) as total_cost,
+			COALESCE(SUM(%s), 0) as total_actual_cost,
+			COALESCE(SUM(%s), 0) as total_account_cost,
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
+			COALESCE(AVG(first_token_ms), 0) as avg_first_token_ms
 		FROM usage_logs
 		%s
-	`, buildWhere(conditions))
+	`, inputTokensExpr, outputTokensExpr, cacheCreationTokensExpr, cacheReadTokensExpr, cacheCreationTokensExpr, cacheReadTokensExpr, totalCostExpr, actualCostExpr, accountCostExpr, buildWhere(conditions))
 
 	stats := &UsageStats{}
 	var totalAccountCost float64
@@ -739,11 +749,20 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			&stats.TotalActualCost,
 			&totalAccountCost,
 			&stats.AverageDurationMs,
+			&stats.AverageFirstTokenMs,
 		)
 	}
 	// endpoint 明细:best-effort(失败 log + 返空),不致命。
 	runEndpoints := func(c context.Context) {
-		res, err := r.getEndpointStatsByColumnWithFilters(c, "inbound_endpoint", start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.ModelFilterSource, filters.RequestType, filters.Stream, filters.BillingType, filters.BillingMode)
+		var (
+			res []EndpointStat
+			err error
+		)
+		if filters.UsePresentationMultiplier {
+			res, err = r.getEndpointStatsByColumnWithFiltersForView(c, "inbound_endpoint", start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.ModelFilterSource, filters.RequestType, filters.Stream, filters.BillingType, filters.BillingMode, true)
+		} else {
+			res, err = r.getEndpointStatsByColumnWithFilters(c, "inbound_endpoint", start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.ModelFilterSource, filters.RequestType, filters.Stream, filters.BillingType, filters.BillingMode)
+		}
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				logger.LegacyPrintf("repository.usage_log", "GetEndpointStatsWithFilters failed in GetStatsWithFilters: %v", err)
@@ -753,7 +772,15 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		endpoints = res
 	}
 	runUpstream := func(c context.Context) {
-		res, err := r.getEndpointStatsByColumnWithFilters(c, "upstream_endpoint", start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.ModelFilterSource, filters.RequestType, filters.Stream, filters.BillingType, filters.BillingMode)
+		var (
+			res []EndpointStat
+			err error
+		)
+		if filters.UsePresentationMultiplier {
+			res, err = r.getEndpointStatsByColumnWithFiltersForView(c, "upstream_endpoint", start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.ModelFilterSource, filters.RequestType, filters.Stream, filters.BillingType, filters.BillingMode, true)
+		} else {
+			res, err = r.getEndpointStatsByColumnWithFilters(c, "upstream_endpoint", start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.ModelFilterSource, filters.RequestType, filters.Stream, filters.BillingType, filters.BillingMode)
+		}
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				logger.LegacyPrintf("repository.usage_log", "GetUpstreamEndpointStatsWithFilters failed in GetStatsWithFilters: %v", err)
@@ -763,7 +790,15 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		upstreamEndpoints = res
 	}
 	runPaths := func(c context.Context) {
-		res, err := r.getEndpointPathStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.ModelFilterSource, filters.RequestType, filters.Stream, filters.BillingType, filters.BillingMode)
+		var (
+			res []EndpointStat
+			err error
+		)
+		if filters.UsePresentationMultiplier {
+			res, err = r.getEndpointPathStatsWithFiltersForView(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.ModelFilterSource, filters.RequestType, filters.Stream, filters.BillingType, filters.BillingMode, true)
+		} else {
+			res, err = r.getEndpointPathStatsWithFilters(c, start, end, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.ModelFilterSource, filters.RequestType, filters.Stream, filters.BillingType, filters.BillingMode)
+		}
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				logger.LegacyPrintf("repository.usage_log", "getEndpointPathStatsWithFilters failed in GetStatsWithFilters: %v", err)

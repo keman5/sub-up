@@ -359,6 +359,7 @@ describe('admin UsageView distribution metric toggles', () => {
       },
     })
 
+    await flushPromises()
     vi.advanceTimersByTime(120)
     await flushPromises()
 

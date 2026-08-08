@@ -1,9 +1,19 @@
 <template>
   <div>
-    <label class="input-label">
-      {{ t('admin.users.groups') }}
-      <span class="font-normal text-gray-400">{{ t('common.selectedCount', { count: modelValue.length }) }}</span>
-    </label>
+    <div class="mb-1 flex items-center justify-between gap-3">
+      <label class="input-label mb-0">
+        {{ t('admin.users.groups') }}
+        <span class="font-normal text-gray-400">{{ t('common.selectedCount', { count: modelValue.length }) }}</span>
+      </label>
+      <button
+        v-if="showSelectAll && filteredGroups.length > 0"
+        type="button"
+        class="shrink-0 rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 transition hover:bg-gray-100 dark:border-dark-500 dark:text-gray-300 dark:hover:bg-dark-700"
+        @click="toggleAllVisible"
+      >
+        {{ areAllVisibleGroupsSelected ? t('common.clear') : t('common.selectAll') }}
+      </button>
+    </div>
     <div
       v-if="isSearchable"
       class="flex items-center gap-2 rounded-t-lg border border-b-0 border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-600 dark:bg-dark-800"
@@ -71,10 +81,12 @@ interface Props {
   platform?: GroupPlatform // Optional platform filter
   mixedScheduling?: boolean // For antigravity accounts: allow anthropic/gemini groups
   searchable?: boolean | 'auto'
+  showSelectAll?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  searchable: 'auto'
+  searchable: 'auto',
+  showSelectAll: false
 })
 const emit = defineEmits<{
   'update:modelValue': [value: number[]]
@@ -85,6 +97,13 @@ const searchText = ref('')
 const isSearchable = computed(() => {
   if (props.searchable === 'auto') return props.groups.length > 5
   return props.searchable
+})
+
+const visibleGroupIds = computed(() => filteredGroups.value.map((group) => group.id))
+
+const areAllVisibleGroupsSelected = computed(() => {
+  if (visibleGroupIds.value.length === 0) return false
+  return visibleGroupIds.value.every((groupId) => props.modelValue.includes(groupId))
 })
 
 // Filter groups by platform if specified
@@ -115,5 +134,17 @@ const handleChange = (groupId: number, checked: boolean) => {
     ? [...props.modelValue, groupId]
     : props.modelValue.filter((id) => id !== groupId)
   emit('update:modelValue', newValue)
+}
+
+const toggleAllVisible = () => {
+  const nextValue = new Set(props.modelValue)
+
+  if (areAllVisibleGroupsSelected.value) {
+    visibleGroupIds.value.forEach((groupId) => nextValue.delete(groupId))
+  } else {
+    visibleGroupIds.value.forEach((groupId) => nextValue.add(groupId))
+  }
+
+  emit('update:modelValue', Array.from(nextValue))
 }
 </script>

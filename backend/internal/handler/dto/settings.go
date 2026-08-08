@@ -48,13 +48,14 @@ type SystemSettings struct {
 	LoginAgreementUpdatedAt          string                   `json:"login_agreement_updated_at"`
 	LoginAgreementDocuments          []LoginAgreementDocument `json:"login_agreement_documents"`
 
-	SMTPHost               string `json:"smtp_host"`
-	SMTPPort               int    `json:"smtp_port"`
-	SMTPUsername           string `json:"smtp_username"`
-	SMTPPasswordConfigured bool   `json:"smtp_password_configured"`
-	SMTPFrom               string `json:"smtp_from_email"`
-	SMTPFromName           string `json:"smtp_from_name"`
-	SMTPUseTLS             bool   `json:"smtp_use_tls"`
+	SMTPHost                       string `json:"smtp_host"`
+	SMTPPort                       int    `json:"smtp_port"`
+	SMTPUsername                   string `json:"smtp_username"`
+	SMTPPasswordConfigured         bool   `json:"smtp_password_configured"`
+	SMTPFrom                       string `json:"smtp_from_email"`
+	SMTPFromName                   string `json:"smtp_from_name"`
+	SMTPUseTLS                     bool   `json:"smtp_use_tls"`
+	NotificationEmailDefaultLocale string `json:"notification_email_default_locale"`
 
 	TurnstileEnabled                       bool     `json:"turnstile_enabled"`
 	TurnstileSiteKey                       string   `json:"turnstile_site_key"`
@@ -292,12 +293,14 @@ type SystemSettings struct {
 	PaymentAlipayMobilePrecreateDeepLink bool `json:"payment_alipay_mobile_precreate_deep_link"`
 
 	// 余额、订阅到期与账号限额通知
-	BalanceLowNotifyEnabled         bool               `json:"balance_low_notify_enabled"`
-	BalanceLowNotifyThreshold       float64            `json:"balance_low_notify_threshold"`
-	BalanceLowNotifyRechargeURL     string             `json:"balance_low_notify_recharge_url"`
-	SubscriptionExpiryNotifyEnabled bool               `json:"subscription_expiry_notify_enabled"`
-	AccountQuotaNotifyEnabled       bool               `json:"account_quota_notify_enabled"`
-	AccountQuotaNotifyEmails        []NotifyEmailEntry `json:"account_quota_notify_emails"`
+	BalanceLowNotifyEnabled               bool               `json:"balance_low_notify_enabled"`
+	BalanceLowNotifyThreshold             float64            `json:"balance_low_notify_threshold"`
+	BalanceLowNotifyRechargeURL           string             `json:"balance_low_notify_recharge_url"`
+	SubscriptionExpiryNotifyEnabled       bool               `json:"subscription_expiry_notify_enabled"`
+	SubscriptionExpiredAdminNotifyEnabled bool               `json:"subscription_expired_admin_notify_enabled"`
+	SubscriptionExpiredAdminNotifyEmails  []NotifyEmailEntry `json:"subscription_expired_admin_notify_emails"`
+	AccountQuotaNotifyEnabled             bool               `json:"account_quota_notify_enabled"`
+	AccountQuotaNotifyEmails              []NotifyEmailEntry `json:"account_quota_notify_emails"`
 
 	// Channel Monitor feature switch
 	ChannelMonitorEnabled                bool `json:"channel_monitor_enabled"`
@@ -411,6 +414,9 @@ type PublicSettings struct {
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+
+	// 宿主机 CPU 面板按部署环境控制；主环境默认隐藏。
+	OpsHostHealthVisible bool `json:"ops_host_health_visible"`
 }
 
 type LoginAgreementDocument struct {
@@ -465,6 +471,7 @@ type BetaPolicyRule struct {
 	Scope                string   `json:"scope"`
 	ErrorMessage         string   `json:"error_message,omitempty"`
 	ModelWhitelist       []string `json:"model_whitelist,omitempty"`
+	AccountAllowlist     []int64  `json:"account_allowlist,omitempty"`
 	FallbackAction       string   `json:"fallback_action,omitempty"`
 	FallbackErrorMessage string   `json:"fallback_error_message,omitempty"`
 }
@@ -476,14 +483,16 @@ type BetaPolicySettings struct {
 
 // OpenAIFastPolicyRule OpenAI fast/flex 策略规则 DTO
 type OpenAIFastPolicyRule struct {
-	ServiceTier          string   `json:"service_tier"`
-	Action               string   `json:"action"`
-	Scope                string   `json:"scope"`
-	UserIDs              []int64  `json:"user_ids,omitempty"`
-	ErrorMessage         string   `json:"error_message,omitempty"`
-	ModelWhitelist       []string `json:"model_whitelist,omitempty"`
-	FallbackAction       string   `json:"fallback_action,omitempty"`
-	FallbackErrorMessage string   `json:"fallback_error_message,omitempty"`
+	ServiceTier            string   `json:"service_tier"`
+	Action                 string   `json:"action"`
+	Scope                  string   `json:"scope"`
+	UserIDs                []int64  `json:"user_ids,omitempty"`
+	ErrorMessage           string   `json:"error_message,omitempty"`
+	ModelWhitelist         []string `json:"model_whitelist,omitempty"`
+	AccountAllowlist       []int64  `json:"account_allowlist"`
+	OpenAIAccountAllowlist []int64  `json:"openai_account_allowlist"`
+	FallbackAction         string   `json:"fallback_action,omitempty"`
+	FallbackErrorMessage   string   `json:"fallback_error_message,omitempty"`
 }
 
 // OpenAIFastPolicySettings OpenAI fast 策略配置 DTO

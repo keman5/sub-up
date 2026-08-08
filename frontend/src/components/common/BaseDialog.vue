@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <Transition name="modal">
+    <Transition name="modal" @after-leave="handleAfterLeave">
       <div
         v-if="show"
         class="modal-overlay"
@@ -42,17 +42,25 @@
   </Teleport>
 </template>
 
+<script lang="ts">
+let dialogIdCounter = 0
+let openModalCount = 0
+let lockedScrollY = 0
+let previousBodyStyles: Partial<Record<'overflow' | 'position' | 'top' | 'width', string>> | null = null
+</script>
+
 <script setup lang="ts">
 import { computed, watch, onMounted, onUnmounted, ref, nextTick } from 'vue'
 import Icon from '@/components/icons/Icon.vue'
 
 // 生成唯一ID以避免多个对话框时ID冲突
-let dialogIdCounter = 0
 const dialogId = `modal-title-${++dialogIdCounter}`
 
 // 焦点管理
 const dialogRef = ref<HTMLElement | null>(null)
 let previousActiveElement: HTMLElement | null = null
+let hasLockedBodyScroll = false
+let pendingUnlockAfterLeave = false
 
 type DialogWidth = 'narrow' | 'normal' | 'wide' | 'extra-wide' | 'full'
 
@@ -111,15 +119,68 @@ const handleEscape = (event: KeyboardEvent) => {
   }
 }
 
+const lockBodyScroll = () => {
+  if (hasLockedBodyScroll) return
+  if (openModalCount === 0) {
+    lockedScrollY = window.scrollY
+    previousBodyStyles = {
+      overflow: document.body.style.overflow,
+      position: document.body.style.position,
+      top: document.body.style.top,
+      width: document.body.style.width
+    }
+    document.documentElement.classList.add('modal-open')
+    document.body.classList.add('modal-open')
+    document.body.style.overflow = 'hidden'
+    document.body.style.position = 'fixed'
+    document.body.style.top = `-${lockedScrollY}px`
+    document.body.style.width = '100%'
+  }
+  openModalCount += 1
+  hasLockedBodyScroll = true
+}
+
+const unlockBodyScroll = () => {
+  if (!hasLockedBodyScroll) return
+  openModalCount = Math.max(0, openModalCount - 1)
+  if (openModalCount === 0) {
+    document.documentElement.classList.remove('modal-open')
+    document.body.classList.remove('modal-open')
+    document.body.style.overflow = previousBodyStyles?.overflow || ''
+    document.body.style.position = previousBodyStyles?.position || ''
+    document.body.style.top = previousBodyStyles?.top || ''
+    document.body.style.width = previousBodyStyles?.width || ''
+    window.scrollTo(0, lockedScrollY)
+    previousBodyStyles = null
+    lockedScrollY = 0
+  }
+  hasLockedBodyScroll = false
+}
+
+const restorePreviousFocus = () => {
+  if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
+    previousActiveElement.focus()
+  }
+  previousActiveElement = null
+}
+
+const handleAfterLeave = () => {
+  if (pendingUnlockAfterLeave) {
+    unlockBodyScroll()
+    pendingUnlockAfterLeave = false
+  }
+  restorePreviousFocus()
+}
+
 // Prevent body scroll when modal is open and manage focus
 watch(
   () => props.show,
   async (isOpen) => {
     if (isOpen) {
+      pendingUnlockAfterLeave = false
       // 保存当前焦点元素
       previousActiveElement = document.activeElement as HTMLElement
-      // 使用CSS类而不是直接操作style,更易于管理多个对话框
-      document.body.classList.add('modal-open')
+      lockBodyScroll()
 
       // 等待DOM更新后设置焦点到对话框
       await nextTick()
@@ -130,12 +191,11 @@ watch(
         firstFocusable?.focus()
       }
     } else {
-      document.body.classList.remove('modal-open')
-      // 恢复之前的焦点
-      if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
-        previousActiveElement.focus()
+      if (hasLockedBodyScroll) {
+        pendingUnlockAfterLeave = true
+      } else {
+        restorePreviousFocus()
       }
-      previousActiveElement = null
     }
   },
   { immediate: true }
@@ -147,7 +207,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleEscape)
-  // 确保组件卸载时移除滚动锁定
-  document.body.classList.remove('modal-open')
+  unlockBodyScroll()
 })
 </script>

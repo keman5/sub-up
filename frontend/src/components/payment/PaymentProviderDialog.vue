@@ -311,6 +311,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Select from '@/components/common/Select.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
+import { useAppStore } from '@/stores'
 import ToggleSwitch from './ToggleSwitch.vue'
 import type { ProviderInstance } from '@/types/payment'
 import type { EasyPayCustomMethod, TypeOption } from './providerConfig'
@@ -380,6 +381,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const appStore = useAppStore()
 
 interface PaymentGuideItem {
   title: string
@@ -777,9 +779,7 @@ function validateEasyPayCustomMethods(): string | null {
 }
 
 function emitValidationError(msg: string) {
-  // Use a custom event or inject appStore — for now use window alert fallback
-  // The parent handles this via the save event validation
-  import('@/stores').then(m => m.useAppStore().showError(msg))
+  appStore.showError(msg)
 }
 
 // --- Public API for parent to call ---

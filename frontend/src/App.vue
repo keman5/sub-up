@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { RouterView, useRouter, useRoute } from 'vue-router'
-import { onMounted, onBeforeUnmount, watch } from 'vue'
+import { onBeforeUnmount, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
+import AppDialogHost from '@/components/common/AppDialogHost.vue'
 import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
 import { resolveRouteDocumentTitle } from '@/router/title'
 import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
 import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, useAdminComplianceStore, useAdminSettingsStore } from '@/stores'
 import { getSetupStatus } from '@/api/setup'
-import { updateFavicon } from '@/utils/branding'
+import { applySiteIcons } from '@/utils/siteIcons'
 
 const router = useRouter()
 const route = useRoute()
@@ -18,6 +20,8 @@ const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
 const adminComplianceStore = useAdminComplianceStore()
 const adminSettingsStore = useAdminSettingsStore()
+const { t } = useI18n()
+let routeSetupCheckSeq = 0
 
 function updateDocumentTitle() {
   const customMenuItems = [
@@ -32,7 +36,7 @@ watch(
   () => appStore.siteLogo,
   (newLogo) => {
     if (newLogo) {
-      updateFavicon(newLogo)
+      applySiteIcons(newLogo)
     }
   },
   { immediate: true }
@@ -62,6 +66,11 @@ function onVisibilityChange() {
 function onAdminComplianceRequired(event: Event) {
   const detail = (event as CustomEvent<Record<string, string>>).detail || {}
   adminComplianceStore.requireAcknowledgement(detail)
+}
+
+function onApiError(event: Event) {
+  const detail = (event as CustomEvent<{ message?: string }>).detail || {}
+  appStore.showError(detail.message || t('common.unknownError'))
 }
 
 watch(
@@ -112,16 +121,29 @@ router.afterEach(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
   window.removeEventListener('admin-compliance-required', onAdminComplianceRequired)
+  window.removeEventListener('sub2api-api-error', onApiError)
 })
 
-onMounted(async () => {
-  window.addEventListener('admin-compliance-required', onAdminComplianceRequired)
+async function initializeRouteEnvironment() {
+  const seq = ++routeSetupCheckSeq
+  const isStaticHome = route.path === '/' || route.path === '/home'
+  if (isStaticHome) {
+    await appStore.fetchPublicSettings()
+    if (seq !== routeSetupCheckSeq) return
+    document.title = '51token 算力'
+    applySiteIcons(appStore.siteLogo || '/logo.png')
+    return
+  }
 
   // Check if setup is needed
   try {
     const status = await getSetupStatus()
+    if (seq !== routeSetupCheckSeq) return
     if (status.needs_setup && route.path !== '/setup') {
       router.replace('/setup')
+      return
+    }
+    if (status.needs_setup) {
       return
     }
   } catch {
@@ -130,16 +152,31 @@ onMounted(async () => {
 
   // Load public settings into appStore (will be cached for other components)
   await appStore.fetchPublicSettings()
+  if (seq !== routeSetupCheckSeq) return
 
   // Re-resolve document title now that site settings are available
   updateDocumentTitle()
+}
+
+onMounted(() => {
+  window.addEventListener('admin-compliance-required', onAdminComplianceRequired)
+  window.addEventListener('sub2api-api-error', onApiError)
 })
+
+watch(
+  () => route.fullPath,
+  () => {
+    void initializeRouteEnvironment()
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
   <NavigationProgress />
   <RouterView />
   <Toast />
+  <AppDialogHost />
   <AnnouncementPopup />
   <AdminComplianceDialog />
 </template>

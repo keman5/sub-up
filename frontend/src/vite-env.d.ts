@@ -2,6 +2,8 @@
 
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL: string
+  readonly VITE_HOME_APP_ORIGIN?: string
+  readonly VITE_OPS_HOST_HEALTH_VISIBLE?: string
   readonly BASE_URL: string
 }
 

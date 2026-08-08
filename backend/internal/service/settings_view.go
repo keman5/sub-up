@@ -29,14 +29,15 @@ type SystemSettings struct {
 	LoginAgreementUpdatedAt          string
 	LoginAgreementDocuments          []LoginAgreementDocument
 
-	SMTPHost               string
-	SMTPPort               int
-	SMTPUsername           string
-	SMTPPassword           string
-	SMTPPasswordConfigured bool
-	SMTPFrom               string
-	SMTPFromName           string
-	SMTPUseTLS             bool
+	SMTPHost                       string
+	SMTPPort                       int
+	SMTPUsername                   string
+	SMTPPassword                   string
+	SMTPPasswordConfigured         bool
+	SMTPFrom                       string
+	SMTPFromName                   string
+	SMTPUseTLS                     bool
+	NotificationEmailDefaultLocale string
 
 	TurnstileEnabled                       bool
 	TurnstileSiteKey                       string
@@ -284,6 +285,9 @@ type SystemSettings struct {
 
 	// 订阅到期提醒
 	SubscriptionExpiryNotifyEnabled bool
+	// 订阅过期管理员提醒
+	SubscriptionExpiredAdminNotifyEnabled bool
+	SubscriptionExpiredAdminNotifyEmails  []NotifyEmailEntry
 
 	// 账号限额通知
 	AccountQuotaNotifyEnabled bool
@@ -380,6 +384,9 @@ type PublicSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+
+	// 宿主机 CPU 面板按部署环境控制；主环境默认隐藏。
+	OpsHostHealthVisible bool `json:"ops_host_health_visible"`
 }
 
 type LoginAgreementDocument struct {
@@ -517,6 +524,7 @@ type BetaPolicyRule struct {
 	Scope                string   `json:"scope"`                            // "all" | "oauth" | "apikey" | "bedrock"
 	ErrorMessage         string   `json:"error_message,omitempty"`          // 自定义错误消息 (action=block 时生效)
 	ModelWhitelist       []string `json:"model_whitelist,omitempty"`        // 模型匹配模式列表（为空=对所有模型生效）
+	AccountAllowlist     []int64  `json:"account_allowlist,omitempty"`      // 账号 ID 放行列表，命中后直接透传
 	FallbackAction       string   `json:"fallback_action,omitempty"`        // 未匹配白名单的模型的处理方式
 	FallbackErrorMessage string   `json:"fallback_error_message,omitempty"` // 未匹配白名单时的自定义错误消息 (fallback_action=block 时生效)
 }
@@ -631,14 +639,16 @@ const (
 
 // OpenAIFastPolicyRule 单条 OpenAI fast/flex 策略规则
 type OpenAIFastPolicyRule struct {
-	ServiceTier          string   `json:"service_tier"`                     // "priority" | "flex" | "auto" | "default" | "scale" | "all"
-	Action               string   `json:"action"`                           // "pass" | "filter" | "block" | "force_priority"
-	Scope                string   `json:"scope"`                            // "all" | "oauth" | "apikey" | "bedrock"
-	UserIDs              []int64  `json:"user_ids,omitempty"`               // 空=所有 Sub2API 用户；非空=仅指定 API Key 所属用户
-	ErrorMessage         string   `json:"error_message,omitempty"`          // 自定义错误消息 (action=block 时生效)
-	ModelWhitelist       []string `json:"model_whitelist,omitempty"`        // 模型匹配模式列表（为空=对所有模型生效）
-	FallbackAction       string   `json:"fallback_action,omitempty"`        // 未匹配白名单的模型的处理方式
-	FallbackErrorMessage string   `json:"fallback_error_message,omitempty"` // 未匹配白名单时的自定义错误消息 (fallback_action=block 时生效)
+	ServiceTier            string   `json:"service_tier"`                     // "priority" | "flex" | "auto" | "default" | "scale" | "all"
+	Action                 string   `json:"action"`                           // "pass" | "filter" | "block" | "force_priority"
+	Scope                  string   `json:"scope"`                            // "all" | "oauth" | "apikey" | "bedrock"
+	UserIDs                []int64  `json:"user_ids,omitempty"`               // 空=所有 Sub2API 用户；非空=仅指定 API Key 所属用户
+	ErrorMessage           string   `json:"error_message,omitempty"`          // 自定义错误消息 (action=block 时生效)
+	ModelWhitelist         []string `json:"model_whitelist,omitempty"`        // 模型匹配模式列表（为空=对所有模型生效）
+	AccountAllowlist       []int64  `json:"account_allowlist"`                // 用户 ID 放行列表，命中后直接透传
+	OpenAIAccountAllowlist []int64  `json:"openai_account_allowlist"`         // OpenAI 上游账号 ID 放行列表，命中后直接透传
+	FallbackAction         string   `json:"fallback_action,omitempty"`        // 未匹配白名单的模型的处理方式
+	FallbackErrorMessage   string   `json:"fallback_error_message,omitempty"` // 未匹配白名单时的自定义错误消息 (fallback_action=block 时生效)
 }
 
 // OpenAIFastPolicySettings OpenAI fast 策略配置

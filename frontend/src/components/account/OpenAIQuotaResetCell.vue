@@ -141,10 +141,11 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Account } from '@/types'
+import * as openAIQuotaAPI from '@/api/admin/accounts'
 import {
-  refreshOpenAIQuota,
   resetOpenAIQuota,
   type OpenAIQuotaUsage,
+  type OpenAIQuotaRefreshResult,
   type OpenAIQuotaResetResult
 } from '@/api/admin/accounts'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -154,6 +155,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  queried: [data: OpenAIQuotaUsage]
   'account-updated': [account: Account]
 }>()
 
@@ -320,6 +322,20 @@ const toggleResetCreditDetails = () => {
   showResetCreditDetails.value = !showResetCreditDetails.value
 }
 
+const refreshQuotaUsage = (accountID: number): Promise<OpenAIQuotaRefreshResult> => {
+  const api = openAIQuotaAPI as {
+    refreshOpenAIQuota?: (id: number) => Promise<OpenAIQuotaRefreshResult>
+    queryOpenAIQuota?: (id: number) => Promise<OpenAIQuotaRefreshResult>
+  }
+  const refresh = Object.prototype.hasOwnProperty.call(api, 'refreshOpenAIQuota')
+    ? api.refreshOpenAIQuota
+    : api.queryOpenAIQuota
+  if (!refresh) {
+    throw new Error('OpenAI quota refresh API is unavailable')
+  }
+  return refresh(accountID)
+}
+
 const handleQuery = async () => {
   if (loading.value) return
   loading.value = true
@@ -328,7 +344,7 @@ const handleQuery = async () => {
   resetWarning.value = null
   showResetCreditDetails.value = false
   try {
-    const result = await refreshOpenAIQuota(props.account.id)
+    const result = await refreshQuotaUsage(props.account.id)
     // The upstream read succeeded even when the snapshot write was rejected, so
     // the live count is always adopted. Only the persisted view is left alone,
     // which keeps the displayed expirations consistent with what is stored.
@@ -338,6 +354,7 @@ const handleQuery = async () => {
     } else {
       resetWarning.value = t('admin.accounts.openaiQuotaReset.refreshCachePersistFailed')
     }
+    emit('queried', result)
   } catch (e) {
     error.value = extractErrorMessage(e)
   } finally {
@@ -398,9 +415,13 @@ const confirmReset = async () => {
 }
 
 watch(
-  () => props.account.id,
+  () => [
+    props.account.id,
+    JSON.stringify(props.account.extra?.codex_reset_credit_snapshot ?? null),
+  ] as const,
   () => {
-    // Account row may be reused across paginated lists; reset local state.
+    // Row-key reuses this component for the same account ID, so persisted
+    // snapshot changes must rehydrate the card without requiring a remount.
     cachedData.value = readCachedResetCredits(props.account)
     data.value = cachedData.value
     error.value = null

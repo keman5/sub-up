@@ -97,6 +97,63 @@ func TestHandleNonStreamingResponse_ValidJSONUnchanged(t *testing.T) {
 	require.JSONEq(t, string(body), rec.Body.String())
 }
 
+func TestClaudeHandleNonStreamingResponse_RewritesClientUsageForPresentation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"id":"msg_1","type":"message","usage":{"input_tokens":600,"output_tokens":500,"cache_creation_input_tokens":20,"cache_read_input_tokens":40,"image_output_tokens":30,"cache_creation":{"ephemeral_5m_input_tokens":10,"ephemeral_1h_input_tokens":10}}}`)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewReader(body)),
+	}
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		rateLimitService: &RateLimitService{},
+	}
+
+	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, "claude-sonnet-4-6", "claude-sonnet-4-6")
+
+	require.NoError(t, err)
+	require.NotNil(t, usage)
+	require.Equal(t, 600, usage.InputTokens)
+	require.Equal(t, 500, usage.OutputTokens)
+	require.Equal(t, int64(1200), gjson.Get(rec.Body.String(), "usage.input_tokens").Int())
+	require.Equal(t, int64(1000), gjson.Get(rec.Body.String(), "usage.output_tokens").Int())
+	require.Equal(t, int64(40), gjson.Get(rec.Body.String(), "usage.cache_creation_input_tokens").Int())
+	require.Equal(t, int64(80), gjson.Get(rec.Body.String(), "usage.cache_read_input_tokens").Int())
+	require.Equal(t, int64(60), gjson.Get(rec.Body.String(), "usage.image_output_tokens").Int())
+	require.Equal(t, int64(20), gjson.Get(rec.Body.String(), "usage.cache_creation.ephemeral_5m_input_tokens").Int())
+	require.Equal(t, int64(20), gjson.Get(rec.Body.String(), "usage.cache_creation.ephemeral_1h_input_tokens").Int())
+}
+
+func TestClaudeHandleNonStreamingResponse_RewritesClientUsageForPresentationWithImageOutputThreshold(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"id":"msg_1","type":"message","usage":{"input_tokens":0,"output_tokens":0,"image_output_tokens":1000}}`)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewReader(body)),
+	}
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		rateLimitService: &RateLimitService{},
+	}
+
+	usage, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, "claude-sonnet-4-6", "claude-sonnet-4-6")
+
+	require.NoError(t, err)
+	require.NotNil(t, usage)
+	require.Equal(t, 1000, usage.ImageOutputTokens)
+	require.Equal(t, int64(2000), gjson.Get(rec.Body.String(), "usage.image_output_tokens").Int())
+}
+
 func TestHandleNonStreamingResponseAnthropicAPIKeyPassthrough_NonJSON2xxTriggersFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

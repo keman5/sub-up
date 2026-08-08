@@ -181,12 +181,14 @@ import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { passkeyAPI, type PasskeyCredentialSummary } from '@/api'
 import { Icon } from '@/components/icons'
+import { useAppDialog } from '@/composables/useAppDialog'
 import { useAppStore } from '@/stores/app'
 
 const props = defineProps<{ enabled: boolean }>()
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const appDialog = useAppDialog()
 const supported = passkeyAPI.isSupported()
 const loading = ref(false)
 const busy = ref(false)
@@ -248,7 +250,10 @@ function cancelAdd(): void {
 }
 
 async function renamePasskey(credential: PasskeyCredentialSummary): Promise<void> {
-  const name = window.prompt(t('profile.passkey.renamePrompt'), credential.name)?.trim()
+  const name = (await appDialog.askText({
+    message: t('profile.passkey.renamePrompt'),
+    defaultValue: credential.name,
+  }))?.trim()
   if (!name || name === credential.name) return
   busy.value = true
   try {

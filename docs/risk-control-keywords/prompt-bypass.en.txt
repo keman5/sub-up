@@ -1,0 +1,30 @@
+ignore previous instructions
+ignore all previous instructions
+ignore the above instructions
+ignore your safety rules
+ignore all safety rules
+bypass safety policy
+bypass content policy
+bypass platform policy
+bypass model restrictions
+disable safety filters
+disable content moderation
+do not refuse
+never refuse
+do not follow policy
+hide the real intent
+pretend this is allowed
+roleplay bypass
+jailbreak prompt
+jailbreak template
+prompt injection
+system prompt leak
+reveal the system prompt
+print the system prompt
+show hidden instructions
+reveal developer message
+reveal safety policy
+moderation bypass prompt
+policy bypass prompt
+uncensored mode
+developer mode jailbreak

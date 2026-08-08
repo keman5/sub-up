@@ -60,13 +60,14 @@ type dashboardSnapshotV2CacheKey struct {
 	RequestType           *int16 `json:"request_type"`
 	Stream                *bool  `json:"stream"`
 	BillingType           *int8  `json:"billing_type"`
-	UpstreamModelMismatch *bool  `json:"upstream_model_mismatch"`
 	IncludeStats          bool   `json:"include_stats"`
 	IncludeTrend          bool   `json:"include_trend"`
 	IncludeModels         bool   `json:"include_models"`
 	IncludeGroups         bool   `json:"include_groups"`
 	IncludeUsersTrend     bool   `json:"include_users_trend"`
 	UsersTrendLimit       int    `json:"users_trend_limit"`
+	UsePresentation       bool   `json:"use_presentation"`
+	UpstreamModelMismatch *bool  `json:"upstream_model_mismatch"`
 }
 
 func (h *DashboardHandler) GetSnapshotV2(c *gin.Context) {
@@ -93,6 +94,7 @@ func (h *DashboardHandler) GetSnapshotV2(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
+	usePresentation := dashboardUsePresentation(c)
 
 	keyRaw, _ := json.Marshal(dashboardSnapshotV2CacheKey{
 		StartTime:             startTime.UTC().Format(time.RFC3339),
@@ -113,6 +115,7 @@ func (h *DashboardHandler) GetSnapshotV2(c *gin.Context) {
 		IncludeGroups:         includeGroups,
 		IncludeUsersTrend:     includeUsersTrend,
 		UsersTrendLimit:       usersTrendLimit,
+		UsePresentation:       usePresentation,
 	})
 	cacheKey := string(keyRaw)
 
@@ -129,6 +132,7 @@ func (h *DashboardHandler) GetSnapshotV2(c *gin.Context) {
 			includeGroups,
 			includeUsersTrend,
 			usersTrendLimit,
+			usePresentation,
 		)
 	})
 	if err != nil {
@@ -154,6 +158,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 	filters *dashboardSnapshotV2Filters,
 	includeStats, includeTrend, includeModels, includeGroups, includeUsersTrend bool,
 	usersTrendLimit int,
+	usePresentation bool,
 ) (*dashboardSnapshotV2Response, error) {
 	resp := &dashboardSnapshotV2Response{
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
@@ -163,7 +168,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 	}
 
 	if includeStats {
-		stats, err := h.dashboardService.GetDashboardStats(ctx)
+		stats, err := h.dashboardService.GetDashboardStatsForView(ctx, usePresentation)
 		if err != nil {
 			return nil, errors.New("failed to get dashboard statistics")
 		}
@@ -187,6 +192,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.RequestType,
 			filters.Stream,
 			filters.BillingType,
+			usePresentation,
 			filters.UpstreamModelMismatch,
 		)
 		if err != nil {
@@ -208,6 +214,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.RequestType,
 			filters.Stream,
 			filters.BillingType,
+			usePresentation,
 			filters.UpstreamModelMismatch,
 		)
 		if err != nil {
@@ -228,6 +235,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.RequestType,
 			filters.Stream,
 			filters.BillingType,
+			usePresentation,
 			filters.UpstreamModelMismatch,
 		)
 		if err != nil {
@@ -237,7 +245,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 	}
 
 	if includeUsersTrend {
-		usersTrend, _, err := h.getUserUsageTrendCached(ctx, startTime, endTime, granularity, usersTrendLimit)
+		usersTrend, _, err := h.getUserUsageTrendCached(ctx, startTime, endTime, granularity, usersTrendLimit, usePresentation)
 		if err != nil {
 			return nil, errors.New("failed to get user usage trend")
 		}

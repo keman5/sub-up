@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,6 +22,7 @@ type userUsageRepoCapture struct {
 	listFilters  usagestats.UsageLogFilters
 	statsFilters usagestats.UsageLogFilters
 	trendFilters usagestats.UsageLogFilters
+	modelFilters usagestats.UsageLogFilters
 	groupFilters usagestats.UsageLogFilters
 	listRows     []service.UsageLog
 	stats        *usagestats.UsageStats
@@ -47,6 +49,11 @@ func (s *userUsageRepoCapture) GetStatsWithFilters(ctx context.Context, filters 
 	return &usagestats.UsageStats{}, nil
 }
 
+func (s *userUsageRepoCapture) GetUsageTrendWithUsageFilters(ctx context.Context, startTime, endTime time.Time, granularity string, filters usagestats.UsageLogFilters) ([]usagestats.TrendDataPoint, error) {
+	s.trendFilters = filters
+	return []usagestats.TrendDataPoint{}, nil
+}
+
 func (s *userUsageRepoCapture) GetUsageTrendWithFilters(ctx context.Context, startTime, endTime time.Time, granularity string, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8) ([]usagestats.TrendDataPoint, error) {
 	s.trendFilters = usagestats.UsageLogFilters{
 		UserID:      userID,
@@ -61,8 +68,19 @@ func (s *userUsageRepoCapture) GetUsageTrendWithFilters(ctx context.Context, sta
 	return []usagestats.TrendDataPoint{}, nil
 }
 
+func (s *userUsageRepoCapture) GetModelStatsWithUsageFiltersBySource(ctx context.Context, startTime, endTime time.Time, filters usagestats.UsageLogFilters, source string) ([]usagestats.ModelStat, error) {
+	s.modelFilters = filters
+	s.modelFilters.ModelFilterSource = source
+	return s.modelStats, nil
+}
+
 func (s *userUsageRepoCapture) GetModelStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8) ([]usagestats.ModelStat, error) {
 	return s.modelStats, nil
+}
+
+func (s *userUsageRepoCapture) GetGroupStatsWithUsageFilters(ctx context.Context, startTime, endTime time.Time, filters usagestats.UsageLogFilters) ([]usagestats.GroupStat, error) {
+	s.groupFilters = filters
+	return s.groupStats, nil
 }
 
 func (s *userUsageRepoCapture) GetGroupStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8) ([]usagestats.GroupStat, error) {
@@ -107,6 +125,7 @@ func TestUserUsageListRequestTypePriority(t *testing.T) {
 	require.NotNil(t, repo.listFilters.RequestType)
 	require.Equal(t, int16(service.RequestTypeWSV2), *repo.listFilters.RequestType)
 	require.Nil(t, repo.listFilters.Stream)
+	require.True(t, repo.listFilters.UsePresentationMultiplier)
 }
 
 func TestUserUsageListInvalidRequestType(t *testing.T) {
@@ -147,6 +166,7 @@ func TestUserUsageListAdvancedFilters(t *testing.T) {
 	require.NotNil(t, repo.listFilters.BillingType)
 	require.Equal(t, int8(1), *repo.listFilters.BillingType)
 	require.Equal(t, "image", repo.listFilters.BillingMode)
+	require.True(t, repo.listFilters.UsePresentationMultiplier)
 	require.NotNil(t, repo.listFilters.StartTime)
 	require.NotNil(t, repo.listFilters.EndTime)
 }
@@ -160,6 +180,46 @@ func TestUserUsageListInvalidBillingMode(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestUserUsageListUsesPresentationView(t *testing.T) {
+	repo := &userUsageRepoCapture{listRows: []service.UsageLog{{
+		RequestID:              "req_user_presentation",
+		UserID:                 42,
+		Model:                  "claude-sonnet-4",
+		InputTokens:            600,
+		OutputTokens:           500,
+		TotalCost:              0.02,
+		ActualCost:             0.04,
+		RateMultiplier:         1.5,
+		PresentationMultiplier: 2,
+	}}}
+	router := newUserUsageRequestTypeTestRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got struct {
+		Code int `json:"code"`
+		Data struct {
+			Items []struct {
+				InputTokens    int     `json:"input_tokens"`
+				OutputTokens   int     `json:"output_tokens"`
+				TotalCost      float64 `json:"total_cost"`
+				ActualCost     float64 `json:"actual_cost"`
+				RateMultiplier float64 `json:"rate_multiplier"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got.Data.Items, 1)
+	require.Equal(t, 1200, got.Data.Items[0].InputTokens)
+	require.Equal(t, 1000, got.Data.Items[0].OutputTokens)
+	require.InDelta(t, 0.04, got.Data.Items[0].TotalCost, 1e-12)
+	require.InDelta(t, 0.08, got.Data.Items[0].ActualCost, 1e-12)
+	require.InDelta(t, 1.0, got.Data.Items[0].RateMultiplier, 1e-12)
 }
 
 func TestUserUsageListAllowsVideoBillingMode(t *testing.T) {
@@ -218,7 +278,7 @@ func TestUserUsageListKeepsUserBillingAndIPWithoutAdminCostFields(t *testing.T) 
 	require.Contains(t, body, `"cache_read_cost":0.04`)
 	require.Contains(t, body, `"total_cost":0.1`)
 	require.Contains(t, body, `"actual_cost":0.08`)
-	require.Contains(t, body, `"rate_multiplier":0.8`)
+	require.Contains(t, body, `"rate_multiplier":1`)
 	require.Contains(t, body, `"ip_address":"203.0.113.10"`)
 	require.NotContains(t, body, "upstream_endpoint")
 	require.NotContains(t, body, "account_rate_multiplier")
@@ -259,6 +319,9 @@ func TestUserUsageStatsUsesScopedFilters(t *testing.T) {
 	require.NotNil(t, repo.statsFilters.RequestType)
 	require.Equal(t, int16(service.RequestTypeSync), *repo.statsFilters.RequestType)
 	require.Equal(t, "token", repo.statsFilters.BillingMode)
+	require.True(t, repo.statsFilters.UsePresentationMultiplier)
+	require.NotNil(t, repo.statsFilters.StartTime)
+	require.NotNil(t, repo.statsFilters.EndTime)
 	require.Contains(t, rec.Body.String(), `"total_cost":0.1`)
 	require.Contains(t, rec.Body.String(), `"total_actual_cost":0.08`)
 	require.NotContains(t, rec.Body.String(), "total_account_cost")
@@ -288,6 +351,7 @@ func TestUserUsageDashboardModelsOmitsAccountCost(t *testing.T) {
 	require.Contains(t, body, `"cost":0.1`)
 	require.Contains(t, body, `"actual_cost":0.08`)
 	require.NotContains(t, body, "account_cost")
+	require.True(t, repo.modelFilters.UsePresentationMultiplier)
 }
 
 func TestUserUsageDashboardModelsRejectsAdminModelSources(t *testing.T) {
@@ -317,8 +381,10 @@ func TestUserUsageSnapshotUsesScopedFilters(t *testing.T) {
 	require.Equal(t, int64(11), repo.trendFilters.GroupID)
 	require.NotNil(t, repo.trendFilters.RequestType)
 	require.Equal(t, int16(service.RequestTypeStream), *repo.trendFilters.RequestType)
+	require.True(t, repo.trendFilters.UsePresentationMultiplier)
 	require.Equal(t, int64(42), repo.groupFilters.UserID)
 	require.Equal(t, int64(11), repo.groupFilters.GroupID)
+	require.True(t, repo.groupFilters.UsePresentationMultiplier)
 	require.NotContains(t, rec.Body.String(), "account_cost")
 }
 

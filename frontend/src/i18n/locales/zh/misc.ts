@@ -14,6 +14,7 @@ export default {
     expiresTomorrow: '明天到期',
     viewAll: '查看全部订阅',
     noSubscriptions: '暂无有效订阅',
+    total: '总量',
     unlimited: '无限制'
   },
 
@@ -122,6 +123,7 @@ export default {
     usage: '用量',
     expires: '到期时间',
     noExpiration: '无到期时间',
+    total: '总量',
     unlimited: '无限制',
     unlimitedDesc: '该订阅无用量限制',
     daily: '每日',
@@ -486,6 +488,7 @@ export default {
       dailyLimit: '日限额',
       weeklyLimit: '周限额',
       monthlyLimit: '月限额',
+      totalLimit: '总量上限',
       quota: '配额',
       unlimited: '无限制',
       models: '模型',

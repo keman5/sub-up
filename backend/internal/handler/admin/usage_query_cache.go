@@ -22,6 +22,7 @@ type usageStatsCacheKeyData struct {
 	RequestType           *int16 `json:"request_type"`
 	Stream                *bool  `json:"stream"`
 	BillingType           *int8  `json:"billing_type"`
+	UsePresentation       bool   `json:"use_presentation"`
 	UpstreamModelMismatch *bool  `json:"upstream_model_mismatch"`
 }
 
@@ -46,6 +47,7 @@ func usageStatsCacheKey(filters usagestats.UsageLogFilters) string {
 		RequestType:           filters.RequestType,
 		Stream:                filters.Stream,
 		BillingType:           filters.BillingType,
+		UsePresentation:       filters.UsePresentationMultiplier,
 		UpstreamModelMismatch: filters.UpstreamModelMismatch,
 	})
 }
