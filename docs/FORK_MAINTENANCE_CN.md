@@ -1410,6 +1410,39 @@ git diff --check
 
 - 同步后检查 `ProvideAccountPoolHealthNotifyService`、`AccountPoolHealthNotifyService` cleanup、`openai_model_router`、Spark quota/window 和通知模板 locale fallback，并运行对应 service/server 测试。仅保留服务文件或单元测试而没有生产 wiring 视为失败；上游必须覆盖完整启动、巡检、一次性告警、恢复重置和停止生命周期才算等价。
 
+### 2026-08-08: 自动记录本地改动
+
+**现象与原因：**
+
+- 上游拆分 OpenAI 网关、订阅锁和 Google API Key 鉴权后，合并后的本地兼容层出现了无效前置变量、过时测试替身和普通管理员用量视图暴露计费倍率的问题。
+- 本次修复保留上游请求处理结构，同时恢复本 fork 的订阅接力、账号计费隔离和普通管理员展示边界。
+
+**涉及文件：**
+
+- `backend/internal/handler/dto/mappers.go`
+- `backend/internal/handler/openai_chat_completions.go`
+- `backend/internal/handler/openai_chat_completions_billing_fallback_test.go`
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/repository/user_subscription_lock_test.go`
+- `backend/internal/server/middleware/api_key_auth_google_test.go`
+- `frontend/src/views/admin/UsageView.vue`
+
+**验证：**
+
+```bash
+make test
+make secret-scan
+pnpm --dir frontend run lint
+pnpm --dir frontend run typecheck
+pnpm --dir frontend run build
+git diff --check origin/main...HEAD
+```
+
+**同步官方后的复查：**
+
+- 搜索 `billingErrorDetailsWithFallback`、`enforceBillingEligibilityWithFallback`、`GetUserBreakdownStatsForView`、`presentation_multiplier`、`runtime-state-updated` 以及 `Google API Key` 鉴权测试替身。
+- 复查 Chat/Responses/Messages/WebSocket 的 OpenAI 接力路径只计算一次有效额度错误，普通管理员用户排行不返回账号计费倍率，测试替身仍匹配当前 SQL/schema；只有上游提供等价行为并通过对应后端、前端和 secret-scan 验证后，才可删除本条补丁。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：

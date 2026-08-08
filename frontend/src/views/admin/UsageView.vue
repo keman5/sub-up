@@ -191,7 +191,6 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { formatReasoningEffort } from '@/utils/format'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
-import { formatAdminUsageModel } from '@/utils/usageModelDisplay'
 import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination from '@/components/common/Pagination.vue'; import Select from '@/components/common/Select.vue'; import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'; import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'; import UsageExportProgress from '@/components/admin/usage/UsageExportProgress.vue'
@@ -355,7 +354,12 @@ const applyRouteQueryFilters = () => {
 }
 
 const usageApiFilters = (): AdminUsageQueryParams => {
-  const { user_search, api_key_search, account_search, ...apiFilters } = filters.value
+  const {
+    user_search: _userSearch,
+    api_key_search: _apiKeySearch,
+    account_search: _accountSearch,
+    ...apiFilters
+  } = filters.value
   return apiFilters
 }
 
