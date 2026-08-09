@@ -14,9 +14,10 @@ description: 先在 GitHub 将 fork 的 main 与上游同步，再将最新 orig
 1. 确认工作区干净，且没有进行中的 merge、rebase 或 cherry-pick。
 2. 通过 GitHub Fork 的 `merge-upstream` 接口将 fork 的 `main` 同步到上游 `main`。重新拉取 `origin/main`，并验证其 SHA 与 GitHub 上游 `main` 相同；不能以本地旧的 `origin/main` 代替此关卡。
 3. 拉取 `origin/subapi`，保存 fork 差异快照，快进本地 `subapi`，再将已验证的 `origin/main` 合并到其中。
-4. 以完整部署记录集为唯一验收基线：`docs/FORK_MAINTENANCE_CN.md`、`docs/fork-maintenance/*.md`、`docs/VPS_DEPLOY_NOTES.md`、`deploy/README.md` 与实际部署脚本。将主文档清单、月度明细中尚未明确废止的记录，以及标记为“非 fork 需求”的记录逐项编入本次审查表后，才可解决冲突。不得盲目选择 `ours` 或 `theirs`。
+4. 以最新 `origin/main` 的完整能力和完整部署记录集作为双重验收基线。部署记录集包括：`docs/FORK_MAINTENANCE_CN.md`、`docs/fork-maintenance/*.md`、`docs/VPS_DEPLOY_NOTES.md`、`deploy/README.md` 与实际部署脚本。将上游新增/修改能力、主文档清单、月度明细中尚未明确废止的记录，以及标记为“非 fork 需求”的记录逐项编入本次审查表后，才可解决冲突。不得盲目选择 `ours` 或 `theirs`。
+   同时必须单独盘点本轮上游新增或改变的可见产品面，包括页面区块、表单字段、菜单、路由、设置项、i18n 文案所代表的功能和数据库迁移所暴露的运营配置。每项必须明确标记“接受”“隐藏但保留后端兼容”或“拒绝”，并引用用户决定或维护记录；不能因为它来自上游就默认出现在 fork UI。
 5. 逐项修复审查表中缺失、被覆盖、行为不等价或验证失败的全部非 fork 功能。每项都要核对入口、涉及文件、预期行为、上游等价实现、修复提交和验证命令；不接受“文件仍在”或“没有冲突”作为通过证据。
-6. 完成第一次复查：重新从部署记录集建立审查表，检查每项的代码和线上非 Git 状态，运行其规定验证。检查最终合并差异，排除意外删除、被不等价上游实现覆盖、或只恢复局部 UI 而未恢复 API/状态回写等情形。
+6. 完成第一次复查：重新从 `origin/main` 与部署记录集建立两份审查表，检查每项的代码和线上非 Git 状态，运行其规定验证。检查最终合并差异，排除上游能力被无依据删除、意外删除、本地行为被不等价上游实现覆盖、或只恢复局部 UI 而未恢复 API/状态回写等情形。
 7. 运行完整自动验证，再独立进行第二次复查。第二次复查必须重新阅读所有记录、重新比对 `origin/main...HEAD` 和审查表；不得复制第一次结论或只看冲突块。所有条目均已修复且两次复查均通过后，才可阅读部署方案并部署。
 8. 阅读 `docs/VPS_DEPLOY_NOTES.md`、`deploy/README.md` 和 `deploy/local-gzip-binary-deploy.sh` 的部署方案。执行恢复 dry-run，依次部署测试、a1 和主环境，恢复已记录的非 Git 状态，并验证公开健康检查端点。
 
@@ -53,7 +54,7 @@ skills/fork-sync-deploy/scripts/sync-main-into-subapi.sh audit --review first
 
 “非 fork 功能”指本地产品、运营、兼容性或线上部署需求，不因其位于 fork 代码、部署配置、数据库状态或静态资源而改变验收标准。例如管理端用户备注隔离、账号列表刷新真实用量后回写运行态、路由/计费行为、Pages 回源拓扑和 VPS 共享数据层都必须按记录验收。
 
-在第一次复查前，在 `tmp/fork-maintenance/reviews/<timestamp>-first/` 建立并填写 `non-fork-requirements.tsv`。每行必须含有：唯一编号、记录文件与行号、需求摘要、入口/涉及文件、预期行为、上游等价性结论、修复状态、验证命令及结果、复查证据路径。不得合并多个独立行为到一行。
+在第一次复查前，在 `tmp/fork-maintenance/reviews/<timestamp>-first/` 建立并填写 `non-fork-requirements.tsv`。辅助脚本必须从主恢复清单、本地补丁表和全部月度维护记录自动逐项预填；表中条目数少于记录源条目数、存在空白结论或 `TODO` 时必须阻断。每行必须含有：唯一编号、记录文件与行号、需求摘要、入口/涉及文件、预期行为、上游等价性结论、修复状态、验证命令及结果、复查证据路径。不得只手工挑选少数条目，也不得合并多个独立行为到一行。
 
 处理每一行时：
 
@@ -63,6 +64,26 @@ skills/fork-sync-deploy/scripts/sync-main-into-subapi.sh audit --review first
 4. 标记为废弃的能力只能在记录明确说明废弃范围、清理位置及替代/无替代结论后移除；不得把未确认功能当作废弃。
 
 记录包含 `TODO`、缺少验证命令、没有复查方式，或不能判断是否已被后续记录废止时，该条目不合格并阻断部署。先补齐记录和实现，再重新开始该条目的两次复查。
+
+## 上游能力保留审查表
+
+在每次复查目录中同时建立 `upstream-capabilities.tsv`。辅助脚本必须按“上次已合并的 main 基线到本轮 merge 第二父提交”自动预填每个上游提交，并保存 `upstream-commits.tsv`、`upstream-changed-paths.tsv`、`upstream-deleted-paths.tsv` 和 `merge-remerge-diff.patch`。逐提交核对其能力、入口/涉及文件、当前 fork 等价实现、差异依据、验证命令及结果；任何 `TODO`、待确认、失败或条目数少于上游提交数都必须阻断。不能只手工挑选少量看起来高风险的文件，也不能用“组件/字段仍存在”替代行为等价检查。重点检查“后端字段仍在但 UI 入口消失”“平台相关 helper 被固定值替换”“工具函数测试仍通过但组件未调用”“生产行为保留但上游回归测试被删除”等局部覆盖。
+
+还必须填写 `upstream-paths-review.tsv` 与 `post-merge-overrides-review.tsv`。前者逐个覆盖本轮所有上游变更路径，记录最终相对 merge 第二父提交的真实差异；后者逐项列出 merge 后每个再次修改上游路径的提交和文件。任何最终偏离必须引用具体维护记录，说明为何仍与上游行为等价，并执行入口级专项验证。不得用整套测试通过、文件存在、字段存在或批量复制的统一结论代替。UI 重构必须分别验证创建、编辑、显示条件、用户交互、提交 payload 和后端持久化；抽取到新组件但没有覆盖这些真实入口视为未通过。
+
+`final-deleted-upstream-paths.tsv` 必须为空。fork 最终树不得删除 `origin/main` 中存在的任何文件；如本地需求确实要废弃上游能力，应保留兼容文件并显式关闭入口，或先取得用户对上游整文件删除的单独决定，不能由常规审查表豁免。
+
+只有维护记录明确要求不同语义且有对应测试时，才能偏离或删除 `origin/main` 的能力。未记录的 fork 差异一律以已验证的最新 `origin/main` 为准；不能因为某项不是非 fork 文档中的个性化需求就忽略它。
+
+## 可见产品面决策表
+
+每次复查还必须填写 `product-surface-decisions.tsv`。辅助脚本按本轮上游提交预填所有触及前端页面/组件、路由、i18n、管理设置、API DTO/schema 和迁移的候选项。逐项检查真实 UI 和业务入口，不得只看文件名；同一提交包含多个独立入口时必须拆成多行。每行记录功能、入口、决定、依据、实现方式、专项验证和结论。
+
+- `接受`：证明该入口符合当前 fork 产品需求，并验证创建、编辑、显示条件、payload 和持久化链路。
+- `隐藏但保留后端兼容`：保留上游 API、数据库和协议兼容，只移除 fork 不需要的可见入口，并增加“入口出现次数为 0”的负向测试或静态护栏。
+- `拒绝`：只有维护记录明确允许时才可删除完整能力，并需评估已执行迁移、历史数据和 API 兼容；不得回改已上线迁移。
+
+表中任何 `TODO`、无依据的“接受”、把一个提交整体判定为一项、或未覆盖实际新增入口都阻断部署。第二次复查必须重新生成并重新判定，不能复制第一次表格。用户指出某个多余入口时，先把它写入维护记录和负向护栏，再重新审计同一批次的所有产品面候选，不能只删被点名的一处。
 
 ## 两次独立复查
 
@@ -86,7 +107,8 @@ skills/fork-sync-deploy/scripts/sync-main-into-subapi.sh audit --review second
 - `git diff --check origin/main...HEAD` 成功。
 - `git ls-files -u` 为空。
 - `tools/fork-maintenance/fork-maintenance.sh verify-after-upstream` 成功。
-- 两份复查报告均覆盖部署记录集中的每个非 fork 条目；不存在 `TODO`、未定义验证或未判定废止的记录。
+- 两份复查报告均覆盖 `origin/main` 的变更能力和部署记录集中的每个非 fork 条目；不存在 `TODO`、未定义验证或未判定废止的记录。
+- 两份 `product-surface-decisions.tsv` 均逐项覆盖本轮新增/改变的可见产品面，所有入口都有明确产品决定、依据和专项验证。
 - 审查表的每项均为已修复且验证通过，并且第二次复查独立确认没有意外删除、覆盖或行为降级。
 
 ## 部署与恢复

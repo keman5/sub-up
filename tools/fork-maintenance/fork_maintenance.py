@@ -111,6 +111,12 @@ VERIFY_SEARCHES = (
 
 VERIFY_OCCURRENCE_COUNTS = (
     (
+        "fork-hidden Grok search and Voice explicit pricing controls",
+        'admin.groups.voicePricing.',
+        "frontend/src/views/admin/GroupsView.vue",
+        0,
+    ),
+    (
         "group create web-search price control",
         'v-model.number="createForm.web_search_price_per_call"',
         "frontend/src/views/admin/GroupsView.vue",

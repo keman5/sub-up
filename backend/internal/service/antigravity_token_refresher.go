@@ -68,6 +68,14 @@ func accountNeedsAntigravityForceTokenRefresh(account *Account) bool {
 		account.getExtraBool(antigravityForceTokenRefreshExtraKey)
 }
 
+func antigravityForceTokenRefreshExtra(reason string) map[string]any {
+	return map[string]any{
+		antigravityForceTokenRefreshExtraKey:       true,
+		antigravityForceTokenRefreshReasonExtraKey: reason,
+		antigravityForceTokenRefreshAtExtraKey:     time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
 func clearAntigravityForceTokenRefreshExtra() map[string]any {
 	return map[string]any{
 		antigravityForceTokenRefreshExtraKey:       false,

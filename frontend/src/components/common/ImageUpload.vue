@@ -50,7 +50,7 @@
             @change="handleUpload"
           />
           <Icon name="upload" size="sm" class="mr-1.5" :stroke-width="2" />
-          {{ uploadLabel }}
+          {{ resolvedUploadLabel }}
         </label>
         <button
           v-if="modelValue"
@@ -59,7 +59,7 @@
           @click="$emit('update:modelValue', '')"
         >
           <Icon name="trash" size="sm" class="mr-1.5" :stroke-width="2" />
-          {{ removeLabel }}
+          {{ resolvedRemoveLabel }}
         </button>
       </div>
       <p v-if="hint" class="text-xs text-gray-500 dark:text-gray-400">{{ hint }}</p>
@@ -87,8 +87,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   mode: 'image',
   size: 'md',
-  uploadLabel: 'Upload',
-  removeLabel: 'Remove',
+  uploadLabel: '',
+  removeLabel: '',
   hint: '',
   maxSize: 300 * 1024,
 })
@@ -98,6 +98,9 @@ const emit = defineEmits<{
 }>()
 
 const error = ref('')
+
+const resolvedUploadLabel = computed(() => props.uploadLabel || t('common.upload'))
+const resolvedRemoveLabel = computed(() => props.removeLabel || t('common.remove'))
 
 const acceptTypes = computed(() => props.mode === 'svg' ? '.svg' : 'image/*')
 

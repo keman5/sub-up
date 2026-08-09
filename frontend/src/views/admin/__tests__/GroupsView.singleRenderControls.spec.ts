@@ -28,7 +28,7 @@ describe("groups form single-render controls", () => {
     expect(
       countOccurrences(
         sharedConfigSectionsSource,
-        "admin.groups.imagePricing.title",
+        'imagePricingI18nKey(form.platform, "title")',
       ),
     ).toBe(1);
     expect(
@@ -70,5 +70,14 @@ describe("groups form single-render controls", () => {
     expect(countOccurrences(groupsViewSource, "admin.groups.claudeCode.title")).toBe(
       0,
     );
+  });
+
+  it("keeps upstream cross-platform account copying for composite groups", () => {
+    expect(groupsViewSource).toContain(
+      'targetPlatform === "composite" || sourcePlatform === targetPlatform',
+    );
+    expect(
+      countOccurrences(groupsViewSource, "canCopyAccountsFromGroup("),
+    ).toBe(2);
   });
 });

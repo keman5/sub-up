@@ -24,6 +24,36 @@ func newGrokCacheTestContext(apiKeyID int64) *gin.Context {
 	return c
 }
 
+func TestGrokPreviousResponseSessionSeed(t *testing.T) {
+	require.Equal(t, "grok-prev-resp:resp_abc123", grokPreviousResponseSessionSeed([]byte(`{"previous_response_id":"resp_abc123"}`)))
+	require.Empty(t, grokPreviousResponseSessionSeed([]byte(`{"previous_response_id":"msg_abc123"}`)))
+	require.Empty(t, grokPreviousResponseSessionSeed([]byte(`{"previous_response_id":""}`)))
+	require.Empty(t, grokPreviousResponseSessionSeed([]byte(`{}`)))
+}
+
+func TestResolveGrokCacheIdentityUsesPreviousResponseIDWhenNoOtherSeed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c := newGrokCacheTestContext(301)
+	// No prompt_cache_key / headers / reusable prefix — only previous_response_id.
+	body := []byte(`{"model":"grok","input":[{"role":"user","content":"follow up"}],"previous_response_id":"resp_chain_001"}`)
+	got := resolveGrokCacheIdentity(c, body, "", "grok-4.5")
+	require.NotEmpty(t, got)
+
+	// Same previous_response_id → same identity (model already in isolated seed).
+	again := resolveGrokCacheIdentity(c, body, "", "grok-4.5")
+	require.Equal(t, got, again)
+
+	// Different model → different identity (model scope).
+	otherModel := resolveGrokCacheIdentity(c, body, "", "grok-4.3")
+	require.NotEqual(t, got, otherModel)
+
+	// prompt_cache_key still wins over previous_response_id.
+	withCache := []byte(`{"model":"grok","prompt_cache_key":"client-session","previous_response_id":"resp_chain_001","input":[{"role":"user","content":"x"}]}`)
+	cacheID := resolveGrokCacheIdentity(c, withCache, "", "grok-4.5")
+	require.NotEmpty(t, cacheID)
+	require.NotEqual(t, got, cacheID)
+}
+
 func TestResolveGrokCacheIdentityStableAcrossAppendOnlyTurns(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c := newGrokCacheTestContext(101)
@@ -138,6 +168,81 @@ func TestResolveGrokCacheIdentityExplicitHeaderPriority(t *testing.T) {
 	want := resolveGrokCacheIdentity(onlySession, []byte(`{"model":"grok","input":"unrelated"}`), "", "grok-4.5")
 
 	require.Equal(t, want, got)
+}
+
+func TestResolveGrokCacheIdentityIDEHeadersStayStableAndIsolated(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	headers := []string{
+		openCodeSessionAffinityHeader,
+		openCodeSessionIDHeader,
+		openCodeNativeSessionHeader,
+		codeBuddyConversationHeader,
+	}
+
+	for index, header := range headers {
+		t.Run(header, func(t *testing.T) {
+			const rawSession = "raw-ide-session"
+			apiKeyID := int64(800 + index)
+			c := newGrokCacheTestContext(apiKeyID)
+			c.Request.Header.Set(header, rawSession)
+
+			first := resolveGrokCacheIdentity(c, []byte(`{"model":"grok","prompt_cache_key":"turn-one","input":"first"}`), "first-key", "grok-4.5")
+			second := resolveGrokCacheIdentity(c, []byte(`{"model":"grok","prompt_cache_key":"turn-two","input":"second"}`), "second-key", "grok-4.5")
+			require.NotEmpty(t, first)
+			require.Equal(t, first, second)
+			require.NotContains(t, first, rawSession)
+
+			otherTenant := newGrokCacheTestContext(apiKeyID + 100)
+			otherTenant.Request.Header.Set(header, rawSession)
+			require.NotEqual(t, first, resolveGrokCacheIdentity(otherTenant, nil, "", "grok-4.5"))
+			require.NotEqual(t, first, resolveGrokCacheIdentity(c, nil, "", "grok-4.3"))
+		})
+	}
+}
+
+func TestResolveGrokCacheIdentityIDEHeaderPriority(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"grok","prompt_cache_key":"body-key","input":"hi"}`)
+	headers := []struct {
+		name  string
+		value string
+	}{
+		{openCodeSessionAffinityHeader, "opencode-affinity"},
+		{openCodeSessionIDHeader, "opencode-session-id"},
+		{openCodeNativeSessionHeader, "opencode-native-session"},
+		{codeBuddyConversationHeader, "codebuddy-conversation"},
+		{grokConversationIDHeader, "grok-conversation"},
+	}
+
+	c := newGrokCacheTestContext(402)
+	for _, header := range headers {
+		c.Request.Header.Set(header.name, header.value)
+	}
+	for _, header := range headers {
+		got := resolveGrokCacheIdentity(c, body, "explicit-argument", "grok-4.5")
+		onlyCurrent := newGrokCacheTestContext(402)
+		onlyCurrent.Request.Header.Set(header.name, header.value)
+		want := resolveGrokCacheIdentity(onlyCurrent, nil, "", "grok-4.5")
+		require.Equal(t, want, got, header.name)
+		c.Request.Header.Del(header.name)
+	}
+}
+
+func TestOpenCodeResponsesHeaderAndBodyCacheSignalsConverge(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const rawSession = "opencode-session-42"
+	c := newGrokCacheTestContext(901)
+	c.Request.Header.Set(openCodeSessionAffinityHeader, rawSession)
+	c.Request.Header.Set(openCodeSessionIDHeader, rawSession)
+	firstBody := []byte(`{"model":"grok","prompt_cache_key":"opencode-session-42","input":"first turn"}`)
+	secondBody := []byte(`{"model":"grok","prompt_cache_key":"opencode-session-42","input":"different second turn"}`)
+
+	first := resolveGrokCacheIdentity(c, firstBody, "", "grok-4.5")
+	second := resolveGrokCacheIdentity(c, secondBody, "", "grok-4.5")
+	bodyOnly := resolveGrokCacheIdentity(newGrokCacheTestContext(901), secondBody, "", "grok-4.5")
+	require.NotEmpty(t, first)
+	require.Equal(t, first, second)
+	require.Equal(t, first, bodyOnly)
 }
 
 func TestResolveGrokCacheIdentityPrefersClaudeCodeSession(t *testing.T) {
@@ -736,6 +841,17 @@ func TestGrokFreeMessagesFunctionToolCacheRouteRequiresKnownFreeTier(t *testing.
 						"headers_observed": true,
 						"tokens":           map[string]any{"limit": int64(2_000_000)},
 					},
+				}
+				return a
+			}(),
+		},
+		{
+			name: "paid billing overrides stale free credentials",
+			account: func() *Account {
+				a := healthyGrokOAuthGatewayTestAccount(9123, "access-token")
+				a.Credentials["subscription_tier"] = "free"
+				a.Extra = map[string]any{
+					grokBillingExtraKey: map[string]any{"plan": "SuperGrok", "status_code": http.StatusOK},
 				}
 				return a
 			}(),

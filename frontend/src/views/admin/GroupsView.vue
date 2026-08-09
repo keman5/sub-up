@@ -946,10 +946,6 @@
         </div>
 
 
-
-
-
-
         <!-- OpenAI Live 开关（仅 openai 平台） -->
         <div
           v-if="createForm.platform === 'openai'"
@@ -2102,10 +2098,6 @@
             </div>
           </div>
         </div>
-
-
-
-
 
 
         <!-- OpenAI Live 开关（仅 openai 平台） -->
@@ -3321,6 +3313,10 @@ import {
   getDefaultImagePreviewPrice,
   getDefaultVideoPreviewPrice,
 } from "./groupsImagePricing";
+import {
+  createVideoModelPricesForm,
+  serializeVideoModelPrices,
+} from "./groupsVideoModelPricing";
 
 const { t } = useI18n();
 const appStore = useAppStore();
@@ -3684,29 +3680,42 @@ const quotaFallbackGroupOptionsForEdit = computed(() => {
   return options;
 });
 
-// 复制账号的源分组选项（创建时）- 仅包含相同平台且有账号的分组
+const canCopyAccountsFromGroup = (
+  targetPlatform: GroupPlatform,
+  sourcePlatform: GroupPlatform,
+) => targetPlatform === "composite" || sourcePlatform === targetPlatform;
+
+const copyAccountsGroupLabel = (group: AdminGroup) => {
+  const count = group.account_count || 0;
+  const platform = t("admin.groups.platforms." + group.platform);
+  return `${group.name} - ${platform} (${t("admin.groups.accountsCount", { count })})`;
+};
+
+// 普通分组只复制同平台账号；上游 composite 分组可汇总各平台账号。
 const copyAccountsGroupOptions = computed(() => {
   const eligibleGroups = groups.value.filter(
-    (g) => g.platform === createForm.platform && (g.account_count || 0) > 0,
+    (g) =>
+      canCopyAccountsFromGroup(createForm.platform, g.platform) &&
+      (g.account_count || 0) > 0,
   );
   return eligibleGroups.map((g) => ({
     value: g.id,
-    label: `${g.name} (${t("admin.groups.accountsCount", { count: g.account_count || 0 })})`,
+    label: copyAccountsGroupLabel(g),
   }));
 });
 
-// 复制账号的源分组选项（编辑时）- 仅包含相同平台且有账号的分组，排除自身
+// 编辑时保持相同规则，并排除当前分组。
 const copyAccountsGroupOptionsForEdit = computed(() => {
   const currentId = editingGroup.value?.id;
   const eligibleGroups = groups.value.filter(
     (g) =>
-      g.platform === editForm.platform &&
+      canCopyAccountsFromGroup(editForm.platform, g.platform) &&
       (g.account_count || 0) > 0 &&
       g.id !== currentId,
   );
   return eligibleGroups.map((g) => ({
     value: g.id,
-    label: `${g.name} (${t("admin.groups.accountsCount", { count: g.account_count || 0 })})`,
+    label: copyAccountsGroupLabel(g),
   }));
 });
 
@@ -3868,6 +3877,7 @@ const createForm = reactive({
   video_price_480p: null as number | null,
   video_price_720p: null as number | null,
   video_price_1080p: null as number | null,
+  video_model_prices: createVideoModelPricesForm(),
   // Codex 网页搜索按次计费（仅 openai 平台使用）；null = 使用默认价 0.01
   web_search_price_per_call: null as number | null,
   // 高峰时段倍率配置
@@ -4208,6 +4218,7 @@ const editForm = reactive({
   video_price_480p: null as number | null,
   video_price_720p: null as number | null,
   video_price_1080p: null as number | null,
+  video_model_prices: createVideoModelPricesForm(),
   // Codex 网页搜索按次计费（仅 openai 平台使用）；null = 使用默认价 0.01
   web_search_price_per_call: null as number | null,
   // 高峰时段倍率配置
@@ -4652,6 +4663,7 @@ const closeCreateModal = () => {
   createForm.video_price_480p = null;
   createForm.video_price_720p = null;
   createForm.video_price_1080p = null;
+  createForm.video_model_prices = createVideoModelPricesForm();
   createForm.web_search_price_per_call = null;
   createForm.peak_rate_enabled = false;
   createForm.peak_start = "";
@@ -4745,9 +4757,16 @@ const handleCreateGroup = async () => {
   }
   submitting.value = true;
   try {
+    const {
+      video_model_prices: _createFormVideoModelPrices,
+      ...createGroupForm
+    } = createForm;
+    const videoModelPrices = serializeVideoModelPrices(
+      createForm.video_model_prices,
+    );
     // 构建请求数据，包含模型路由配置
     const requestData = {
-      ...createForm,
+      ...createGroupForm,
       daily_limit_usd: normalizeOptionalLimit(
         createForm.daily_limit_usd as number | string | null,
       ),
@@ -4760,6 +4779,9 @@ const handleCreateGroup = async () => {
       total_limit_usd: normalizeOptionalLimit(
         createForm.total_limit_usd as number | string | null,
       ),
+      ...(Object.keys(videoModelPrices).length > 0
+        ? { video_model_prices: videoModelPrices }
+        : {}),
       model_routing: convertRoutingRulesToApiFormat(
         createModelRoutingRules.value,
       ),
@@ -4895,6 +4917,9 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.video_price_480p = group.video_price_480p;
   editForm.video_price_720p = group.video_price_720p;
   editForm.video_price_1080p = group.video_price_1080p;
+  editForm.video_model_prices = createVideoModelPricesForm(
+    group.video_model_prices,
+  );
   editForm.web_search_price_per_call = group.web_search_price_per_call ?? null;
   editForm.peak_rate_enabled = group.peak_rate_enabled ?? false;
   editForm.peak_start = group.peak_start ?? "";
@@ -4981,6 +5006,7 @@ const closeEditModal = () => {
   editForm.video_price_480p = null;
   editForm.video_price_720p = null;
   editForm.video_price_1080p = null;
+  editForm.video_model_prices = createVideoModelPricesForm();
   editForm.web_search_price_per_call = null;
   resetMessagesDispatchFormState(editForm);
   editForm.allow_live = false;
@@ -5020,6 +5046,9 @@ const handleUpdateGroup = async () => {
       ),
       total_limit_usd: normalizeOptionalLimit(
         editForm.total_limit_usd as number | string | null,
+      ),
+      video_model_prices: serializeVideoModelPrices(
+        editForm.video_model_prices,
       ),
       fallback_group_id:
         editForm.fallback_group_id === null ? 0 : editForm.fallback_group_id,
