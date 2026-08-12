@@ -313,7 +313,7 @@ describe('admin AccountsView manual usage refresh', () => {
     wrapper.unmount()
   })
 
-  it('force-queries every supported account individually without replacing an open edit modal', async () => {
+  it('force-queries every current-page account individually without replacing an open edit modal', async () => {
     listAccounts.mockResolvedValueOnce(pageResponse([
       createAccount(1, 'anthropic-oauth'),
       { ...createAccount(2, 'anthropic-setup-token'), type: 'setup-token' },
@@ -322,7 +322,7 @@ describe('admin AccountsView manual usage refresh', () => {
     let releaseFirstUsage: (() => void) | undefined
     getUsage
       .mockImplementationOnce(() => new Promise(resolve => { releaseFirstUsage = () => resolve({}) }))
-      .mockResolvedValueOnce({})
+      .mockResolvedValue({})
 
     const wrapper = mountView(false)
     await flushPromises()
@@ -338,6 +338,7 @@ describe('admin AccountsView manual usage refresh', () => {
     await flushPromises()
 
     expect(getUsage).toHaveBeenNthCalledWith(2, 2, 'active', true)
+    expect(getUsage).toHaveBeenNthCalledWith(3, 3, 'active', true)
     expect(wrapper.get('[data-test="edit-modal"]').text()).toBe('anthropic-oauth')
     wrapper.unmount()
   })
@@ -364,6 +365,32 @@ describe('admin AccountsView manual usage refresh', () => {
     wrapper.unmount()
   })
 
+  it('refreshes OpenAI quota and the active usage window after an automatic list refresh', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    listAccounts.mockResolvedValueOnce(pageResponse([
+      { ...createAccount(1, 'openai-oauth'), platform: 'openai' }
+    ]))
+    listWithEtag.mockResolvedValue({ notModified: true, etag: 'unchanged', data: null })
+
+    const wrapper = mountView(false)
+    await flushPromises()
+    refreshOpenAIQuota.mockClear()
+    getUsage.mockClear()
+
+    await vi.advanceTimersByTimeAsync(6_000)
+    await flushPromises()
+
+    // Runtime-state reconciliation can perform another ETag list read. The
+    // automatic refresh is verified by its required upstream usage calls.
+    expect(listWithEtag).toHaveBeenCalled()
+    expect(refreshOpenAIQuota).toHaveBeenCalledWith(1)
+    expect(getUsage).toHaveBeenCalledWith(1, 'active', true)
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
   it('force-queries the new current page after pagination changes', async () => {
     listAccounts
       .mockResolvedValueOnce({ ...pageResponse([createAccount(1, 'first-page')]), total: 2, pages: 2 })
@@ -378,6 +405,25 @@ describe('admin AccountsView manual usage refresh', () => {
 
     expect(getUsage).toHaveBeenLastCalledWith(2, 'active', true)
     expect(getBatchUsage).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('continues querying later current-page accounts after one usage request fails', async () => {
+    listAccounts.mockResolvedValueOnce(pageResponse([
+      createAccount(1, 'first-account'),
+      createAccount(2, 'failed-account'),
+      createAccount(3, 'last-account')
+    ]))
+    getUsage
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('usage unavailable'))
+      .mockResolvedValueOnce({})
+
+    const wrapper = mountView(false)
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledTimes(3)
+    expect(getUsage.mock.calls.map(([id]) => id)).toEqual([1, 2, 3])
     wrapper.unmount()
   })
 })

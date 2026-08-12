@@ -1005,6 +1005,9 @@ const handleColumnClickOutside = (event: MouseEvent) => {
 const initializeUsageView = async () => {
   applyRouteQueryFilters()
   adminUsageRouteQuerySync.restoreFromRoute()
+  // Column preferences must be available for the initial table render.
+  loadSavedColumns()
+  loadSavedErrColumns()
   await restoreUsageSearchBackedIds()
   await loadRouteUserFilterLabel()
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
@@ -1015,8 +1018,6 @@ const initializeUsageView = async () => {
   window.setTimeout(() => {
     void loadChartData()
   }, 120)
-  loadSavedColumns()
-  loadSavedErrColumns()
   document.addEventListener('click', handleColumnClickOutside)
 }
 

@@ -725,6 +725,11 @@ let runtimeStateRefreshInFlight = false
 let activeUsageRefreshRun = 0
 let activeUsageRefreshInFlight = false
 
+const runListLoadAndUsageRefresh = async (loadTask: () => Promise<void>) => {
+  await loadTask()
+  await refreshCurrentPageUsageCells()
+}
+
 const refreshCurrentPageUsageCells = async () => {
   // This must stay as per-account active reads. The batch endpoint deliberately
   // serves passive Anthropic snapshots, so force=true there is not equivalent
@@ -732,11 +737,10 @@ const refreshCurrentPageUsageCells = async () => {
   const refreshRun = ++activeUsageRefreshRun
   activeUsageRefreshInFlight = true
   let runtimeStateChanged = false
+  const currentPageAccounts = accounts.value.slice()
 
   try {
-    for (const account of accounts.value) {
-      if (!accountSupportsBatchUsage(account)) continue
-
+    for (const account of currentPageAccounts) {
       const accountID = account.id
       const key = String(accountID)
       const requestToken = ++usageBatchRequestToken
@@ -1270,12 +1274,11 @@ const load = async () => {
   if (isFirstLoad.value) {
     requestParams.lite = '1'
   }
-  await baseLoad()
+  await runListLoadAndUsageRefresh(baseLoad)
   if (isFirstLoad.value) {
     isFirstLoad.value = false
     delete requestParams.lite
   }
-  await refreshCurrentPageUsageCells()
   await refreshTodayStatsBatch()
 }
 
@@ -1285,8 +1288,7 @@ const reload = async () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
-  await baseReload()
-  await refreshCurrentPageUsageCells()
+  await runListLoadAndUsageRefresh(baseReload)
   await refreshTodayStatsBatch()
 }
 
@@ -1309,7 +1311,9 @@ const debouncedReload = () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
-  baseDebouncedReload()
+  return baseDebouncedReload().then(async () => {
+    await refreshCurrentPageUsageCells()
+  })
 }
 
 const handlePageChange = async (page: number) => {
@@ -1317,8 +1321,7 @@ const handlePageChange = async (page: number) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
-  await baseHandlePageChange(page)
-  await refreshCurrentPageUsageCells()
+  await runListLoadAndUsageRefresh(() => baseHandlePageChange(page))
 }
 
 const handlePageSizeChange = async (size: number) => {
@@ -1326,11 +1329,10 @@ const handlePageSizeChange = async (size: number) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
-  await baseHandlePageSizeChange(size)
-  await refreshCurrentPageUsageCells()
+  await runListLoadAndUsageRefresh(() => baseHandlePageSizeChange(size))
 }
 
-const handleSort = (key: string, order: AccountSortOrder) => {
+const handleSort = async (key: string, order: AccountSortOrder) => {
   sortState.sort_by = key
   sortState.sort_order = order
   const requestParams = params as any
@@ -1341,7 +1343,7 @@ const handleSort = (key: string, order: AccountSortOrder) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
-  load()
+  await runListLoadAndUsageRefresh(load)
 }
 
 watch(loading, (isLoading, wasLoading) => {
@@ -1459,7 +1461,7 @@ const mergeAccountsIncrementally = (nextRows: Account[]) => {
   }
 }
 
-const refreshAccountsIncrementally = async () => {
+const refreshAccountsIncrementally = async (options?: { refreshUsage?: boolean }) => {
   if (autoRefreshFetching.value) return
   syncAccountListDerivedParams()
   autoRefreshFetching.value = true
@@ -1493,6 +1495,12 @@ const refreshAccountsIncrementally = async () => {
     }
     upstreamBillingNow.value = Date.now()
 
+    // A user-enabled list refresh must refresh every current-page account's
+    // authoritative upstream window too. Runtime-state reconciliation passes
+    // false here because those are triggered by this same usage refresh.
+    if (options?.refreshUsage) {
+      await refreshCurrentPageUsageCells()
+    }
     await refreshTodayStatsBatch()
   } catch (error) {
     console.error('Auto refresh failed:', error)
@@ -1513,7 +1521,7 @@ const handleAccountRuntimeStateUpdated = () => {
       while (runtimeStateRefreshPending) {
         runtimeStateRefreshPending = false
         resetAutoRefreshCache()
-        await refreshAccountsIncrementally()
+        await refreshAccountsIncrementally({ refreshUsage: false })
       }
     } finally {
       runtimeStateRefreshInFlight = false
@@ -1634,7 +1642,7 @@ const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
 
     if (autoRefreshCountdown.value <= 0) {
       autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
-      await refreshAccountsIncrementally()
+      await refreshAccountsIncrementally({ refreshUsage: true })
       return
     }
 

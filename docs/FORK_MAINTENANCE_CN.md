@@ -1469,6 +1469,60 @@ cd backend && go test ./internal/service -run 'TestOpenAIGatewayService_Forward_
 - 搜索 `stripCodexSparkReasoningContext`、`reasoning.context`、`reasoning.summary`、`isCodexSparkModel`，确保逻辑仍在 `openai_gateway_forward.go` 串联。
 - 如官方在 `openai_gateway_forward.go` / `openai_codex_transform.go` 提供等价兼容，并由回归测试证明后可考虑清理本地补丁。
 
+### 2026-08-12: 管理端账号用量入口统一强刷当前页
+
+**业务目的：**
+
+- 页面初始化、手动刷新、筛选触发的 reload、分页、分页大小和排序都必须在列表请求完成后，对当前页每个账号逐个请求真实上游用量窗口。
+- 强刷使用 `GET /admin/accounts/:id/usage?source=active&force=true`，不使用批量接口替代；单个账号失败不能阻断当前页后续账号。
+- 强刷结果优先于被动批量用量结果，避免刷新期间异步单元格请求覆盖真实窗口数据。
+
+**涉及文件：**
+
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/views/admin/__tests__/AccountsView.manualRefreshUsage.spec.ts`
+- `frontend/src/utils/__tests__/usageLoadQueue.spec.ts`
+- `frontend/src/components/account/__tests__/AccountUsageCell.spec.ts`
+
+**验证：**
+
+```bash
+pnpm --dir frontend exec vitest run src/views/admin/__tests__/AccountsView.manualRefreshUsage.spec.ts src/components/account/__tests__/AccountUsageCell.spec.ts src/utils/__tests__/usageLoadQueue.spec.ts
+pnpm --dir frontend run typecheck
+pnpm --dir frontend run build
+git diff --check
+```
+
+**同步官方后的复查：**
+
+- 搜索 `refreshCurrentPageUsageCells`、`getUsage(id, 'active', true)`、`getBatchUsage` 和 `usageBatchRequestToken`，确认所有列表入口统一走当前页逐账号强刷，批量接口仍只用于非显式刷新时的被动展示。
+- 只有上游提供相同的 active/force 逐账号语义、失败隔离、结果优先级和入口覆盖，并通过上述专项测试后，才可删除本地补丁。
+
+### 2026-08-13: 自动刷新列表也强刷 OpenAI quota 窗口
+
+**业务目的与预期行为：**
+
+- 用户启用账号列表自动刷新后，每次 ETag 列表刷新完成，都必须对当前页账号串行请求真实上游用量窗口；OpenAI OAuth 账号必须先 `POST /api/v1/admin/openai/accounts/:id/quota/refresh`，再读取 active/force usage，不能只更新被动列表字段。
+- quota/usage 成功后触发的运行态增量回拉仅同步列表状态，不能再次触发逐账号强刷，避免运行态回写形成循环；单个账号失败继续处理后续账号。
+
+**涉及文件：**
+
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/views/admin/__tests__/AccountsView.manualRefreshUsage.spec.ts`
+
+**验证：**
+
+```bash
+pnpm --dir frontend exec vitest run src/views/admin/__tests__/AccountsView.manualRefreshUsage.spec.ts src/components/account/__tests__/AccountUsageCell.spec.ts src/utils/__tests__/usageLoadQueue.spec.ts
+pnpm --dir frontend run typecheck
+pnpm --dir frontend run build
+git diff --check
+```
+
+**同步官方后的复查：**
+
+- 搜索 `refreshAccountsIncrementally`、`refreshCurrentPageUsageCells`、`refreshOpenAIQuota` 和 `handleAccountRuntimeStateUpdated`。自动刷新必须传入逐账号真实用量刷新语义；运行态回拉必须显式禁用该行为，避免循环请求。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：
