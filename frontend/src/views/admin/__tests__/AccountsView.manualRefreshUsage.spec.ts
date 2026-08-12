@@ -7,6 +7,9 @@ import AccountsView from '../AccountsView.vue'
 const {
   listAccounts,
   listWithEtag,
+  getBatchUsage,
+  getUsage,
+  refreshOpenAIQuota,
   getBatchTodayStats,
   getUpstreamBillingProbeSettings,
   getAllProxies,
@@ -14,6 +17,9 @@ const {
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
+  getBatchUsage: vi.fn(),
+  getUsage: vi.fn(),
+  refreshOpenAIQuota: vi.fn(),
   getBatchTodayStats: vi.fn(),
   getUpstreamBillingProbeSettings: vi.fn(),
   getAllProxies: vi.fn(),
@@ -25,6 +31,9 @@ vi.mock('@/api/admin', () => ({
     accounts: {
       list: listAccounts,
       listWithEtag,
+      getBatchUsage,
+      getUsage,
+      refreshOpenAIQuota,
       getBatchTodayStats,
       getUpstreamBillingProbeSettings,
       delete: vi.fn(),
@@ -73,9 +82,28 @@ const DataTableStub = {
       <div v-else v-for="row in data" :key="row.id" data-test="row">
         <span data-test="account-name">{{ row.name }}</span>
         <slot name="cell-usage" :row="row" />
+        <slot name="cell-actions" :row="row" />
       </div>
     </div>
   `
+}
+
+const DataTableWithoutUsageStub = {
+  props: ['data', 'loading'],
+  template: `
+    <div data-test="data-table">
+      <div v-if="loading" data-test="loading">loading</div>
+      <div v-else v-for="row in data" :key="row.id" data-test="row">
+        <span data-test="account-name">{{ row.name }}</span>
+        <slot name="cell-actions" :row="row" />
+      </div>
+    </div>
+  `
+}
+
+const PaginationStub = {
+  emits: ['update:page'],
+  template: '<button data-test="next-page" @click="$emit(\'update:page\', 2)">next page</button>'
 }
 
 const AccountTableActionsStub = {
@@ -88,16 +116,28 @@ const BulkEditAccountModalStub = {
   template: '<button data-test="bulk-updated" @click="$emit(\'updated\')">updated</button>'
 }
 
+const EditAccountModalStub = defineComponent({
+  props: {
+    show: { type: Boolean, default: false },
+    account: { type: Object, default: null }
+  },
+  template: '<div v-if="show" data-test="edit-modal">{{ account?.name }}</div>'
+})
+
 const usageCellMountedTokens: number[] = []
 const usageCellRefreshTransitions: Array<[number | undefined, number | undefined]> = []
 
 const AccountUsageCellStub = defineComponent({
-  emits: ['runtime-state-updated'],
+  emits: ['runtime-state-updated', 'account-updated', 'usage-loaded'],
   props: {
     account: { type: Object, required: true },
     todayStats: { type: Object, default: null },
     todayStatsLoading: { type: Boolean, default: false },
-    manualRefreshToken: { type: Number, default: 0 }
+    manualRefreshToken: { type: Number, default: 0 },
+    batchedUsage: { type: Object, default: null },
+    batchedUsageError: { type: String, default: null },
+    batchedUsageLoading: { type: Boolean, default: false },
+    requestBatchedUsage: { type: Function, default: null }
   },
   setup(props) {
     onMounted(() => {
@@ -136,7 +176,7 @@ const pageResponse = (items: Array<Record<string, unknown>>) => ({
   pages: 1
 })
 
-const mountView = () =>
+const mountView = (renderUsage = true, pagination = false) =>
   mount(AccountsView, {
     global: {
       stubs: {
@@ -144,8 +184,8 @@ const mountView = () =>
         TablePageLayout: {
           template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
         },
-        DataTable: DataTableStub,
-        Pagination: true,
+        DataTable: renderUsage ? DataTableStub : DataTableWithoutUsageStub,
+        Pagination: pagination ? PaginationStub : true,
         ConfirmDialog: true,
         AccountTableActions: AccountTableActionsStub,
         AccountTableFilters: { template: '<div></div>' },
@@ -161,7 +201,7 @@ const mountView = () =>
         ErrorPassthroughRulesModal: true,
         TLSFingerprintProfilesModal: true,
         CreateAccountModal: true,
-        EditAccountModal: true,
+        EditAccountModal: EditAccountModalStub,
         BulkEditAccountModal: BulkEditAccountModalStub,
         PlatformTypeBadge: true,
         AccountCapacityCell: true,
@@ -182,12 +222,18 @@ describe('admin AccountsView manual usage refresh', () => {
 
     listAccounts.mockReset()
     listWithEtag.mockReset()
+    getBatchUsage.mockReset()
+    getUsage.mockReset()
+    refreshOpenAIQuota.mockReset()
     getBatchTodayStats.mockReset()
     getUpstreamBillingProbeSettings.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
 
     listWithEtag.mockResolvedValue({ notModified: true, etag: null, data: null })
+    getBatchUsage.mockResolvedValue({ usage: {}, errors: {} })
+    getUsage.mockResolvedValue({})
+    refreshOpenAIQuota.mockResolvedValue({})
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: false })
     getAllProxies.mockResolvedValue([])
@@ -256,6 +302,7 @@ describe('admin AccountsView manual usage refresh', () => {
 
     const wrapper = mountView()
     await flushPromises()
+    listWithEtag.mockClear()
 
     await wrapper.get('[data-test="runtime-state-updated"]').trigger('click')
     await flushPromises()
@@ -263,6 +310,74 @@ describe('admin AccountsView manual usage refresh', () => {
     expect(listWithEtag).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('after-quota-query')
 
+    wrapper.unmount()
+  })
+
+  it('force-queries every supported account individually without replacing an open edit modal', async () => {
+    listAccounts.mockResolvedValueOnce(pageResponse([
+      createAccount(1, 'anthropic-oauth'),
+      { ...createAccount(2, 'anthropic-setup-token'), type: 'setup-token' },
+      { ...createAccount(3, 'unsupported-key'), type: 'apikey' }
+    ]))
+    let releaseFirstUsage: (() => void) | undefined
+    getUsage
+      .mockImplementationOnce(() => new Promise(resolve => { releaseFirstUsage = () => resolve({}) }))
+      .mockResolvedValueOnce({})
+
+    const wrapper = mountView(false)
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledTimes(1)
+    expect(getUsage).toHaveBeenCalledWith(1, 'active', true)
+    expect(getBatchUsage).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-test="row"] button').trigger('click')
+    expect(wrapper.get('[data-test="edit-modal"]').text()).toBe('anthropic-oauth')
+
+    releaseFirstUsage?.()
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenNthCalledWith(2, 2, 'active', true)
+    expect(wrapper.get('[data-test="edit-modal"]').text()).toBe('anthropic-oauth')
+    wrapper.unmount()
+  })
+
+  it('refreshes an OpenAI quota snapshot before its active usage window', async () => {
+    const calls: string[] = []
+    listAccounts.mockResolvedValueOnce(pageResponse([
+      { ...createAccount(1, 'openai-oauth'), platform: 'openai' }
+    ]))
+    refreshOpenAIQuota.mockImplementationOnce(async () => {
+      calls.push('quota')
+      return {}
+    })
+    getUsage.mockImplementationOnce(async () => {
+      calls.push('usage')
+      return {}
+    })
+
+    const wrapper = mountView(false)
+    await flushPromises()
+
+    expect(calls).toEqual(['quota', 'usage'])
+    expect(getUsage).toHaveBeenCalledWith(1, 'active', true)
+    wrapper.unmount()
+  })
+
+  it('force-queries the new current page after pagination changes', async () => {
+    listAccounts
+      .mockResolvedValueOnce({ ...pageResponse([createAccount(1, 'first-page')]), total: 2, pages: 2 })
+      .mockResolvedValueOnce({ ...pageResponse([createAccount(2, 'second-page')]), total: 2, page: 2, pages: 2 })
+
+    const wrapper = mountView(false, true)
+    await flushPromises()
+    expect(getUsage).toHaveBeenLastCalledWith(1, 'active', true)
+
+    await wrapper.get('[data-test="next-page"]').trigger('click')
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenLastCalledWith(2, 'active', true)
+    expect(getBatchUsage).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

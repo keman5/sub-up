@@ -1707,7 +1707,10 @@ onMounted(() => {
 
   if (isBatchManaged.value) {
     syncManagedUsageState()
-    requestParentBatchUsage()
+    // The list controller has already requested every current-page account
+    // actively when this token is non-zero. Do not replace that result with a
+    // passive batch snapshot when a virtualized row mounts late.
+    if (props.manualRefreshToken === 0) requestParentBatchUsage()
     return
   }
 
@@ -1785,10 +1788,9 @@ watch(
     if (nextToken === prevToken) return
     if (!shouldFetchUsage.value) return
 
-    if (isBatchManaged.value) {
-      requestParentBatchUsage({ force: true })
-      return
-    }
+    // Explicit list refreshes are executed by AccountsView as one active
+    // request per account. A batch request is not equivalent for Anthropic.
+    if (isBatchManaged.value) return
     _usageCache.delete(props.account.id)
     loadActiveUsage({
       refreshQuotaFromUpstream: true,

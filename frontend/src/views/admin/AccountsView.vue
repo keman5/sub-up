@@ -318,7 +318,7 @@
               :batched-usage="usageBatchByAccountId[String(row.id)] ?? null"
               :batched-usage-error="usageBatchErrorByAccountId[String(row.id)] ?? null"
               :batched-usage-loading="usageBatchLoadingByAccountId[String(row.id)] === true"
-              :request-batched-usage="isDesktopViewport ? queueBatchedUsage : null"
+              :request-batched-usage="queueBatchedUsage"
               @account-updated="handleAccountUpdated"
               @usage-loaded="handleAccountUsageLoaded(row.id, $event)"
             />
@@ -722,10 +722,75 @@ const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
 let runtimeStateRefreshPending = false
 let runtimeStateRefreshInFlight = false
+let activeUsageRefreshRun = 0
+let activeUsageRefreshInFlight = false
 
 const refreshCurrentPageUsageCells = async () => {
-  await nextTick()
-  usageManualRefreshToken.value += 1
+  // This must stay as per-account active reads. The batch endpoint deliberately
+  // serves passive Anthropic snapshots, so force=true there is not equivalent
+  // to refreshing each account's real upstream usage window.
+  const refreshRun = ++activeUsageRefreshRun
+  activeUsageRefreshInFlight = true
+  let runtimeStateChanged = false
+
+  try {
+    for (const account of accounts.value) {
+      if (!accountSupportsBatchUsage(account)) continue
+
+      const accountID = account.id
+      const key = String(accountID)
+      const requestToken = ++usageBatchRequestToken
+      usageBatchCache.delete(accountID)
+      usageBatchRequestTokenByAccountId.value = {
+        ...usageBatchRequestTokenByAccountId.value,
+        [key]: requestToken
+      }
+      usageBatchErrorByAccountId.value = {
+        ...usageBatchErrorByAccountId.value,
+        [key]: null
+      }
+      setUsageBatchLoading(accountID, true)
+
+      try {
+        if (account.platform === 'openai' && account.type === 'oauth') {
+          try {
+            await adminAPI.accounts.refreshOpenAIQuota(accountID)
+          } catch (error) {
+            // Match the row-level query: a quota snapshot failure must not stop
+            // the following active usage-window request.
+            console.error('Failed to refresh OpenAI quota before list usage refresh:', error)
+          }
+        }
+
+        const usage = await adminAPI.accounts.getUsage(accountID, 'active', true)
+        if (refreshRun !== activeUsageRefreshRun) return
+        if (usageBatchRequestTokenByAccountId.value[key] !== requestToken) continue
+
+        setUsageBatchState(accountID, usage, null)
+        setUsageBatchLoading(accountID, false)
+        usageBatchCache.set(accountID, { data: usage, ts: Date.now() })
+        runtimeStateChanged = true
+      } catch (error) {
+        if (refreshRun !== activeUsageRefreshRun) return
+        if (usageBatchRequestTokenByAccountId.value[key] !== requestToken) continue
+
+        usageBatchErrorByAccountId.value = {
+          ...usageBatchErrorByAccountId.value,
+          [key]: 'Failed'
+        }
+        setUsageBatchLoading(accountID, false)
+        console.error('Failed to refresh account usage window:', error)
+      }
+    }
+  } finally {
+    if (refreshRun === activeUsageRefreshRun) {
+      activeUsageRefreshInFlight = false
+      if (runtimeStateChanged) handleAccountRuntimeStateUpdated()
+      await nextTick()
+      // Keep delayed/virtualized cells synchronized with the list-level result.
+      usageManualRefreshToken.value += 1
+    }
+  }
 }
 
 const desktopViewportQuery = '(min-width: 768px)'
@@ -797,6 +862,10 @@ const flushQueuedUsageBatch = async () => {
   queuedUsageBatchForce = false
 
   if (accountIDs.length === 0) return
+  // A cell may have queued a batch during the render that preceded an explicit
+  // list refresh. Drop it here as well as at enqueue time so it cannot race the
+  // active per-account requests and overwrite their results.
+  if (activeUsageRefreshInFlight) return
 
   const requestTokensByAccount = accountIDs.reduce<Record<string, number>>((acc, accountID) => {
     acc[String(accountID)] = usageBatchRequestTokenByAccountId.value[String(accountID)] ?? 0
@@ -850,7 +919,9 @@ const flushQueuedUsageBatch = async () => {
 }
 
 const queueBatchedUsage = (account: Account, options?: { force?: boolean }) => {
-  if (!isDesktopViewport.value) return
+  // An explicit list refresh owns the current page and must not be replaced by
+  // a batch response, which is passive for Anthropic accounts.
+  if (activeUsageRefreshInFlight) return
   if (!accountSupportsBatchUsage(account)) return
 
   const force = options?.force === true
@@ -1204,6 +1275,7 @@ const load = async () => {
     isFirstLoad.value = false
     delete requestParams.lite
   }
+  await refreshCurrentPageUsageCells()
   await refreshTodayStatsBatch()
 }
 
@@ -1214,8 +1286,8 @@ const reload = async () => {
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
   await baseReload()
-  await refreshTodayStatsBatch()
   await refreshCurrentPageUsageCells()
+  await refreshTodayStatsBatch()
 }
 
 const refreshUpstreamBillingSortedList = async (force = false) => {
@@ -1240,20 +1312,22 @@ const debouncedReload = () => {
   baseDebouncedReload()
 }
 
-const handlePageChange = (page: number) => {
+const handlePageChange = async (page: number) => {
   syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
-  baseHandlePageChange(page)
+  await baseHandlePageChange(page)
+  await refreshCurrentPageUsageCells()
 }
 
-const handlePageSizeChange = (size: number) => {
+const handlePageSizeChange = async (size: number) => {
   syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
-  baseHandlePageSizeChange(size)
+  await baseHandlePageSizeChange(size)
+  await refreshCurrentPageUsageCells()
 }
 
 const handleSort = (key: string, order: AccountSortOrder) => {
@@ -1449,8 +1523,6 @@ const handleAccountRuntimeStateUpdated = () => {
 
 const handleManualRefresh = async () => {
   await Promise.all([load(), loadUpstreamBillingProbeGlobalState()])
-  // Force usage cells to refetch /usage on explicit user refresh.
-  await refreshCurrentPageUsageCells()
 }
 
 const loadUpstreamBillingProbeGlobalState = async () => {
@@ -1543,8 +1615,6 @@ const openTLSFingerprintProfiles = () => {
 const syncPendingListChanges = async () => {
   hasPendingListSync.value = false
   await load()
-  // Keep behavior consistent with manual refresh.
-  await refreshCurrentPageUsageCells()
 }
 
 const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
@@ -2430,9 +2500,6 @@ onMounted(async () => {
 
   try {
     await load()
-    // The initial list must be as current as an explicit list refresh. This
-    // schedules each visible account's upstream usage read after it renders.
-    await refreshCurrentPageUsageCells()
   } catch (error) {
     console.error('Failed to load accounts on initial page entry:', error)
   }
@@ -2457,6 +2524,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  activeUsageRefreshRun += 1
+  activeUsageRefreshInFlight = false
   if (usageBatchFlushTimer !== null) {
     clearTimeout(usageBatchFlushTimer)
     usageBatchFlushTimer = null

@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 )
 
@@ -94,26 +95,29 @@ func ClientErrorMessageForAcceptLanguage(acceptLanguage string, message string) 
 	if message == "" {
 		return message
 	}
+	locale := clientErrorLocaleForAcceptLanguage(acceptLanguage)
+	translated, known := localizedClientErrorMessages[message]
+	if known {
+		if locale == clientErrorLocaleChinese && strings.TrimSpace(translated) != "" {
+			return translated
+		}
+		english := message
+		if canonical, ok := canonicalEnglishClientErrorMessages[message]; ok && strings.TrimSpace(canonical) != "" {
+			english = canonical
+		}
+		if locale == clientErrorLocaleEnglish {
+			return english
+		}
+		if locale == "" && strings.TrimSpace(translated) != "" && english != translated {
+			return english + " (" + translated + ")"
+		}
+		return message
+	}
 	// Upstream errors are usually supplied in English and are valuable for
 	// debugging. Keep that diagnostic intact, while adding a Chinese hint for
 	// well-known, stable messages regardless of the client's language header.
 	if chineseHint := commonUpstreamErrorChineseHint(message); chineseHint != "" {
 		return message + " (中文：" + chineseHint + ")"
-	}
-	translated, known := localizedClientErrorMessages[message]
-	locale := clientErrorLocaleForAcceptLanguage(acceptLanguage)
-	if locale == clientErrorLocaleChinese && known && strings.TrimSpace(translated) != "" {
-		return translated
-	}
-	english := message
-	if canonical, ok := canonicalEnglishClientErrorMessages[message]; ok && strings.TrimSpace(canonical) != "" {
-		english = canonical
-	}
-	if locale == clientErrorLocaleEnglish {
-		return english
-	}
-	if locale == "" && known && strings.TrimSpace(translated) != "" && english != translated {
-		return english + " (" + translated + ")"
 	}
 	if strings.HasPrefix(message, "images endpoint requires an image model, got ") {
 		return fmt.Sprintf("图片接口需要使用图片模型，当前模型为 %s", strings.TrimPrefix(message, "images endpoint requires an image model, got "))
@@ -139,6 +143,17 @@ func ClientErrorMessageForAcceptLanguage(acceptLanguage string, message string) 
 func commonUpstreamErrorChineseHint(message string) string {
 	lower := strings.ToLower(strings.TrimSpace(message))
 	switch {
+	case strings.Contains(lower, "upstream subscription quota has been exhausted"),
+		strings.Contains(lower, "quota exceeded"),
+		strings.Contains(lower, "quota exhausted"),
+		strings.Contains(lower, "quota has been exhausted"),
+		strings.Contains(lower, "quota is exhausted"),
+		strings.Contains(lower, "quota_exceeded"),
+		strings.Contains(lower, "usage quota exceeded"),
+		strings.Contains(lower, "usage limit exceeded"),
+		strings.Contains(lower, "exceeded your current quota"),
+		strings.Contains(lower, "billing hard limit"):
+		return "当前套餐或上游账号额度已用完，请续费或等待额度重置"
 	case strings.Contains(lower, "selected model is at capacity"):
 		return "所选模型当前容量已满，请稍后重试或更换模型"
 	case strings.Contains(lower, "server_is_overloaded"),
@@ -149,8 +164,13 @@ func commonUpstreamErrorChineseHint(message string) string {
 		return "请求速度过快，请稍后重试"
 	case strings.Contains(lower, "rate_limit_exceeded"),
 		strings.Contains(lower, "rate limit exceeded"),
+		strings.Contains(lower, "upstream rate limit has been reached"),
 		strings.Contains(lower, "too many requests"):
 		return "请求频率已达到上游限制，请稍后重试"
+	case strings.Contains(lower, "requested capability is not supported by the upstream service"),
+		strings.Contains(lower, "not implemented"),
+		strings.Contains(lower, "not enabled for this plan"):
+		return "上游暂不支持此模型或能力，请更换后重试"
 	case strings.Contains(lower, "insufficient_quota"),
 		strings.Contains(lower, "insufficient balance"),
 		strings.Contains(lower, "insufficient credits"):
@@ -173,7 +193,8 @@ func commonUpstreamErrorChineseHint(message string) string {
 		strings.Contains(lower, "upstream timeout"):
 		return "上游请求超时，请稍后重试"
 	case strings.Contains(lower, "internal server error"),
-		strings.Contains(lower, "internal_error"):
+		strings.Contains(lower, "internal_error"),
+		strings.Contains(lower, "upstream service is temporarily unavailable"):
 		return "上游服务内部错误，请稍后重试"
 	case strings.Contains(lower, "instructions are required"),
 		strings.Contains(lower, "missing required parameter") && strings.Contains(lower, "instructions"):
@@ -186,6 +207,76 @@ func commonUpstreamErrorChineseHint(message string) string {
 	default:
 		return ""
 	}
+}
+
+// UpstreamFailureClientMessage converts an exhausted failover's final upstream
+// response into a stable, actionable message. The original upstream reason is
+// retained only after the existing sensitive-query-parameter redaction, so
+// clients can distinguish quota exhaustion from transient provider failures.
+func UpstreamFailureClientMessage(statusCode int, body []byte, fallback string) string {
+	upstreamReason := strings.TrimSpace(extractUpstreamErrorMessage(body))
+	upstreamReason = sanitizeUpstreamErrorMessage(upstreamReason)
+	if len(upstreamReason) > 1024 {
+		upstreamReason = truncateString(upstreamReason, 1024)
+	}
+
+	message := strings.TrimSpace(fallback)
+	if isUpstreamQuotaExhausted(upstreamReason, body) {
+		message = "The upstream subscription quota has been exhausted. Please renew or wait for the quota to reset."
+	} else {
+		switch statusCode {
+		case http.StatusBadRequest:
+			message = "The upstream service rejected the request. Check the request parameters and model."
+		case http.StatusUnauthorized:
+			message = "The upstream account authentication failed. Please contact the administrator."
+		case http.StatusForbidden:
+			message = "The upstream account is not authorized for this request. Please contact the administrator."
+		case http.StatusNotFound:
+			message = "The requested upstream model or resource was not found. Check the model and account permissions."
+		case http.StatusRequestTimeout, http.StatusGatewayTimeout:
+			message = "The upstream request timed out. Please retry later."
+		case http.StatusConflict:
+			message = "The upstream request conflicts with its current state. Please retry later."
+		case http.StatusRequestEntityTooLarge:
+			message = "The request is too large for the upstream service. Reduce the input or attachments and retry."
+		case http.StatusUnprocessableEntity:
+			message = "The upstream service rejected the request parameters. Check the request and retry."
+		case http.StatusTooManyRequests:
+			message = "The upstream rate limit has been reached. Please retry later."
+		case http.StatusNotImplemented:
+			message = "The requested capability is not supported by the upstream service. Use a supported model or feature."
+		case 529, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable:
+			message = "The upstream service is temporarily unavailable. Please retry later."
+		}
+	}
+	if upstreamReason == "" {
+		return message
+	}
+	return message + " Upstream reason: " + upstreamReason
+}
+
+func isUpstreamQuotaExhausted(message string, body []byte) bool {
+	lower := strings.ToLower(strings.TrimSpace(message + " " + extractUpstreamErrorCode(body)))
+	for _, marker := range []string{
+		"insufficient_quota",
+		"quota_exceeded",
+		"quota exhausted",
+		"quota has been exhausted",
+		"quota is exhausted",
+		"usage quota exceeded",
+		"usage limit exceeded",
+		"usage limit reached",
+		"exceeded your current quota",
+		"exceeded your quota",
+		"billing hard limit",
+		"insufficient credits",
+		"credits exhausted",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func clientErrorLocaleForAcceptLanguage(acceptLanguage string) string {

@@ -404,6 +404,16 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 
+	if isCodexSparkModel(upstreamModel) && gjson.GetBytes(body, "reasoning.context").String() == "all_turns" {
+		decoded, decodeErr := ensureReqBody()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if stripCodexSparkReasoningContext(decoded) {
+			markDecodedModified()
+		}
+	}
+
 	if account.Type == AccountTypeOAuth {
 		decoded, decodeErr := ensureReqBody()
 		if decodeErr != nil {

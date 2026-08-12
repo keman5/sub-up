@@ -82,14 +82,14 @@ export function useTableLoader<T, P extends Record<string, any>>(options: TableL
     // 确保页码在有效范围内
     const validPage = Math.max(1, Math.min(page, pagination.pages || 1))
     pagination.page = validPage
-    load()
+    return load()
   }
 
   const handlePageSizeChange = (size: number) => {
     pagination.page_size = size
     pagination.page = 1
     setPersistedPageSize(size)
-    load()
+    return load()
   }
 
   onUnmounted(() => {

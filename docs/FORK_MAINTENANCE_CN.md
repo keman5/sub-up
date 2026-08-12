@@ -1443,6 +1443,32 @@ git diff --check origin/main...HEAD
 - 搜索 `billingErrorDetailsWithFallback`、`enforceBillingEligibilityWithFallback`、`GetUserBreakdownStatsForView`、`presentation_multiplier`、`runtime-state-updated` 以及 `Google API Key` 鉴权测试替身。
 - 复查 Chat/Responses/Messages/WebSocket 的 OpenAI 接力路径只计算一次有效额度错误，普通管理员用户排行不返回账号计费倍率，测试替身仍匹配当前 SQL/schema；只有上游提供等价行为并通过对应后端、前端和 secret-scan 验证后，才可删除本条补丁。
 
+### 2026-08-10: Spark /responses 兼容（`reasoning.context`）
+
+**现象与原因：**
+
+- 现网调用 `gpt-5.3-codex-spark` 时，部分请求包含 `reasoning.context=all_turns`，该值在 Spark 模型上会被 upstream 直接拒绝。
+- 该值常由部分 Codex 客户端/SDK 默认上报，若不在网关改写，模型路由再正确也会在上游失败。
+
+**涉及文件：**
+
+- `backend/internal/service/openai_codex_transform.go`
+- `backend/internal/service/openai_gateway_forward.go`
+- `backend/internal/service/openai_gateway_service_hotpath_test.go`
+- `docs/fork-maintenance/2026-08.md`
+
+**验证：**
+
+```bash
+cd backend && go test ./internal/service -run 'TestOpenAIGatewayService_Forward_StripsReasoningContextForSparkAPIKey|TestOpenAIGatewayService_Forward_StripsReasoningSummaryForSparkAPIKey|TestOpenAIGatewayService_Forward_PreservesReasoningSummaryForNonSparkAPIKey' -count=1
+cd backend && go test ./internal/service -run 'TestOpenAIGatewayService_Forward_' -count=1
+```
+
+**同步官方后的复查：**
+
+- 搜索 `stripCodexSparkReasoningContext`、`reasoning.context`、`reasoning.summary`、`isCodexSparkModel`，确保逻辑仍在 `openai_gateway_forward.go` 串联。
+- 如官方在 `openai_gateway_forward.go` / `openai_codex_transform.go` 提供等价兼容，并由回归测试证明后可考虑清理本地补丁。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：

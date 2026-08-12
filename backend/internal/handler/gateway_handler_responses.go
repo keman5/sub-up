@@ -375,13 +375,17 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		return
 	}
 	statusCode := http.StatusBadGateway
+	var responseBody []byte
 	if lastErr != nil && lastErr.StatusCode > 0 {
 		statusCode = lastErr.StatusCode
+		responseBody = lastErr.ResponseBody
 	}
-	if lastErr != nil && service.IsOpenAISilentRefusalErrorBody(lastErr.ResponseBody) {
+	if service.IsOpenAISilentRefusalErrorBody(responseBody) {
 		service.SetOpsUpstreamError(c, statusCode, service.OpenAISilentRefusalClientMessage(), "")
 		h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage())
 		return
 	}
-	h.responsesErrorResponse(c, statusCode, "server_error", "All available accounts exhausted")
+	status, errType, message := h.mapUpstreamError(statusCode)
+	message = service.UpstreamFailureClientMessage(statusCode, responseBody, message)
+	h.responsesErrorResponse(c, status, errType, message)
 }

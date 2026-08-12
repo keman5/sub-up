@@ -849,6 +849,22 @@ func stripCodexSparkReasoningSummary(reqBody map[string]any) bool {
 	return true
 }
 
+func stripCodexSparkReasoningContext(reqBody map[string]any) bool {
+	reasoning, ok := reqBody["reasoning"].(map[string]any)
+	if !ok {
+		return false
+	}
+	contextValue, ok := reasoning["context"].(string)
+	if !ok {
+		return false
+	}
+	if strings.TrimSpace(contextValue) != "all_turns" {
+		return false
+	}
+	reasoning["context"] = "current_turn"
+	return true
+}
+
 func hasOpenAIInputImage(reqBody map[string]any) bool {
 	if reqBody == nil {
 		return false

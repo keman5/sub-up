@@ -36,6 +36,88 @@ func TestGatewayEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testi
 	assert.Equal(t, "Upstream request failed (上游请求失败)", errorObj["message"])
 }
 
+func TestFailoverExhaustedPreservesQuotaReasonForEveryGatewayProtocol(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstreamErr := func() *service.UpstreamFailoverError {
+		return &service.UpstreamFailoverError{
+			StatusCode:   http.StatusTooManyRequests,
+			ResponseBody: []byte(`{"error":{"code":"insufficient_quota","message":"You exceeded your current quota."}}`),
+		}
+	}
+
+	tests := []struct {
+		name   string
+		path   string
+		handle func(*gin.Context)
+	}{
+		{
+			name: "gateway messages",
+			path: EndpointMessages,
+			handle: func(c *gin.Context) {
+				(&GatewayHandler{}).handleFailoverExhausted(c, upstreamErr(), service.PlatformOpenAI, false)
+			},
+		},
+		{
+			name: "gateway chat completions",
+			path: EndpointChatCompletions,
+			handle: func(c *gin.Context) {
+				(&GatewayHandler{}).handleCCFailoverExhausted(c, upstreamErr(), false)
+			},
+		},
+		{
+			name: "gateway responses",
+			path: EndpointResponses,
+			handle: func(c *gin.Context) {
+				(&GatewayHandler{}).handleResponsesFailoverExhausted(c, upstreamErr(), false)
+			},
+		},
+		{
+			name: "openai responses",
+			path: EndpointResponses,
+			handle: func(c *gin.Context) {
+				(&OpenAIGatewayHandler{}).handleFailoverExhausted(c, upstreamErr(), false)
+			},
+		},
+		{
+			name: "openai anthropic",
+			path: EndpointMessages,
+			handle: func(c *gin.Context) {
+				(&OpenAIGatewayHandler{}).handleAnthropicFailoverExhausted(c, upstreamErr(), false)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, tt.path, nil)
+			c.Request.Header.Set("Accept-Language", "zh-CN")
+
+			tt.handle(c)
+
+			require.Equal(t, http.StatusTooManyRequests, recorder.Code)
+			require.Contains(t, recorder.Body.String(), "当前套餐或上游账号额度已用完")
+			require.Contains(t, recorder.Body.String(), "You exceeded your current quota.")
+		})
+	}
+}
+
+func TestAnthropicFailoverExhaustedWithoutUpstreamErrorWritesFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, EndpointMessages, nil)
+
+	(&OpenAIGatewayHandler{}).handleAnthropicFailoverExhausted(c, nil, false)
+
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	var response map[string]any
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Equal(t, "error", response["type"])
+	require.Contains(t, recorder.Body.String(), "Upstream request failed")
+}
+
 // Writer 已写后 ensureForwardErrorResponse 必须把错误以 SSE 形式追加，
 // 而不是 silent EOF。非 /responses 路径走 legacy data:{"type":"error"} 分支。
 func TestGatewayEnsureForwardErrorResponse_AppendsSSEAfterWritten(t *testing.T) {
