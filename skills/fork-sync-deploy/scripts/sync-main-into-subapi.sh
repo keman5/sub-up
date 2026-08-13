@@ -279,6 +279,15 @@ find_reusable_review_evidence() {
 
 find_latest_main_merge() {
   local candidate second_parent
+  # `git rev-list --merges HEAD` does not emit HEAD itself. Prefer an eligible
+  # current merge so an audit after `sync --apply` examines this sync, not the
+  # preceding first-parent merge.
+  if second_parent="$(git -C "$ROOT" rev-parse 'HEAD^2' 2>/dev/null)"; then
+    if git -C "$ROOT" merge-base --is-ancestor "$second_parent" "$REMOTE/$MAIN_BRANCH"; then
+      printf '%s\n' HEAD
+      return 0
+    fi
+  fi
   while IFS= read -r candidate; do
     second_parent="$(git -C "$ROOT" rev-parse "$candidate^2" 2>/dev/null || true)"
     [[ -n "$second_parent" ]] || continue
@@ -286,7 +295,7 @@ find_latest_main_merge() {
       printf '%s\n' "$candidate"
       return 0
     fi
-  done < <(git -C "$ROOT" rev-list --first-parent --merges HEAD)
+  done < <(git -C "$ROOT" rev-list --merges HEAD)
   return 1
 }
 
