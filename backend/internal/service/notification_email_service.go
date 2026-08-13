@@ -425,6 +425,14 @@ func (s *NotificationEmailService) Send(ctx context.Context, input NotificationE
 		return notificationEmailConfigErr(errors.New("email service is not configured"))
 	}
 	if err := s.emailService.SendEmail(ctx, recipient, rendered.Subject, rendered.HTML); err != nil {
+		// Record failed delivery attempts as terminal for this idempotency key.
+		// Expiry reminders are scanned periodically; without this marker, a
+		// permanent SMTP rejection is sent again on every scan.
+		if deliveryKey != "" && normalizedEvent == NotificationEmailEventSubscriptionExpiryReminder {
+			if markErr := s.settingRepo.Set(ctx, deliveryKey, time.Now().UTC().Format(time.RFC3339Nano)); markErr != nil {
+				return notificationEmailDeliveryErr(fmt.Errorf("%w (failed to record terminal delivery attempt: %v)", err, markErr))
+			}
+		}
 		return notificationEmailDeliveryErr(err)
 	}
 	if deliveryKey != "" {

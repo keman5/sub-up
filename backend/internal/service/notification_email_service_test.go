@@ -496,6 +496,41 @@ func TestNotificationEmailSendDeduplicatesSubscriptionExpiryReminder(t *testing.
 	require.Equal(t, int64(1), smtpServer.messageCount())
 }
 
+func TestNotificationEmailSendDoesNotRetryFailedDelivery(t *testing.T) {
+	ctx := context.Background()
+	repo := newNotificationEmailMemorySettingRepo()
+	smtpServer := startNotificationEmailTestSMTPServer(t)
+	settings := smtpServer.settings()
+	settings[SettingKeySMTPHost] = "127.0.0.1"
+	settings[SettingKeySMTPPort] = "1"
+	require.NoError(t, repo.SetMultiple(ctx, settings))
+
+	emailSvc := NewEmailService(repo, nil)
+	svc := NewNotificationEmailService(repo, emailSvc)
+	input := NotificationEmailSendInput{
+		Event:          NotificationEmailEventSubscriptionExpiryReminder,
+		RecipientEmail: "user@example.com",
+		RecipientName:  "User",
+		UserID:         42,
+		SourceType:     "user_subscription",
+		SourceID:       "1234567890",
+		ReminderKey:    "7d",
+		Variables: map[string]string{
+			"subscription_group": "Codex",
+			"expiry_time":        "2026-05-27 12:00",
+			"days_remaining":     "7",
+		},
+	}
+
+	require.Error(t, svc.Send(ctx, input))
+	key := notificationEmailDeliveryKey(input.Event, input.SourceType, input.SourceID, input.RecipientEmail, input.ReminderKey)
+	_, err := repo.GetValue(ctx, key)
+	require.NoError(t, err)
+
+	require.NoError(t, svc.Send(ctx, input))
+	require.Equal(t, int64(0), smtpServer.messageCount())
+}
+
 func TestNotificationEmailSendRespectsLegacyDeliveryKey(t *testing.T) {
 	ctx := context.Background()
 	repo := newNotificationEmailMemorySettingRepo()
