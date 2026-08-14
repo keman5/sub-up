@@ -1523,28 +1523,6 @@ git diff --check
 
 - 搜索 `refreshAccountsIncrementally`、`refreshCurrentPageUsageCells`、`refreshOpenAIQuota` 和 `handleAccountRuntimeStateUpdated`。自动刷新必须传入逐账号真实用量刷新语义；运行态回拉必须显式禁用该行为，避免循环请求。
 
-### 2026-08-14: 自动记录本地改动
-
-**自动记录：**
-
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
-
-**涉及文件：**
-
-- `skills/nonfork-sync-deploy/SKILL.md`
-- `skills/nonfork-sync-deploy/agents/openai.yaml`
-
-**验证：**
-
-```bash
-TODO: 填写验证命令
-```
-
-**同步官方后的复查：**
-
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
-
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：
