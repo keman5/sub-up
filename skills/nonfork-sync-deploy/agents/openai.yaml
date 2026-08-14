@@ -1,0 +1,3 @@
+display_name: "非 fork 同步与部署"
+short_description: "拉取 subapi、合并上游并逐项复查后部署"
+default_prompt: "使用 $nonfork-sync-deploy 拉取 origin/subapi，合并 Wei-Shaw/sub2api main，逐条重放非 fork 维护记录，完成双重复查后再部署。"
