@@ -171,6 +171,10 @@ func commonUpstreamErrorChineseHint(message string) string {
 		strings.Contains(lower, "not implemented"),
 		strings.Contains(lower, "not enabled for this plan"):
 		return "上游暂不支持此模型或能力，请更换后重试"
+	case strings.Contains(lower, "does not support image input"),
+		strings.Contains(lower, "image input is not supported"),
+		(strings.Contains(lower, "image") && strings.Contains(lower, "input") && strings.Contains(lower, "not supported")):
+		return "当前上下文不能带有图片资源，可能需要新开会话或更换模型"
 	case strings.Contains(lower, "insufficient_quota"),
 		strings.Contains(lower, "insufficient balance"),
 		strings.Contains(lower, "insufficient credits"):

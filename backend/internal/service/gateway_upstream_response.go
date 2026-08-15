@@ -286,16 +286,20 @@ func ExtractUpstreamErrorMessage(body []byte) string {
 }
 
 func extractUpstreamErrorMessage(body []byte) string {
-	// Claude 风格：{"type":"error","error":{"type":"...","message":"..."}}
-	if m := gjson.GetBytes(body, "error.message").String(); strings.TrimSpace(m) != "" {
-		inner := strings.TrimSpace(m)
-		// 有些上游会把完整 JSON 作为字符串塞进 message
-		if strings.HasPrefix(inner, "{") {
-			if innerMsg := gjson.Get(inner, "error.message").String(); strings.TrimSpace(innerMsg) != "" {
-				return innerMsg
+	// Claude/Responses 风格分别使用 error.message 和 response.error.message。
+	for _, path := range []string{"error.message", "response.error.message"} {
+		if m := gjson.GetBytes(body, path).String(); strings.TrimSpace(m) != "" {
+			inner := strings.TrimSpace(m)
+			// 有些上游会把完整 JSON 作为字符串塞进 message。
+			if strings.HasPrefix(inner, "{") {
+				for _, innerPath := range []string{"error.message", "response.error.message"} {
+					if innerMsg := gjson.Get(inner, innerPath).String(); strings.TrimSpace(innerMsg) != "" {
+						return innerMsg
+					}
+				}
 			}
+			return m
 		}
-		return m
 	}
 
 	// ChatGPT 内部 API 风格：{"detail":"..."}
@@ -308,22 +312,28 @@ func extractUpstreamErrorMessage(body []byte) string {
 }
 
 func extractUpstreamErrorCode(body []byte) string {
-	if code := strings.TrimSpace(gjson.GetBytes(body, "error.code").String()); code != "" {
-		return code
-	}
-
-	inner := strings.TrimSpace(gjson.GetBytes(body, "error.message").String())
-	if !strings.HasPrefix(inner, "{") {
-		return ""
-	}
-
-	if code := strings.TrimSpace(gjson.Get(inner, "error.code").String()); code != "" {
-		return code
-	}
-
-	if lastBrace := strings.LastIndex(inner, "}"); lastBrace >= 0 {
-		if code := strings.TrimSpace(gjson.Get(inner[:lastBrace+1], "error.code").String()); code != "" {
+	for _, path := range []string{"error.code", "response.error.code"} {
+		if code := strings.TrimSpace(gjson.GetBytes(body, path).String()); code != "" {
 			return code
+		}
+	}
+
+	for _, messagePath := range []string{"error.message", "response.error.message"} {
+		inner := strings.TrimSpace(gjson.GetBytes(body, messagePath).String())
+		if !strings.HasPrefix(inner, "{") {
+			continue
+		}
+		for _, codePath := range []string{"error.code", "response.error.code"} {
+			if code := strings.TrimSpace(gjson.Get(inner, codePath).String()); code != "" {
+				return code
+			}
+		}
+		if lastBrace := strings.LastIndex(inner, "}"); lastBrace >= 0 {
+			for _, codePath := range []string{"error.code", "response.error.code"} {
+				if code := strings.TrimSpace(gjson.Get(inner[:lastBrace+1], codePath).String()); code != "" {
+					return code
+				}
+			}
 		}
 	}
 
