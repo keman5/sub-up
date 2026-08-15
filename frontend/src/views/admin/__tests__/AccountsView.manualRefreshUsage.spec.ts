@@ -249,6 +249,12 @@ describe('admin AccountsView manual usage refresh', () => {
 
     expect(usageCellMountedTokens).toEqual([0])
     expect(usageCellRefreshTransitions).toContainEqual([0, 1])
+    expect(listAccounts).toHaveBeenCalledWith(
+      1,
+      20,
+      expect.objectContaining({ refresh_usage: 'true' }),
+      expect.anything()
+    )
 
     wrapper.unmount()
   })
@@ -328,7 +334,7 @@ describe('admin AccountsView manual usage refresh', () => {
     await flushPromises()
 
     expect(getUsage).toHaveBeenCalledTimes(1)
-    expect(getUsage).toHaveBeenCalledWith(1, 'active', true)
+    expect(getUsage).toHaveBeenCalledWith(1, 'active')
     expect(getBatchUsage).not.toHaveBeenCalled()
 
     await wrapper.get('[data-test="row"] button').trigger('click')
@@ -337,8 +343,8 @@ describe('admin AccountsView manual usage refresh', () => {
     releaseFirstUsage?.()
     await flushPromises()
 
-    expect(getUsage).toHaveBeenNthCalledWith(2, 2, 'active', true)
-    expect(getUsage).toHaveBeenNthCalledWith(3, 3, 'active', true)
+    expect(getUsage).toHaveBeenNthCalledWith(2, 2, 'active')
+    expect(getUsage).toHaveBeenNthCalledWith(3, 3, 'active')
     expect(wrapper.get('[data-test="edit-modal"]').text()).toBe('anthropic-oauth')
     wrapper.unmount()
   })
@@ -361,7 +367,7 @@ describe('admin AccountsView manual usage refresh', () => {
     await flushPromises()
 
     expect(calls).toEqual(['quota', 'usage'])
-    expect(getUsage).toHaveBeenCalledWith(1, 'active', true)
+    expect(getUsage).toHaveBeenCalledWith(1, 'active')
     wrapper.unmount()
   })
 
@@ -385,7 +391,7 @@ describe('admin AccountsView manual usage refresh', () => {
     // automatic refresh is verified by its required upstream usage calls.
     expect(listWithEtag).toHaveBeenCalled()
     expect(refreshOpenAIQuota).toHaveBeenCalledWith(1)
-    expect(getUsage).toHaveBeenCalledWith(1, 'active', true)
+    expect(getUsage).toHaveBeenCalledWith(1, 'active')
 
     wrapper.unmount()
     vi.useRealTimers()
@@ -398,12 +404,12 @@ describe('admin AccountsView manual usage refresh', () => {
 
     const wrapper = mountView(false, true)
     await flushPromises()
-    expect(getUsage).toHaveBeenLastCalledWith(1, 'active', true)
+    expect(getUsage).toHaveBeenLastCalledWith(1, 'active')
 
     await wrapper.get('[data-test="next-page"]').trigger('click')
     await flushPromises()
 
-    expect(getUsage).toHaveBeenLastCalledWith(2, 'active', true)
+    expect(getUsage).toHaveBeenLastCalledWith(2, 'active')
     expect(getBatchUsage).not.toHaveBeenCalled()
     wrapper.unmount()
   })

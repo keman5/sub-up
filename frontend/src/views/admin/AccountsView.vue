@@ -731,9 +731,9 @@ const runListLoadAndUsageRefresh = async (loadTask: () => Promise<void>) => {
 }
 
 const refreshCurrentPageUsageCells = async () => {
-  // This must stay as per-account active reads. The batch endpoint deliberately
-  // serves passive Anthropic snapshots, so force=true there is not equivalent
-  // to refreshing each account's real upstream usage window.
+  // The list request already performs the authoritative forced refresh. Read
+  // each current-page result individually so usage cells receive the updated
+  // cache without issuing a second upstream probe.
   const refreshRun = ++activeUsageRefreshRun
   activeUsageRefreshInFlight = true
   let runtimeStateChanged = false
@@ -766,7 +766,7 @@ const refreshCurrentPageUsageCells = async () => {
           }
         }
 
-        const usage = await adminAPI.accounts.getUsage(accountID, 'active', true)
+        const usage = await adminAPI.accounts.getUsage(accountID, 'active')
         if (refreshRun !== activeUsageRefreshRun) return
         if (usageBatchRequestTokenByAccountId.value[key] !== requestToken) continue
 
@@ -1186,7 +1186,12 @@ const {
   handlePageChange: baseHandlePageChange,
   handlePageSizeChange: baseHandlePageSizeChange
 } = useTableLoader<Account, any>({
-  fetchFn: adminAPI.accounts.list,
+  fetchFn: (page, pageSize, filters, options) => adminAPI.accounts.list(
+    page,
+    pageSize,
+    { ...filters, refresh_usage: 'true' },
+    options
+  ),
   initialParams: {
     platform: '',
     type: '',
@@ -1479,9 +1484,9 @@ const refreshAccountsIncrementally = async (options?: { refreshUsage?: boolean }
         search?: string
         sort_by?: string
         sort_order?: AccountSortOrder
-
+        refresh_usage?: string
       },
-      { etag: autoRefreshETag.value }
+      { etag: autoRefreshETag.value, refreshUsage: options?.refreshUsage === true }
     )
 
     if (result.etag) {

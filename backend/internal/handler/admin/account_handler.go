@@ -513,6 +513,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		search = search[:100]
 	}
 	lite := parseBoolQueryWithDefault(c.Query("lite"), false)
+	refreshUsage := parseBoolQueryWithDefault(c.Query("refresh_usage"), false)
 	// 调度分需要跨候选池批量打分并读取负载，默认列表不计算；只有前端列可见时才显式开启。
 	includeSchedulerScore := parseBoolQueryWithDefault(c.Query("include_scheduler_score"), false)
 
@@ -549,6 +550,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 			response.ErrorFrom(c, err)
 			return
 		}
+	}
+	if refreshUsage && h.accountUsageService != nil {
+		refreshListedAccountUsageWindows(c.Request.Context(), accounts, func(ctx context.Context, accountID int64, force bool) (*service.UsageInfo, error) {
+			return h.accountUsageService.GetUsage(ctx, accountID, force)
+		})
 	}
 
 	// Get current concurrency counts for all accounts
@@ -2499,6 +2505,20 @@ type BatchTodayStatsRequest struct {
 type BatchUsageRequest struct {
 	AccountIDs []int64 `json:"account_ids" binding:"required"`
 	Force      bool    `json:"force"`
+}
+
+func refreshListedAccountUsageWindows(
+	ctx context.Context,
+	accounts []service.Account,
+	refresh func(context.Context, int64, bool) (*service.UsageInfo, error),
+) {
+	for _, account := range accounts {
+		if _, err := refresh(ctx, account.ID, true); err != nil {
+			// A single account's upstream failure must not prevent the rest of the
+			// current page from being refreshed.
+			slog.Warn("admin_account_usage_refresh_failed", "account_id", account.ID, "error", err)
+		}
+	}
 }
 
 // GetBatchTodayStats 批量获取多个账号的今日统计。

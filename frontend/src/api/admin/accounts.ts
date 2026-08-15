@@ -45,6 +45,7 @@ export async function list(
     search?: string
     privacy_mode?: string
     lite?: string
+    refresh_usage?: string
     include_scheduler_score?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
@@ -81,6 +82,7 @@ export async function listWithEtag(
     search?: string
     privacy_mode?: string
     lite?: string
+    refresh_usage?: string
     include_scheduler_score?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
@@ -88,6 +90,7 @@ export async function listWithEtag(
   options?: {
     signal?: AbortSignal
     etag?: string | null
+    refreshUsage?: boolean
   }
 ): Promise<AccountListWithEtagResult> {
   const headers: Record<string, string> = {}
@@ -99,6 +102,7 @@ export async function listWithEtag(
     params: {
       page,
       page_size: pageSize,
+      refresh_usage: options?.refreshUsage ? 'true' : undefined,
       ...filters
     },
     headers,

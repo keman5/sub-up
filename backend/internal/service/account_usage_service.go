@@ -441,16 +441,19 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 	if account.CanGetUsage() {
 		var apiResp *ClaudeUsageResponse
 
-		// 1. 检查缓存（成功响应 3 分钟 / 错误响应 1 分钟）
-		if cached, ok := s.cache.apiCache.Load(accountID); ok {
-			if cache, ok := cached.(*apiUsageCache); ok {
-				age := time.Since(cache.timestamp)
-				if cache.err != nil && age < apiErrorCacheTTL {
-					// 负缓存命中：返回缓存的错误，避免重试风暴
-					return nil, cache.err
-				}
-				if cache.response != nil && age < apiCacheTTL {
-					apiResp = cache.response
+		// 1. 检查缓存（成功响应 3 分钟 / 错误响应 1 分钟）。强制刷新必须
+		// 跳过正/负缓存，否则列表刷新虽然传了 force=true，仍不会访问上游。
+		if !forceProbe {
+			if cached, ok := s.cache.apiCache.Load(accountID); ok {
+				if cache, ok := cached.(*apiUsageCache); ok {
+					age := time.Since(cache.timestamp)
+					if cache.err != nil && age < apiErrorCacheTTL {
+						// 负缓存命中：返回缓存的错误，避免重试风暴
+						return nil, cache.err
+					}
+					if cache.response != nil && age < apiCacheTTL {
+						apiResp = cache.response
+					}
 				}
 			}
 		}
@@ -468,15 +471,18 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 
 			flightKey := fmt.Sprintf("usage:%d", accountID)
 			result, flightErr, _ := s.cache.apiFlight.Do(flightKey, func() (any, error) {
-				// 再次检查缓存（可能在等待 singleflight 期间被其他请求填充）
-				if cached, ok := s.cache.apiCache.Load(accountID); ok {
-					if cache, ok := cached.(*apiUsageCache); ok {
-						age := time.Since(cache.timestamp)
-						if cache.err != nil && age < apiErrorCacheTTL {
-							return nil, cache.err
-						}
-						if cache.response != nil && age < apiCacheTTL {
-							return cache.response, nil
+				// 再次检查缓存（可能在等待 singleflight 期间被其他请求填充）。
+				// 强制刷新同样不能在这里重新命中旧缓存。
+				if !forceProbe {
+					if cached, ok := s.cache.apiCache.Load(accountID); ok {
+						if cache, ok := cached.(*apiUsageCache); ok {
+							age := time.Since(cache.timestamp)
+							if cache.err != nil && age < apiErrorCacheTTL {
+								return nil, cache.err
+							}
+							if cache.response != nil && age < apiCacheTTL {
+								return cache.response, nil
+							}
 						}
 					}
 				}
