@@ -36,7 +36,7 @@ func TestGatewayEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testi
 	assert.Equal(t, "Upstream request failed (上游请求失败)", errorObj["message"])
 }
 
-func TestFailoverExhaustedPreservesQuotaReasonForEveryGatewayProtocol(t *testing.T) {
+func TestFailoverExhaustedClassifiesQuotaWithoutLeakingReasonForEveryGatewayProtocol(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstreamErr := func() *service.UpstreamFailoverError {
 		return &service.UpstreamFailoverError{
@@ -98,7 +98,7 @@ func TestFailoverExhaustedPreservesQuotaReasonForEveryGatewayProtocol(t *testing
 
 			require.Equal(t, http.StatusTooManyRequests, recorder.Code)
 			require.Contains(t, recorder.Body.String(), "当前套餐或上游账号额度已用完")
-			require.Contains(t, recorder.Body.String(), "You exceeded your current quota.")
+			require.NotContains(t, recorder.Body.String(), "You exceeded your current quota.")
 		})
 	}
 }

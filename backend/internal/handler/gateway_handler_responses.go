@@ -385,6 +385,7 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage())
 		return
 	}
+	service.SetOpsUpstreamError(c, statusCode, service.ExtractUpstreamErrorMessage(responseBody), "")
 	status, errType, message := h.mapUpstreamError(statusCode)
 	message = service.UpstreamFailureClientMessage(statusCode, responseBody, message)
 	h.responsesErrorResponse(c, status, errType, message)

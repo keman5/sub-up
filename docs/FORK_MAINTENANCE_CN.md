@@ -1523,6 +1523,49 @@ git diff --check
 
 - 搜索 `refreshAccountsIncrementally`、`refreshCurrentPageUsageCells`、`refreshOpenAIQuota` 和 `handleAccountRuntimeStateUpdated`。自动刷新必须传入逐账号真实用量刷新语义；运行态回拉必须显式禁用该行为，避免循环请求。
 
+### 2026-08-15: 自动记录本地改动
+
+**业务目的与本地处理：**
+
+- 上游分组用量日汇总合并到 `subapi` 后，`group_handler.go` 的冲突结果保留本地按用户时区计算当天起点、按角色选择用量视图，以及上游新增的昨日/累计统计返回；仅移除已不再使用的 `time` import，避免合并后的 Go 编译失败。
+
+**涉及文件：**
+
+- `backend/internal/handler/admin/group_handler.go`
+
+**验证：**
+
+```bash
+cd backend && go test ./internal/handler -run 'TestApplyGroupModelPolicyToBody|TestBillingErrorDetails|TestExtractQuotaResetSeconds|TestEnforceBillingEligibilityWithFallback|TestFailoverExhaustedClassifiesQuotaWithoutLeakingReasonForEveryGatewayProtocol|TestAnthropicFailoverExhaustedWithoutUpstreamErrorWritesFallback' -count=1
+cd backend && go test ./internal/service -run 'TestClientErrorMessageForAcceptLanguage|TestUpstreamFailureClientMessageClassifiesWithoutLeakingReason|TestOpenAIGatewayService_Forward_StripsReasoningContextForSparkAPIKey|TestOpenAIGatewayService_Forward_StripsReasoningSummaryForSparkAPIKey|TestOpenAIGatewayService_Forward_PreservesReasoningSummaryForNonSparkAPIKey' -count=1
+git diff --check
+```
+
+**同步官方后的复查：**
+
+- 复查 `GetUsageSummary` 的 `timezone` 查询参数、`UsageViewModeForRole`、`GetGroupUsageSummaryForView` 和 `yesterday_cost` 回填；只有上游同时提供用户时区和角色视图语义时，才可删除本地兼容逻辑。
+
+### 2026-08-15: 保留无 Accept-Language 时的无效 Key 中文诊断
+
+**问题：**
+
+- 统一错误本地化字典会先处理 `Invalid API key`，导致无 `Accept-Language` 的 Google 兼容响应丢失“上游 API Key 无效或已失效”的诊断提示。
+
+**处理：**
+
+- `backend/internal/service/client_error_localization.go` 仅对 `Invalid API key` 在未声明语言时保留稳定的中文诊断提示；显式中文仍走纯中文字典，显式英文仍返回英文文案，额度限制等其他已知错误不受影响。
+
+**验证：**
+
+```bash
+cd backend && go test ./internal/server/middleware -run 'TestApiKeyAuthWithSubscriptionGoogle_(InvalidKey|SubscriptionLimitExceededReturns429|SubscriptionTotalLimitExactlyExhaustedReturns429)$' -count=1
+git diff --check
+```
+
+**同步官方后的复查：**
+
+- 搜索 `Invalid API key`、`commonUpstreamErrorChineseHint` 和 `ClientErrorMessageForAcceptLanguage`；若官方重排本地化优先级，必须继续保持无语言请求的 Key 失效诊断，同时不能把套餐额度错误误判为上游额度提示。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：

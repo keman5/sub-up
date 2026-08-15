@@ -108,6 +108,11 @@ func ClientErrorMessageForAcceptLanguage(acceptLanguage string, message string) 
 		if locale == clientErrorLocaleEnglish {
 			return english
 		}
+		if locale == "" && message == "Invalid API key" {
+			if chineseHint := commonUpstreamErrorChineseHint(message); chineseHint != "" {
+				return message + " (中文：" + chineseHint + ")"
+			}
+		}
 		if locale == "" && strings.TrimSpace(translated) != "" && english != translated {
 			return english + " (" + translated + ")"
 		}
@@ -214,49 +219,76 @@ func commonUpstreamErrorChineseHint(message string) string {
 }
 
 // UpstreamFailureClientMessage converts an exhausted failover's final upstream
-// response into a stable, actionable message. The original upstream reason is
-// retained only after the existing sensitive-query-parameter redaction, so
-// clients can distinguish quota exhaustion from transient provider failures.
+// response into a stable, actionable message. The response body is used only
+// for classification; the raw provider message remains in ops diagnostics and
+// is never returned to the client from this path.
 func UpstreamFailureClientMessage(statusCode int, body []byte, fallback string) string {
 	upstreamReason := strings.TrimSpace(extractUpstreamErrorMessage(body))
-	upstreamReason = sanitizeUpstreamErrorMessage(upstreamReason)
-	if len(upstreamReason) > 1024 {
-		upstreamReason = truncateString(upstreamReason, 1024)
-	}
+	classification := strings.ToLower(strings.TrimSpace(upstreamReason + " " + extractUpstreamErrorCode(body)))
 
 	message := strings.TrimSpace(fallback)
-	if isUpstreamQuotaExhausted(upstreamReason, body) {
+	switch {
+	case isUpstreamQuotaExhausted(upstreamReason, body):
 		message = "The upstream subscription quota has been exhausted. Please renew or wait for the quota to reset."
-	} else {
+	case strings.Contains(classification, "does not support image input"),
+		strings.Contains(classification, "image input is not supported"),
+		(strings.Contains(classification, "image") && strings.Contains(classification, "input") && strings.Contains(classification, "not supported")):
+		message = "The current model does not support image input. Remove image resources from the context, start a new conversation, or switch to a model that supports images."
+	case strings.Contains(classification, "context_length_exceeded"),
+		strings.Contains(classification, "context_too_large"),
+		(strings.Contains(classification, "maximum context length") && strings.Contains(classification, "exceed")),
+		(strings.Contains(classification, "context window") && strings.Contains(classification, "exceed")):
+		message = "The input exceeds the model context limit. Shorten the context or start a new conversation, then retry."
+	case strings.Contains(classification, "model_not_found"),
+		strings.Contains(classification, "model does not exist"),
+		strings.Contains(classification, "model not found"):
+		message = "The requested model is unavailable for this upstream account. Choose another model or contact the administrator."
+	case strings.Contains(classification, "not enabled for this plan"),
+		strings.Contains(classification, "not implemented"),
+		strings.Contains(classification, "unsupported"):
+		message = "The requested model or capability is not supported by this upstream account. Choose another model or contact the administrator."
+	case strings.Contains(classification, "invalid_api_key"),
+		strings.Contains(classification, "invalid api key"),
+		strings.Contains(classification, "incorrect api key"),
+		strings.Contains(classification, "authentication failed"),
+		strings.Contains(classification, "revoked"):
+		message = "The upstream account authentication failed. Contact the administrator to refresh or replace the account."
+	case strings.Contains(classification, "rate_limit_exceeded"),
+		strings.Contains(classification, "rate limit exceeded"),
+		strings.Contains(classification, "too many requests"),
+		strings.Contains(classification, "concurrency limit exceeded"):
+		message = "Upstream rate limit exceeded, please retry later"
+	case strings.Contains(classification, "request timed out"),
+		strings.Contains(classification, "request timeout"),
+		strings.Contains(classification, "upstream timeout"):
+		message = "Upstream response timed out. Please retry later."
+	default:
 		switch statusCode {
 		case http.StatusBadRequest:
-			message = "The upstream service rejected the request. Check the request parameters and model."
+			message = "The upstream service rejected the request. Check the model and request parameters, then retry."
 		case http.StatusUnauthorized:
-			message = "The upstream account authentication failed. Please contact the administrator."
+			message = "The upstream account authentication failed. Contact the administrator to refresh or replace the account."
 		case http.StatusForbidden:
-			message = "The upstream account is not authorized for this request. Please contact the administrator."
+			message = "The upstream account is not permitted to use this model or capability. Choose another model or contact the administrator."
 		case http.StatusNotFound:
-			message = "The requested upstream model or resource was not found. Check the model and account permissions."
+			message = "The requested model or resource is unavailable upstream. Check the model or choose another one."
 		case http.StatusRequestTimeout, http.StatusGatewayTimeout:
-			message = "The upstream request timed out. Please retry later."
+			message = "Upstream response timed out. Please retry later."
 		case http.StatusConflict:
-			message = "The upstream request conflicts with its current state. Please retry later."
+			message = "The upstream request conflicts with its current state. Retry later."
 		case http.StatusRequestEntityTooLarge:
 			message = "The request is too large for the upstream service. Reduce the input or attachments and retry."
 		case http.StatusUnprocessableEntity:
 			message = "The upstream service rejected the request parameters. Check the request and retry."
 		case http.StatusTooManyRequests:
-			message = "The upstream rate limit has been reached. Please retry later."
+			message = "Upstream rate limit exceeded, please retry later"
 		case http.StatusNotImplemented:
-			message = "The requested capability is not supported by the upstream service. Use a supported model or feature."
+			message = "The requested model or capability is not supported upstream. Choose another model or contact the administrator."
 		case 529, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable:
-			message = "The upstream service is temporarily unavailable. Please retry later."
+			message = "Upstream service temporarily unavailable"
 		}
 	}
-	if upstreamReason == "" {
-		return message
-	}
-	return message + " Upstream reason: " + upstreamReason
+	return message
 }
 
 func isUpstreamQuotaExhausted(message string, body []byte) bool {

@@ -1421,6 +1421,7 @@ func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, 
 		h.anthropicStreamingAwareError(c, status, "api_error", message, streamStarted)
 		return
 	}
+	service.SetOpsUpstreamError(c, failoverErr.StatusCode, service.ExtractUpstreamErrorMessage(failoverErr.ResponseBody), "")
 	status, errType, errMsg := h.mapUpstreamError(failoverErr.StatusCode)
 	errMsg = service.UpstreamFailureClientMessage(failoverErr.StatusCode, failoverErr.ResponseBody, errMsg)
 	h.anthropicStreamingAwareError(c, status, errType, errMsg, streamStarted)

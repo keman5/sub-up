@@ -110,7 +110,7 @@ func TestClientErrorMessageForAcceptLanguageAppendsChineseHintForKnownUpstreamEr
 	}
 }
 
-func TestUpstreamFailureClientMessageKeepsActionableReason(t *testing.T) {
+func TestUpstreamFailureClientMessageClassifiesWithoutLeakingReason(t *testing.T) {
 	tests := []struct {
 		name     string
 		status   int
@@ -123,118 +123,129 @@ func TestUpstreamFailureClientMessageKeepsActionableReason(t *testing.T) {
 			status:   429,
 			body:     `{"error":{"code":"insufficient_quota","message":"You exceeded your current quota."}}`,
 			fallback: "Upstream rate limit exceeded, please retry later",
-			want:     "The upstream subscription quota has been exhausted. Please renew or wait for the quota to reset. Upstream reason: You exceeded your current quota.",
+			want:     "The upstream subscription quota has been exhausted. Please renew or wait for the quota to reset.",
 		},
 		{
 			name:     "unsupported capability",
 			status:   501,
 			body:     `{"error":{"message":"Realtime is not enabled for this plan."}}`,
 			fallback: "Upstream request failed",
-			want:     "The requested capability is not supported by the upstream service. Use a supported model or feature. Upstream reason: Realtime is not enabled for this plan.",
+			want:     "The requested model or capability is not supported by this upstream account. Choose another model or contact the administrator.",
 		},
 		{
 			name:     "internal error",
 			status:   500,
 			body:     `{"error":{"message":"provider shard unavailable"}}`,
 			fallback: "Upstream request failed",
-			want:     "The upstream service is temporarily unavailable. Please retry later. Upstream reason: provider shard unavailable",
+			want:     "Upstream service temporarily unavailable",
 		},
 		{
 			name:     "invalid request",
 			status:   400,
 			body:     `{"detail":"The reasoning effort is not supported by this model."}`,
 			fallback: "Upstream request failed",
-			want:     "The upstream service rejected the request. Check the request parameters and model. Upstream reason: The reasoning effort is not supported by this model.",
+			want:     "The upstream service rejected the request. Check the model and request parameters, then retry.",
 		},
 		{
 			name:     "authentication failure",
 			status:   401,
 			body:     `{"error":{"message":"API key has been revoked."}}`,
 			fallback: "Upstream request failed",
-			want:     "The upstream account authentication failed. Please contact the administrator. Upstream reason: API key has been revoked.",
+			want:     "The upstream account authentication failed. Contact the administrator to refresh or replace the account.",
 		},
 		{
 			name:     "authorization failure",
 			status:   403,
 			body:     `{"error":{"message":"This account cannot use batch processing."}}`,
 			fallback: "Upstream request failed",
-			want:     "The upstream account is not authorized for this request. Please contact the administrator. Upstream reason: This account cannot use batch processing.",
+			want:     "The upstream account is not permitted to use this model or capability. Choose another model or contact the administrator.",
 		},
 		{
 			name:     "missing model",
 			status:   404,
 			body:     `{"error":{"message":"The model gpt-example does not exist."}}`,
 			fallback: "Upstream request failed",
-			want:     "The requested upstream model or resource was not found. Check the model and account permissions. Upstream reason: The model gpt-example does not exist.",
+			want:     "The requested model or resource is unavailable upstream. Check the model or choose another one.",
 		},
 		{
 			name:     "request timeout",
 			status:   408,
 			body:     `{"error":{"message":"The provider did not receive the request in time."}}`,
 			fallback: "Upstream request failed",
-			want:     "The upstream request timed out. Please retry later. Upstream reason: The provider did not receive the request in time.",
+			want:     "Upstream response timed out. Please retry later.",
 		},
 		{
 			name:     "request conflict",
 			status:   409,
 			body:     `{"error":{"message":"A batch with this idempotency key is already processing."}}`,
 			fallback: "Upstream request failed",
-			want:     "The upstream request conflicts with its current state. Please retry later. Upstream reason: A batch with this idempotency key is already processing.",
+			want:     "The upstream request conflicts with its current state. Retry later.",
 		},
 		{
 			name:     "request too large",
 			status:   413,
 			body:     `{"error":{"message":"The input exceeds the provider size limit."}}`,
 			fallback: "Upstream request failed",
-			want:     "The request is too large for the upstream service. Reduce the input or attachments and retry. Upstream reason: The input exceeds the provider size limit.",
+			want:     "The request is too large for the upstream service. Reduce the input or attachments and retry.",
 		},
 		{
 			name:     "invalid parameters",
 			status:   422,
 			body:     `{"error":{"message":"response_format is incompatible with this model."}}`,
 			fallback: "Upstream request failed",
-			want:     "The upstream service rejected the request parameters. Check the request and retry. Upstream reason: response_format is incompatible with this model.",
+			want:     "The upstream service rejected the request parameters. Check the request and retry.",
 		},
 		{
 			name:     "timeout",
 			status:   504,
 			body:     `{"message":"The provider timed out after 60 seconds."}`,
 			fallback: "Upstream request failed",
-			want:     "The upstream request timed out. Please retry later. Upstream reason: The provider timed out after 60 seconds.",
+			want:     "Upstream response timed out. Please retry later.",
 		},
 		{
 			name:     "bad gateway",
 			status:   502,
 			body:     `{"error":{"message":"The provider proxy is unavailable."}}`,
 			fallback: "Upstream request failed",
-			want:     "The upstream service is temporarily unavailable. Please retry later. Upstream reason: The provider proxy is unavailable.",
+			want:     "Upstream service temporarily unavailable",
 		},
 		{
 			name:     "service unavailable",
 			status:   503,
 			body:     `{"error":{"message":"The provider is in maintenance."}}`,
 			fallback: "Upstream request failed",
-			want:     "The upstream service is temporarily unavailable. Please retry later. Upstream reason: The provider is in maintenance.",
+			want:     "Upstream service temporarily unavailable",
 		},
 		{
 			name:     "provider overload",
 			status:   529,
 			body:     `{"error":{"message":"The provider is overloaded."}}`,
 			fallback: "Upstream request failed",
-			want:     "The upstream service is temporarily unavailable. Please retry later. Upstream reason: The provider is overloaded.",
+			want:     "Upstream service temporarily unavailable",
 		},
 		{
-			name:     "unknown status still keeps reason and redacts credentials",
+			name:     "unknown status hides reason",
 			status:   418,
 			body:     `{"error":{"message":"See https://provider.example/error?access_token=secret-value&reason=blocked"}}`,
 			fallback: "Upstream request failed",
-			want:     "Upstream request failed Upstream reason: See https://provider.example/error?access_token=***&reason=blocked",
+			want:     "Upstream request failed",
+		},
+		{
+			name:     "spark image input",
+			status:   400,
+			body:     `{"error":{"message":"model gpt-5.3-codex-spark does not support image input"}}`,
+			fallback: "Upstream request failed",
+			want:     "The current model does not support image input. Remove image resources from the context, start a new conversation, or switch to a model that supports images.",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, UpstreamFailureClientMessage(tt.status, []byte(tt.body), tt.fallback))
+			got := UpstreamFailureClientMessage(tt.status, []byte(tt.body), tt.fallback)
+			require.Equal(t, tt.want, got)
+			require.NotContains(t, got, "Upstream reason:")
+			require.NotContains(t, got, "provider proxy is unavailable")
+			require.NotContains(t, got, "You exceeded your current quota")
 		})
 	}
 }
