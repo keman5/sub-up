@@ -795,6 +795,7 @@ func (s usageLogScannerStub) Scan(dest ...any) error {
 	}
 	for i := range dest {
 		dv := reflect.ValueOf(dest[i])
+		//nolint:govet // reflect.Ptr is the documented Kind value; Go 1.26's inline hint has no semantic alternative.
 		if dv.Kind() != reflect.Ptr {
 			return fmt.Errorf("dest[%d] is not pointer", i)
 		}

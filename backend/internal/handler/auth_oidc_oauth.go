@@ -1144,6 +1144,7 @@ func (k oidcJWK) publicKey() (any, error) {
 		if err != nil {
 			return nil, fmt.Errorf("decode ec y: %w", err)
 		}
+		//nolint:staticcheck // crypto/ecdh has no equivalent public-key constructor for ecdsa.PublicKey.
 		if !curve.IsOnCurve(x, y) {
 			return nil, errors.New("ec point is not on curve")
 		}

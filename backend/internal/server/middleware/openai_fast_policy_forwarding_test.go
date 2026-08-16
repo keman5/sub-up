@@ -181,6 +181,7 @@ type openAIFastPolicyForwardingHTTPUpstream struct {
 }
 
 func (u *openAIFastPolicyForwardingHTTPUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	// #nosec G704 -- tests provide the request and use an httptest client.
 	return u.client.Do(req)
 }
 

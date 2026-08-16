@@ -53,9 +53,11 @@ func Do(client *http.Client, req *http.Request) (*http.Response, error) {
 		client = http.DefaultClient
 	}
 	if req == nil || !Active(req.Context()) {
+		// #nosec G704 -- this wrapper only delegates to the caller-owned client and request.
 		return client.Do(req)
 	}
 	startedAt := time.Now()
+	// #nosec G704 -- request destination validation belongs to the concrete upstream client.
 	response, err := client.Do(req)
 	RecordDependency(req.Context(), dependencyModule(req), startedAt, time.Now())
 	return response, err

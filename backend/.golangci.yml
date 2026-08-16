@@ -121,6 +121,15 @@ linters:
       # Default: true — must be true, ent generates 130K+ lines of code
       generated-is-used: true
 
+  # testing.T.Fatal terminates the test goroutine, but SA5011 does not model
+  # that control flow. Keep the check enabled for production code.
+  exclusions:
+    rules:
+      - path: '.*_test\.go'
+        linters:
+          - staticcheck
+        text: 'SA5011'
+
 formatters:
   enable:
     - gofmt
