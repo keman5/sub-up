@@ -151,7 +151,12 @@
               </div>
               <span class="min-w-0">
                 <span class="block truncate font-medium text-gray-900 dark:text-white">
-                  {{ getSubscriptionUserLabel(row, userColumnMode, t('admin.redeem.userPrefix', { id: row.user_id })) }}
+                  <RouterLink
+                    :to="{ path: '/admin/usage', query: { user_id: row.user_id } }"
+                    class="rounded hover:text-primary-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:hover:text-primary-400 dark:focus-visible:ring-offset-dark-800"
+                  >
+                    {{ getSubscriptionUserLabel(row, userColumnMode, t('admin.redeem.userPrefix', { id: row.user_id })) }}
+                  </RouterLink>
                 </span>
                 <span
                   v-if="getSubscriptionUserNotes(row)"

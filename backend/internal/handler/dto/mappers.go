@@ -163,7 +163,7 @@ func GroupFromServiceAdminWithViewer(g *service.Group, mode service.UsageViewMod
 		MCPXMLInject:                g.MCPXMLInject,
 		DefaultMappedModel:          g.DefaultMappedModel,
 		MessagesDispatchModelConfig: g.MessagesDispatchModelConfig,
-		ModelsListConfig:            g.ModelsListConfig,
+		ModelAllowlist:              g.ModelAllowlist,
 		CodexModelsManifestConfig:   g.CodexModelsManifestConfig,
 		ModelPolicyMode:             g.ModelPolicyMode,
 		ModelPolicyModel:            g.ModelPolicyModel,

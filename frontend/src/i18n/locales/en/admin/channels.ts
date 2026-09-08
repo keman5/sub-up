@@ -64,6 +64,8 @@ export default {
       updateError: 'Failed to update channel',
       deleteError: 'Failed to delete channel',
       nameRequired: 'Please enter a channel name',
+      noGroupsSelected: 'Select at least one group for {platform}',
+      emptyModelsInPricing: 'Add at least one model to the {platform} pricing rule',
       duplicateModels: 'Model "{0}" appears in multiple pricing entries',
       noGroupsSelected: 'Please select at least one group for {platform}',
       emptyModelsInPricing: 'Please configure at least one model for {platform} pricing',
