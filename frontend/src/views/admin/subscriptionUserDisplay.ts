@@ -13,7 +13,7 @@ export const getSubscriptionUserLabel = (
   const user = subscription.user
   return mode === 'email'
     ? (user?.email || fallback)
-    : (user?.username || '-')
+    : (user?.username || fallback)
 }
 
 export const getSubscriptionUserNotes = (

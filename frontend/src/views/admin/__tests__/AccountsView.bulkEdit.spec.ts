@@ -302,7 +302,6 @@ describe('admin AccountsView bulk edit scope', () => {
     expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).toEqual([
       'proxy',
       'notes',
-      'priority',
       'scheduler_score',
       'rate_multiplier',
       'last_used_at',

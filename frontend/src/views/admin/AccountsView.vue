@@ -644,7 +644,6 @@ const hiddenColumns = reactive<Set<string>>(new Set())
 const DEFAULT_HIDDEN_COLUMNS = [
   'proxy',
   'notes',
-  'priority',
   'scheduler_score',
   'rate_multiplier',
   'last_used_at',

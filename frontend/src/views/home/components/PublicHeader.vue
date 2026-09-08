@@ -12,6 +12,10 @@
         <div class="hidden items-center gap-0.5 sm:flex">
           <router-link to="/" class="home-nav-link home-nav-link-active">主页</router-link>
           <a :href="externalAppUrls.console" class="home-nav-link">控制台</a>
+          <router-link v-if="showModelPlazaEntry" to="/model-plaza" class="home-nav-link inline-flex items-center gap-1.5">
+            <Icon name="grid" size="sm" />
+            <span>{{ t('nav.modelPlaza') }}</span>
+          </router-link>
           <div class="mx-2 h-4 w-px bg-[var(--border)]"></div>
           <ThemeSwitcher icon-only />
         </div>
@@ -38,6 +42,14 @@
       <div class="container-main flex flex-col gap-2 py-8">
         <router-link to="/" class="home-mobile-link" @click="mobileOpen = false">主页</router-link>
         <a :href="externalAppUrls.console" class="home-mobile-link" @click="mobileOpen = false">控制台</a>
+        <router-link
+          v-if="showModelPlazaEntry"
+          to="/model-plaza"
+          class="home-mobile-link"
+          @click="mobileOpen = false"
+        >
+          {{ t('nav.modelPlaza') }}
+        </router-link>
       </div>
     </div>
   </header>
@@ -45,11 +57,17 @@
 
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import ThemeSwitcher from '@/components/common/ThemeSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
 import SiteLogo from './SiteLogo.vue'
 import { externalAppUrls } from './homeData'
 
+defineProps<{
+  showModelPlazaEntry?: boolean
+}>()
+
+const { t } = useI18n()
 const mobileOpen = ref(false)
 
 watch(mobileOpen, (open) => {
