@@ -7,6 +7,7 @@ const {
   listAccounts,
   listWithEtag,
   batchRefresh,
+  getUsage,
   getBatchTodayStats,
   getUpstreamBillingProbeSettings,
   getAllProxies,
@@ -16,11 +17,16 @@ const {
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   batchRefresh: vi.fn(),
+  getUsage: vi.fn(),
   getBatchTodayStats: vi.fn(),
   getUpstreamBillingProbeSettings: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
   showError: vi.fn()
+}))
+
+const { confirmDialog } = vi.hoisted(() => ({
+  confirmDialog: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -29,6 +35,7 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      getUsage,
       getUpstreamBillingProbeSettings,
       batchDelete: vi.fn(),
       batchClearError: vi.fn(),
@@ -56,6 +63,10 @@ vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({
     token: 'test-token'
   })
+}))
+
+vi.mock('@/composables/useAppDialog', () => ({
+  useAppDialog: () => ({ confirm: confirmDialog })
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -146,11 +157,13 @@ describe('admin AccountsView select all filtered results', () => {
     listAccounts.mockReset()
     listWithEtag.mockReset()
     batchRefresh.mockReset()
+    getUsage.mockReset().mockResolvedValue({})
     getBatchTodayStats.mockReset()
     getUpstreamBillingProbeSettings.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
     showError.mockReset()
+    confirmDialog.mockReset().mockResolvedValue(true)
 
     listWithEtag.mockResolvedValue({
       notModified: true,
@@ -174,7 +187,6 @@ describe('admin AccountsView select all filtered results', () => {
   ])('$name after a batch token refresh and table reload', async ({ result, expectedIds }) => {
     listAccounts.mockResolvedValue({ items: makeAccounts(3), total: 3, page: 1, page_size: 20, pages: 1 })
     batchRefresh.mockResolvedValue(result)
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     const wrapper = mountView()
     await flushPromises()
     await wrapper.get('[data-test="select-page"]').trigger('click')

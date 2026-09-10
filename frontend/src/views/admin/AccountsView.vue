@@ -2679,11 +2679,11 @@ const proxyExpiryText = (p: AccountProxy): string => {
 const handleScroll = (event: Event) => {
   if (event.target instanceof Element && event.target.closest('.action-menu-content')) return
   menu.show = false
-  if (showAccountToolsDropdown.value) updateAccountToolsDropdownPosition()
+  if (showAccountToolsDropdown.value) adjustAccountToolsMenuPosition()
 }
 
 const handleViewportResize = () => {
-  if (showAccountToolsDropdown.value) updateAccountToolsDropdownPosition()
+  if (showAccountToolsDropdown.value) adjustAccountToolsMenuPosition()
 }
 
 // 点击外部关闭顶部下拉菜单

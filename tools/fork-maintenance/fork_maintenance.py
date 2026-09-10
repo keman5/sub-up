@@ -74,7 +74,7 @@ VERIFY_SEARCHES = (
     ),
     (
         "account action menu measured positioning",
-        'ref="menuContentRef"',
+        'ref="menuRef".*useResizeObserver|useResizeObserver\(menuRef',
         "frontend/src/components/admin/account/AccountActionMenu.vue",
     ),
     (

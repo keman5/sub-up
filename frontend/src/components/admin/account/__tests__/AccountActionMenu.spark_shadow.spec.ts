@@ -90,7 +90,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
       props: {
         show: true,
         account: makeAccount({ platform: 'openai', type: 'oauth' }),
-        position: { top: 300, left: 100 }
+        anchorRect: new DOMRect(100, 300, 24, 24)
       },
       attachTo: document.body
     })
@@ -99,7 +99,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     const menu = document.body.querySelector<HTMLElement>('.action-menu-content')
     expect(menu?.style.top).toBe('8px')
     expect(menu?.style.maxHeight).toBe('344px')
-    expect(menu?.style.overflowY).toBe('auto')
+    expect(menu?.classList.contains('overflow-y-auto')).toBe(true)
     wrapper.unmount()
   })
 
