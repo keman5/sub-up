@@ -29,7 +29,7 @@
               class="tab flex-1 sm:flex-none"
               :class="adminMonitorTab === 'v2' ? 'tab-active' : ''"
               :aria-selected="adminMonitorTab === 'v2'"
-              @click="adminMonitorTab = 'v2'"
+              @click="adminMonitorTabTouched = true; adminMonitorTab = 'v2'"
             >
               {{ t('channelMonitorV2.admin.tabV2') }}
             </button>
@@ -39,7 +39,7 @@
               class="tab flex-1 sm:flex-none"
               :class="adminMonitorTab === 'legacy' ? 'tab-active' : ''"
               :aria-selected="adminMonitorTab === 'legacy'"
-              @click="adminMonitorTab = 'legacy'"
+              @click="adminMonitorTabTouched = true; adminMonitorTab = 'legacy'"
             >
               {{ isV1Mode ? t('channelMonitorV2.admin.tabV1Active') : t('channelMonitorV2.admin.tabV1History') }}
             </button>
@@ -206,6 +206,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const isV1Mode = computed(() => isChannelMonitorV1Mode())
 const adminMonitorTab = ref<'v2' | 'legacy'>(isChannelMonitorV1Mode() ? 'legacy' : 'v2')
+const adminMonitorTabTouched = ref(false)
 const {
   providerLabel,
   providerBadgeClass,
@@ -394,8 +395,16 @@ async function confirmDelete() {
 watch(adminMonitorTab, (tab) => {
   if (tab === 'legacy' && monitors.value.length === 0) void reload()
 })
-onMounted(() => {
+onMounted(async () => {
   monitorRouteQuerySync.restoreFromRoute()
+
+  // SSR-injected settings can be stale after an administrator changes the
+  // mode in another tab or before the current HTML was regenerated.
+  const refreshedSettings = await appStore.fetchPublicSettings?.(true)
+  if (refreshedSettings && !adminMonitorTabTouched.value) {
+    adminMonitorTab.value = refreshedSettings.channel_monitor_mode === 'v2' ? 'v2' : 'legacy'
+  }
+
   if (adminMonitorTab.value === 'legacy') void reload()
 })
 onUnmounted(() => {
