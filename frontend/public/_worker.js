@@ -1,11 +1,13 @@
 const PRIMARY_API_ORIGIN = 'https://api.upit.top'
 const A1_API_ORIGIN = 'https://ap1.upit.top'
 const TEST_API_ORIGIN = 'https://a2t.upit.top'
+const BOOKS_API_ORIGIN = 'https://api.3dbooks.top'
 
 const PRODUCTION_API_ORIGINS_BY_HOST = new Map([
   ['ai.upit.top', PRIMARY_API_ORIGIN],
   ['a1.upit.top', A1_API_ORIGIN],
   ['test.upit.top', TEST_API_ORIGIN],
+  ['ai.3dbooks.top', BOOKS_API_ORIGIN],
 ])
 
 const API_PATH_PREFIXES = [

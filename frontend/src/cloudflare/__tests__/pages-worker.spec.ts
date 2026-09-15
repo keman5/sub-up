@@ -94,6 +94,22 @@ describe('Cloudflare Pages worker', () => {
     fetchMock.mockRestore()
   })
 
+  it('proxies the 3dbooks frontend to its isolated API origin', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'))
+
+    await worker.fetch(new Request('https://ai.3dbooks.top/api/v1/settings/public'), createEnv())
+    await worker.fetch(new Request('https://ai.3dbooks.top/51Token/v1/chat/completions'), createEnv())
+
+    expect((fetchMock.mock.calls[0][0] as Request).url).toBe(
+      'https://api.3dbooks.top/api/v1/settings/public'
+    )
+    expect((fetchMock.mock.calls[1][0] as Request).url).toBe(
+      'https://api.3dbooks.top/51Token/v1/chat/completions'
+    )
+
+    fetchMock.mockRestore()
+  })
+
   it('keeps the a1 custom domain on ap1 even when SUB2API_ORIGIN is set globally', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('ok'))
     const env = {

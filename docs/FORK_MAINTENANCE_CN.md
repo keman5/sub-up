@@ -1566,6 +1566,61 @@ git diff --check
 
 - 搜索 `Invalid API key`、`commonUpstreamErrorChineseHint` 和 `ClientErrorMessageForAcceptLanguage`；若官方重排本地化优先级，必须继续保持无语言请求的 Key 失效诊断，同时不能把套餐额度错误误判为上游额度提示。
 
+### 2026-09-15: 修复上游合并后的账号响应与断言不一致
+
+**问题：**
+
+- 上游为账号运行时响应新增 `UsageViewMode` 参数后，刷新凭据的临时 warning 分支仍调用旧签名，导致后端无法编译。
+- 本 fork 明确保留 `gpt-5.4` 作为 compact 默认模型，但同步后的测试仍断言上游 `gpt-5.5`。
+- 运维请求详情查询新增订阅 ID 与订阅组名列后，延迟排序测试的结果列和 SQL 正则仍按旧列顺序断言。
+
+**处理：**
+
+- warning 分支与同接口正常分支统一传入 `usageViewModeFromContext(c)`，保持管理员和超级管理员的用量展示边界一致。
+- compact 默认模型测试继续断言本 fork 的 `gpt-5.4` 决策。
+- 运维请求详情测试补齐 `subscription_id`、`subscription_group_name` 列和对应 SQL 顺序。
+
+**涉及文件：**
+
+- `backend/internal/config/config_test.go`
+- `backend/internal/handler/admin/account_handler.go`
+- `backend/internal/repository/ops_repo_request_details_test.go`
+
+**验证：**
+
+```bash
+cd backend && go test ./internal/config ./internal/repository ./internal/handler/admin ./cmd/server
+make test
+tools/fork-maintenance/fork-maintenance.sh verify-after-upstream --skip-build
+git diff --check
+```
+
+**同步官方后的复查：**
+
+- 搜索 `buildAccountResponseWithRuntime`、`OpenAICompactModel`、`subscription_group_name` 和 `TestOpsRepositoryListRequestDetails_LatencySort`。若上游再次调整账号响应签名、compact 默认模型或请求详情列顺序，继续保持所有刷新分支可编译、`gpt-5.4` 本地默认值和订阅字段可扫描；只有本地 compact 决策正式变更后才同步修改默认值断言。
+
+### 2026-09-16: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `frontend/public/_worker.js`
+- `frontend/src/cloudflare/__tests__/pages-worker.spec.ts`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：
