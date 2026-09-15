@@ -95,6 +95,7 @@ WITH combined AS (
     ul.duration_ms AS duration_ms,
     ul.subscription_id AS subscription_id,
     COALESCE(gs.name, '') AS subscription_group_name,
+    ul.first_token_ms AS first_token_ms,
     NULL::INT AS status_code,
     NULL::BIGINT AS error_id,
     NULL::TEXT AS phase,
@@ -123,6 +124,7 @@ WITH combined AS (
     o.duration_ms AS duration_ms,
     NULL::BIGINT AS subscription_id,
     ''::TEXT AS subscription_group_name,
+    o.time_to_first_token_ms AS first_token_ms,
     o.status_code AS status_code,
     o.id AS error_id,
     o.error_phase AS phase,
@@ -158,6 +160,8 @@ WITH combined AS (
 			// default
 		case "duration_desc":
 			sort = "ORDER BY duration_ms DESC NULLS LAST, created_at DESC"
+		case "ttft_desc":
+			sort = "ORDER BY first_token_ms DESC NULLS LAST, created_at DESC"
 		default:
 			return nil, 0, fmt.Errorf("invalid sort")
 		}
@@ -174,6 +178,7 @@ SELECT
   duration_ms,
   subscription_id,
   subscription_group_name,
+  first_token_ms,
   status_code,
   error_id,
   phase,
@@ -223,9 +228,10 @@ LIMIT $%d OFFSET $%d
 			subscriptionID        sql.NullInt64
 			subscriptionGroupName sql.NullString
 
-			durationMs sql.NullInt64
-			statusCode sql.NullInt64
-			errorID    sql.NullInt64
+			durationMs   sql.NullInt64
+			firstTokenMs sql.NullInt64
+			statusCode   sql.NullInt64
+			errorID      sql.NullInt64
 
 			phase    sql.NullString
 			severity sql.NullString
@@ -248,6 +254,7 @@ LIMIT $%d OFFSET $%d
 			&durationMs,
 			&subscriptionID,
 			&subscriptionGroupName,
+			&firstTokenMs,
 			&statusCode,
 			&errorID,
 			&phase,
@@ -271,12 +278,13 @@ LIMIT $%d OFFSET $%d
 			SubscriptionID:        toInt64Ptr(subscriptionID),
 			SubscriptionGroupName: strings.TrimSpace(subscriptionGroupName.String),
 
-			DurationMs: toIntPtr(durationMs),
-			StatusCode: toIntPtr(statusCode),
-			ErrorID:    toInt64Ptr(errorID),
-			Phase:      phase.String,
-			Severity:   severity.String,
-			Message:    message.String,
+			DurationMs:   toIntPtr(durationMs),
+			FirstTokenMs: toIntPtr(firstTokenMs),
+			StatusCode:   toIntPtr(statusCode),
+			ErrorID:      toInt64Ptr(errorID),
+			Phase:        phase.String,
+			Severity:     severity.String,
+			Message:      message.String,
 
 			UserID:    toInt64Ptr(userID),
 			APIKeyID:  toInt64Ptr(apiKeyID),
