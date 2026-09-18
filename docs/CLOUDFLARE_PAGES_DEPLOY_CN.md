@@ -105,7 +105,7 @@ rg -n "window\\.__APP_CONFIG__|api_base_url|<title>" /tmp/sub2api-pages-test/ind
 - VPS 内嵌前台由 Go 在返回 `index.html` 前注入 `window.__APP_CONFIG__` 和站点标题；Cloudflare Pages 只托管静态 HTML，不会自动执行这段后端注入。
 - Pages 发布前必须从对应环境的公开设置接口拉取配置，并写入本环境产物的 `index.html`。主环境使用 `https://api.upit.top/api/v1/settings/public`，a1 使用 `https://ap1.upit.top/api/v1/settings/public`，test 使用 `https://a2t.upit.top/api/v1/settings/public`。
 - 只能注入 `/api/v1/settings/public` 返回的公开 `data` 字段，不要把后台 admin 配置、`.env`、数据库连接、密钥或其它私有配置写入静态文件。
-- 如果线上 public settings 改了，需要重新执行 build、inject、Pages deploy；否则首屏会继续使用上一次写入的静态配置。
+- 注入配置只用于首屏/离线兜底；应用首次加载会绕过 Worker 公共设置缓存并以对应后端的实时配置校准。因此仅修改 public settings 无需重新构建或发布 Pages；只有前端代码、Worker 或构建期配置变更时才需要发布。
 - 对依赖 public settings 的后台功能入口（例如 `risk_control_enabled` 控制的 `/admin/risk-control`），前端路由守卫必须在本地缓存为关闭时强制刷新一次 `/api/v1/settings/public` 后再判断。否则管理员刚保存开关后，当前 SPA 仍可能因为旧缓存把“前往配置”跳转拦回设置页。
 
 ### 多环境前台产物原则

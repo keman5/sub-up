@@ -351,7 +351,11 @@ export function isAuthenticated(): boolean {
  * @returns Public settings including registration and Turnstile config
  */
 export async function getPublicSettings(): Promise<PublicSettings> {
-  const { data } = await apiClient.get<PublicSettings>('/settings/public')
+  const { data } = await apiClient.get<PublicSettings>('/settings/public', {
+    // Public site settings are edited by administrators and must take effect on
+    // the next reload instead of waiting for the Pages Worker cache TTL.
+    headers: { 'Cache-Control': 'no-cache' }
+  })
   return data
 }
 

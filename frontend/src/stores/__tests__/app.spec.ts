@@ -414,7 +414,21 @@ describe('useAppStore', () => {
       expect(store.siteName).toBe('TestSite')
       expect(store.siteLogo).toBe('/logo.png')
       expect(store.siteVersion).toBe('1.0.0')
-      expect(store.publicSettingsLoaded).toBe(true)
+      expect(store.publicSettingsLoaded).toBe(false)
+    })
+
+    it('构建期注入配置不会阻止首次读取后端最新设置', async () => {
+      const injectedSettings = createPublicSettings({ site_name: 'Stale Pages Site' })
+      const liveSettings = createPublicSettings({ site_name: 'Live Backend Site' })
+      ;(window as any).__APP_CONFIG__ = injectedSettings
+      vi.mocked(getPublicSettings).mockResolvedValue(liveSettings)
+
+      const store = useAppStore()
+      store.initFromInjectedConfig()
+
+      await expect(store.fetchPublicSettings()).resolves.toEqual(liveSettings)
+      expect(getPublicSettings).toHaveBeenCalledTimes(1)
+      expect(store.siteName).toBe('Live Backend Site')
     })
 
     it('无注入配置时返回 false', () => {
@@ -431,7 +445,7 @@ describe('useAppStore', () => {
       const store = useAppStore()
       store.initFromInjectedConfig()
 
-      expect(store.publicSettingsLoaded).toBe(true)
+      expect(store.publicSettingsLoaded).toBe(false)
 
       store.clearPublicSettingsCache()
 

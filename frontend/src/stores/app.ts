@@ -289,7 +289,7 @@ export const useAppStore = defineStore('app', () => {
   /**
    * Apply settings to store state (internal helper to avoid code duplication)
    */
-  function applySettings(config: PublicSettings): void {
+  function applySettings(config: PublicSettings, markLoaded = true): void {
     if (typeof window !== 'undefined') {
       window.__APP_CONFIG__ = { ...config }
     }
@@ -300,7 +300,7 @@ export const useAppStore = defineStore('app', () => {
     contactInfo.value = config.contact_info || ''
     apiBaseUrl.value = config.api_base_url || ''
     docUrl.value = config.doc_url || ''
-    publicSettingsLoaded.value = true
+    publicSettingsLoaded.value = markLoaded
   }
 
   /**
@@ -312,12 +312,6 @@ export const useAppStore = defineStore('app', () => {
     // the same refresh result and no older request can overwrite a newer one.
     if (publicSettingsRequest) {
       return publicSettingsRequest
-    }
-
-    // Check for injected config from server (eliminates flash)
-    if (!publicSettingsLoaded.value && !force && window.__APP_CONFIG__) {
-      applySettings(window.__APP_CONFIG__)
-      return Promise.resolve(window.__APP_CONFIG__)
     }
 
     // Return cached data if available and not forcing refresh
@@ -429,7 +423,9 @@ export const useAppStore = defineStore('app', () => {
    */
   function initFromInjectedConfig(): boolean {
     if (window.__APP_CONFIG__) {
-      applySettings(window.__APP_CONFIG__)
+      // Pages injects this at build time. Show it synchronously, then let the
+      // first public-settings request reconcile it with the active backend.
+      applySettings(window.__APP_CONFIG__, false)
       return true
     }
     return false
