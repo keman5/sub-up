@@ -1646,10 +1646,9 @@ pnpm --dir frontend run build
 
 ### 2026-09-21: 自动记录本地改动
 
-**自动记录：**
+**业务目的与本地修复：**
 
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 保持 Cloudflare Pages 的公开配置注入、全局 API 错误处理和首页入口行为一致；前端构建时生成 `__APP_CONFIG__`，运行时按域名注入公开设置，错误响应统一交给应用弹窗处理。
 
 **涉及文件：**
 
@@ -1662,19 +1661,20 @@ pnpm --dir frontend run build
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+pnpm --dir frontend exec vitest run src/__tests__/App.globalApiError.spec.ts src/cloudflare/__tests__/pages-config-injection.spec.ts
+pnpm --dir frontend run typecheck
+pnpm --dir frontend run build
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 搜索 `__APP_CONFIG__`、`cloudflare-pages-config`、`HomeView.vue` 和 `App.globalApiError`，确认公开设置注入、全局 API 错误处理与首页入口仍保持当前部署行为；只有上游提供等价实现并通过上述回归测试后才可删除本地补丁。
 
 ### 2026-09-21: 自动记录本地改动
 
-**自动记录：**
+**业务目的与本地修复：**
 
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 保留紧凑首页模式的回归覆盖，确保紧凑入口可以独立渲染，并且不会意外覆盖自定义首页或默认首页选择逻辑。
 
 **涉及文件：**
 
@@ -1683,19 +1683,19 @@ TODO: 填写验证命令
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+pnpm --dir frontend exec vitest run src/views/__tests__/HomeView.compact.spec.ts
+pnpm --dir frontend run typecheck
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 搜索 `HomeView.compact`、`compact` 和首页模式选择逻辑，确认紧凑首页仍能独立渲染且不会覆盖自定义首页或 51token 默认首页；只有上游提供等价模式选择和回归测试后才可删除本地补丁。
 
 ### 2026-09-21: 自动记录本地改动
 
-**自动记录：**
+**业务目的与本地修复：**
 
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 保留首页模式优先级、滚动恢复、支持组件和部署域名配置，避免上游首页调整时覆盖当前 fork 的运行入口。
 
 **涉及文件：**
 
@@ -1704,12 +1704,14 @@ TODO: 填写验证命令
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+pnpm --dir frontend exec vitest run src/views/__tests__/HomeView.compact.spec.ts
+pnpm --dir frontend run typecheck
+pnpm --dir frontend run build
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 搜索 `HomeView.vue`、`homeData`、`HomeSupportWidget` 和首页模式优先级，确认当前首页入口、滚动恢复、支持组件与部署域名配置没有被覆盖；只有上游提供等价首页行为并通过回归测试后才可删除本地补丁。
 
 ## 同步官方版本后的复查流程
 
