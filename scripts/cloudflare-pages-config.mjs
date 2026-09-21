@@ -3,6 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 const INJECTION_START = '<!-- sub2api-pages-public-settings:start -->'
 const INJECTION_END = '<!-- sub2api-pages-public-settings:end -->'
 const DEFAULT_TITLE_SUFFIX = ' - AI API Gateway'
+const DEFAULT_DESCRIPTION = 'AI API Gateway Platform'
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -46,6 +47,24 @@ function replaceSiteTitle(html, settings) {
   return html.replace(/<\/head>/i, `${nextTitle}</head>`)
 }
 
+function replaceSiteDescription(html, settings) {
+  const siteName = typeof settings.site_name === 'string' ? settings.site_name.trim() : ''
+  if (!siteName) {
+    return html
+  }
+
+  const siteSubtitle =
+    typeof settings.site_subtitle === 'string' ? settings.site_subtitle.trim() : ''
+  const description = `${siteName} - ${siteSubtitle || DEFAULT_DESCRIPTION}`
+  const nextDescription = `<meta name="description" content="${escapeHtmlText(description)}">`
+  const descriptionPattern = /<meta\b[^>]*\bname\s*=\s*(["'])description\1[^>]*>/i
+
+  if (descriptionPattern.test(html)) {
+    return html.replace(descriptionPattern, nextDescription)
+  }
+  return html.replace(/<\/head>/i, `${nextDescription}</head>`)
+}
+
 function extractPublicSettings(payload) {
   if (!isPlainObject(payload)) {
     throw new Error('Public settings response must be a JSON object')
@@ -73,7 +92,7 @@ function injectPublicSettingsIntoHtml(html, settings) {
   const json = escapeInlineJson(settings)
   const script = `${INJECTION_START}<script>window.__APP_CONFIG__=${json};</script>${INJECTION_END}`
   const injected = cleanHtml.replace(/<\/head>/i, `${script}</head>`)
-  return replaceSiteTitle(injected, settings)
+  return replaceSiteDescription(replaceSiteTitle(injected, settings), settings)
 }
 
 async function fetchPublicSettings(settingsUrl) {

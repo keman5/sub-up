@@ -38,15 +38,18 @@ describe('Cloudflare Pages public settings injection', () => {
     })
   })
 
-  it('injects safe inline config and replaces the initial title', () => {
-    const html = '<!doctype html><html><head><title>Sub2API</title></head><body></body></html>'
+  it('injects safe inline config and replaces the initial site metadata', () => {
+    const html = `<!doctype html><html><head><title>Sub2API</title><meta name="description" content="51token 算力提供兼容 OpenAI 协议的 AI API 网关与算力分发服务。"></head><body></body></html>`
     const rendered = injectPublicSettingsIntoHtml(html, {
       site_name: 'A2 <Inner>',
+      site_subtitle: 'A2 AI gateway',
       api_base_url: 'https://a2t.upit.top',
       dangerous: '</script><img src=x onerror=alert(1)>',
     })
 
     expect(rendered).toContain('<title>A2 &lt;Inner&gt; - AI API Gateway</title>')
+    expect(rendered).toContain('<meta name="description" content="A2 &lt;Inner&gt; - A2 AI gateway">')
+    expect(rendered).not.toContain('51token 算力')
     expect(rendered).toContain('window.__APP_CONFIG__=')
     expect(rendered).toContain('"api_base_url":"https://a2t.upit.top"')
     expect(rendered).toContain('\\u003c/script\\u003e')

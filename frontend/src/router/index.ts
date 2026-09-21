@@ -53,7 +53,7 @@ const routes: RouteRecordRaw[] = [
     component: HomeView,
     meta: {
       requiresAuth: false,
-      title: '51token 算力'
+      title: 'Home'
     }
   },
   {

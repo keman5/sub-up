@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import App from '@/App.vue'
 
@@ -24,6 +24,7 @@ const clearSubscriptions = vi.fn()
 const resetAnnouncements = vi.fn()
 const resetCompliance = vi.fn()
 const requireAcknowledgement = vi.fn()
+let mockSiteName = 'Sub2API'
 
 vi.mock('vue-router', () => ({
   RouterView: { template: '<main data-test="router-view" />' },
@@ -39,8 +40,14 @@ vi.mock('@/utils/siteIcons', () => ({
   applySiteIcons: vi.fn(),
 }))
 
+vi.mock('@/utils/featureFlags', () => ({
+  FeatureFlags: { subscription: 'subscription' },
+  isFeatureFlagEnabled: vi.fn(() => true),
+  resolveFeatureFlag: vi.fn((settings, key) => settings[key]),
+}))
+
 vi.mock('@/router/title', () => ({
-  resolveRouteDocumentTitle: vi.fn(() => 'Sub2API'),
+  resolveRouteDocumentTitle: vi.fn((_, siteName: string) => siteName),
 }))
 
 vi.mock('@/components/common/Toast.vue', () => ({
@@ -67,7 +74,7 @@ vi.mock('@/stores', () => ({
   useAppStore: () => ({
     cachedPublicSettings: null,
     siteLogo: '',
-    siteName: 'Sub2API',
+    siteName: mockSiteName,
     showError,
     fetchPublicSettings,
   }),
@@ -97,6 +104,9 @@ vi.mock('@/stores', () => ({
 describe('App global API error handling', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockRoute.path = '/dashboard'
+    mockRoute.fullPath = '/dashboard'
+    mockSiteName = 'Sub2API'
   })
 
   afterEach(() => {
@@ -146,5 +156,26 @@ describe('App global API error handling', () => {
     }))
 
     expect(showError).not.toHaveBeenCalled()
+  })
+
+  it('首页加载站点配置后仍使用当前站点名作为标题', async () => {
+    mockRoute.path = '/'
+    mockRoute.fullPath = '/'
+    mockSiteName = '3D ai'
+
+    const wrapper = mount(App, {
+      global: {
+        plugins: [createI18n({
+          legacy: false,
+          locale: 'zh',
+          messages: { zh: { common: { unknownError: '发生未知错误' } } },
+        })],
+      },
+    })
+
+    await flushPromises()
+
+    expect(document.title).toBe('3D ai')
+    wrapper.unmount()
   })
 })

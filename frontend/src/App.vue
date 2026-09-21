@@ -154,7 +154,7 @@ async function initializeRouteEnvironment() {
   if (isStaticHome) {
     await appStore.fetchPublicSettings()
     if (seq !== routeSetupCheckSeq) return
-    document.title = '51token 算力'
+    updateDocumentTitle()
     applySiteIcons(appStore.siteLogo || '/logo.png')
     return
   }

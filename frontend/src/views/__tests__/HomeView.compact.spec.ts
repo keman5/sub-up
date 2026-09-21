@@ -111,6 +111,15 @@ describe('HomeView compact mode', () => {
     expect(wrapper.find('.home-page').exists()).toBe(true)
   })
 
+  it('reveals the homepage after bootstrap scroll protection', () => {
+    document.documentElement.classList.add('home-scroll-restoring')
+
+    const wrapper = mountHome()
+
+    expect(document.documentElement.classList.contains('home-scroll-restoring')).toBe(false)
+    wrapper.unmount()
+  })
+
   it('links unauthenticated visitors to login', () => {
     expect(compactDestination(mountHome({ compact_home_enabled: true }))).toBe('/login')
   })

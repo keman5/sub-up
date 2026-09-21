@@ -1599,7 +1599,52 @@ git diff --check
 
 - 搜索 `buildAccountResponseWithRuntime`、`OpenAICompactModel`、`subscription_group_name` 和 `TestOpsRepositoryListRequestDetails_LatencySort`。若上游再次调整账号响应签名、compact 默认模型或请求详情列顺序，继续保持所有刷新分支可编译、`gpt-5.4` 本地默认值和订阅字段可扫描；只有本地 compact 决策正式变更后才同步修改默认值断言。
 
-### 2026-09-16: 自动记录本地改动
+### 2026-09-16: Cloudflare Pages 正式域名 API origin 映射
+
+**自动记录：**
+
+- 三套正式 Cloudflare Pages 前台需要按访问域名回到对应的 API origin，避免 a1/a2 前台误用主环境公开设置。
+- Worker 保留 `ai.upit.top -> api.upit.top`、`a1.upit.top -> ap1.upit.top`、`a2t.upit.top -> ap2.upit.top` 的显式映射；预览域名继续使用注入的 `SUB2API_ORIGIN`。
+
+**涉及文件：**
+
+- `frontend/public/_worker.js`
+- `frontend/src/cloudflare/__tests__/pages-worker.spec.ts`
+
+**验证：**
+
+```bash
+pnpm --dir frontend exec vitest run src/cloudflare/__tests__/pages-worker.spec.ts src/cloudflare/__tests__/pages-config-injection.spec.ts
+pnpm --dir frontend run typecheck
+pnpm --dir frontend run build
+git diff --check
+```
+
+**同步官方后的复查：**
+
+- 搜索 `ai.upit.top`、`a1.upit.top`、`a2t.upit.top`、`SUB2API_ORIGIN` 和 `resolveApiOrigin`，确认正式域名仍映射到各自 API origin，预览域名仍使用注入配置。
+- 运行上述 Cloudflare Pages worker/config 注入测试、typecheck 和 build；只有上游提供等价的正式域名映射且不改变三套 Pages 的 API 隔离时，才可删除本地补丁。
+
+### 2026-09-21: 恢复正式站点默认 Sub2API 首页
+
+**业务目的：**
+
+- 按用户要求，`ai.3dbooks.top`、`a1.upit.top` 和 `test.upit.top` 使用上游默认 `HomeView`，不再显示 51token 自定义首页。
+- 三个入口继续分别代理到 3dbooks、ap1 和 test 应用，移除 test 入口的静态 51token 首页与伪造状态响应。
+
+**验证：**
+
+```bash
+pnpm --dir frontend exec vitest run
+pnpm --dir frontend run typecheck
+pnpm --dir frontend run build
+```
+
+**同步官方后的复查：**
+
+- 搜索 `HomeSupportWidget`、`home-page`、`51token 算力` 和 Caddy 静态首页规则；只有产品再次明确要求 51token 首页时才恢复这些覆盖。
+
+### 2026-09-21: 自动记录本地改动
 
 **自动记录：**
 
@@ -1608,8 +1653,53 @@ git diff --check
 
 **涉及文件：**
 
-- `frontend/public/_worker.js`
-- `frontend/src/cloudflare/__tests__/pages-worker.spec.ts`
+- `frontend/index.html`
+- `frontend/src/App.vue`
+- `frontend/src/__tests__/App.globalApiError.spec.ts`
+- `frontend/src/cloudflare/__tests__/pages-config-injection.spec.ts`
+- `scripts/cloudflare-pages-config.mjs`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
+### 2026-09-21: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `frontend/src/views/__tests__/HomeView.compact.spec.ts`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
+### 2026-09-21: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `frontend/src/views/HomeView.vue`
 
 **验证：**
 
