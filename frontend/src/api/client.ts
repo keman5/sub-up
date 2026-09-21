@@ -313,6 +313,7 @@ apiClient.interceptors.response.use(
     // Network error
     const networkError: ApiClientError = {
       status: 0,
+      code: error.code || 'ERR_NETWORK',
       message: tApiClientError('errors.networkConnection', 'Network error. Please check your connection.')
     }
     dispatchGlobalErrorToast(networkError.message, originalRequest)
