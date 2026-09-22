@@ -274,6 +274,10 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 					if message == "" {
 						message = "Subscription is not available"
 					}
+					if service.IsSubscriptionLimitError(validateErr) {
+						abortWithSubscriptionLimitError(c, status, code, message)
+						return
+					}
 					AbortWithError(c, status, code, message)
 					return
 				}
@@ -345,6 +349,43 @@ func isOpenAICompatibleAPIKeyRequest(c *gin.Context) bool {
 		"/openai/v1/responses",
 		"/responses",
 		"/backend-api/codex/responses",
+	} {
+		if path == root || strings.HasPrefix(path, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func isOpenAICompatibleSubscriptionLimitRequest(c *gin.Context) bool {
+	if isOpenAICompatibleAPIKeyRequest(c) {
+		return true
+	}
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return false
+	}
+
+	path := strings.TrimRight(c.Request.URL.Path, "/")
+	for _, root := range []string{
+		"/v1/chat/completions",
+		"/chat/completions",
+	} {
+		if path == root || strings.HasPrefix(path, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func isAnthropicCompatibleSubscriptionLimitRequest(c *gin.Context) bool {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return false
+	}
+
+	path := strings.TrimRight(c.Request.URL.Path, "/")
+	for _, root := range []string{
+		"/v1/messages",
+		"/messages",
 	} {
 		if path == root || strings.HasPrefix(path, root+"/") {
 			return true

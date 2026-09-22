@@ -748,6 +748,8 @@ const refreshCurrentPageUsageCells = async () => {
 
   try {
     for (const account of currentPageAccounts) {
+      if (!accountSupportsBatchUsage(account)) continue
+
       const accountID = account.id
       const key = String(accountID)
       const requestToken = ++usageBatchRequestToken

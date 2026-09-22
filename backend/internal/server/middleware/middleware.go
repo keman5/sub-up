@@ -94,6 +94,46 @@ func abortWithOpenAIQuotaError(c *gin.Context, statusCode int, message string) {
 	c.Abort()
 }
 
+// abortWithOpenAISubscriptionQuotaError writes a structured quota error that
+// OpenAI-compatible clients can distinguish from request-rate throttling.
+func abortWithOpenAISubscriptionQuotaError(c *gin.Context, statusCode int, code, message string) {
+	message = service.ClientErrorMessageForAcceptLanguage(c.GetHeader("Accept-Language"), message)
+	c.JSON(statusCode, gin.H{
+		"error": gin.H{
+			"message": message,
+			"type":    "insufficient_quota",
+			"param":   nil,
+			"code":    code,
+		},
+	})
+	c.Abort()
+}
+
+func abortWithAnthropicSubscriptionQuotaError(c *gin.Context, statusCode int, code, message string) {
+	message = service.ClientErrorMessageForAcceptLanguage(c.GetHeader("Accept-Language"), message)
+	c.JSON(statusCode, gin.H{
+		"type": "error",
+		"error": gin.H{
+			"type":    "rate_limit_error",
+			"code":    code,
+			"message": message,
+		},
+	})
+	c.Abort()
+}
+
+func abortWithSubscriptionLimitError(c *gin.Context, statusCode int, code, message string) {
+	if isOpenAICompatibleSubscriptionLimitRequest(c) {
+		abortWithOpenAISubscriptionQuotaError(c, statusCode, code, message)
+		return
+	}
+	if isAnthropicCompatibleSubscriptionLimitRequest(c) {
+		abortWithAnthropicSubscriptionQuotaError(c, statusCode, code, message)
+		return
+	}
+	AbortWithError(c, statusCode, code, message)
+}
+
 // ──────────────────────────────────────────────────────────
 // RequireGroupAssignment — 未分组 Key 拦截中间件
 // ──────────────────────────────────────────────────────────

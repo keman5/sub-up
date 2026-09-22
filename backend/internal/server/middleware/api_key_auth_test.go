@@ -1469,6 +1469,147 @@ func TestAPIKeyAuthOpenAIQuotaErrorFormat(t *testing.T) {
 	require.Equal(t, "insufficient_quota", response.Error.Code)
 }
 
+func TestAPIKeyAuthOpenAISubscriptionQuotaErrorFormat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name        string
+		path        string
+		configure   func(*service.Group, *service.UserSubscription, float64)
+		wantCode    string
+		wantMessage string
+	}{
+		{
+			name: "daily limit through chat completions",
+			path: "/v1/chat/completions",
+			configure: func(group *service.Group, sub *service.UserSubscription, limit float64) {
+				group.DailyLimitUSD = &limit
+				sub.DailyUsageUSD = limit
+			},
+			wantCode:    "DAILY_LIMIT_EXCEEDED",
+			wantMessage: "当前套餐今日额度已用完，请在额度重置后重试",
+		},
+		{
+			name: "weekly limit through responses",
+			path: "/v1/responses",
+			configure: func(group *service.Group, sub *service.UserSubscription, limit float64) {
+				group.WeeklyLimitUSD = &limit
+				sub.WeeklyUsageUSD = limit
+			},
+			wantCode:    "WEEKLY_LIMIT_EXCEEDED",
+			wantMessage: "当前套餐本周额度已用完，请在额度重置后重试",
+		},
+		{
+			name: "monthly limit through responses",
+			path: "/v1/responses",
+			configure: func(group *service.Group, sub *service.UserSubscription, limit float64) {
+				group.MonthlyLimitUSD = &limit
+				sub.MonthlyUsageUSD = limit
+			},
+			wantCode:    "MONTHLY_LIMIT_EXCEEDED",
+			wantMessage: "当前套餐本月额度已用完，请在额度重置后重试",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			limit := 1.0
+			now := time.Now()
+			group := &service.Group{
+				ID:               8,
+				Platform:         service.PlatformOpenAI,
+				Status:           service.StatusActive,
+				Hydrated:         true,
+				SubscriptionType: service.SubscriptionTypeSubscription,
+			}
+			user := &service.User{ID: 11, Role: service.RoleUser, Status: service.StatusActive, Balance: 10}
+			sub := &service.UserSubscription{
+				ID:                 205,
+				UserID:             user.ID,
+				GroupID:            group.ID,
+				Status:             service.SubscriptionStatusActive,
+				ExpiresAt:          now.Add(24 * time.Hour),
+				DailyWindowStart:   &now,
+				WeeklyWindowStart:  &now,
+				MonthlyWindowStart: &now,
+			}
+			tt.configure(group, sub, limit)
+
+			apiKey := &service.APIKey{
+				ID: 105, UserID: user.ID, Key: "openai-subscription-limit", Status: service.StatusActive,
+				User: user, Group: group, GroupID: &group.ID,
+			}
+			apiKeyRepo := &stubApiKeyRepo{getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
+				if key != apiKey.Key {
+					return nil, service.ErrAPIKeyNotFound
+				}
+				clone := *apiKey
+				userClone := *user
+				clone.User = &userClone
+				return &clone, nil
+			}}
+			subscriptionRepo := &stubUserSubscriptionRepo{
+				getActive: func(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
+					if userID != user.ID || groupID != group.ID {
+						return nil, service.ErrSubscriptionNotFound
+					}
+					clone := *sub
+					return &clone, nil
+				},
+			}
+			cfg := &config.Config{RunMode: config.RunModeStandard}
+			apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, nil, nil, nil, nil, cfg)
+			subscriptionService := service.NewSubscriptionService(nil, subscriptionRepo, nil, nil, cfg)
+			router := newAuthTestRouter(apiKeyService, subscriptionService, cfg)
+
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			req.Header.Set("Accept-Language", "zh-CN")
+			req.Header.Set("x-api-key", apiKey.Key)
+			router.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusTooManyRequests, w.Code)
+			var response struct {
+				Error struct {
+					Message string `json:"message"`
+					Type    string `json:"type"`
+					Code    string `json:"code"`
+				} `json:"error"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+			require.Equal(t, tt.wantMessage, response.Error.Message)
+			require.Equal(t, "insufficient_quota", response.Error.Type)
+			require.Equal(t, tt.wantCode, response.Error.Code)
+		})
+	}
+}
+
+func TestAbortWithSubscriptionLimitErrorUsesAnthropicEnvelope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Request.Header.Set("Accept-Language", "zh-CN")
+
+	abortWithSubscriptionLimitError(c, http.StatusTooManyRequests, "DAILY_LIMIT_EXCEEDED", "daily usage limit exceeded")
+
+	require.True(t, c.IsAborted())
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	var response struct {
+		Type  string `json:"type"`
+		Error struct {
+			Type    string `json:"type"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	require.Equal(t, "error", response.Type)
+	require.Equal(t, "rate_limit_error", response.Error.Type)
+	require.Equal(t, "DAILY_LIMIT_EXCEEDED", response.Error.Code)
+	require.Equal(t, "当前套餐今日额度已用完，请在额度重置后重试", response.Error.Message)
+}
+
 func TestAPIKeyAuthQuotaErrorKeepsLegacyFormatOutsideResponses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1506,6 +1647,7 @@ func newAuthTestRouter(apiKeyService *service.APIKeyService, subscriptionService
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 	router.GET("/t", ok)
+	router.POST("/v1/chat/completions", ok)
 	router.POST("/v1/responses", ok)
 	router.POST("/v1/messages", ok)
 	router.GET("/v1/usage", ok)

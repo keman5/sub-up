@@ -325,7 +325,7 @@ describe('admin AccountsView manual usage refresh', () => {
     wrapper.unmount()
   })
 
-  it('force-queries every current-page account individually without replacing an open edit modal', async () => {
+  it('force-queries only usage-capable current-page accounts without replacing an open edit modal', async () => {
     listAccounts.mockResolvedValueOnce(pageResponse([
       createAccount(1, 'anthropic-oauth'),
       { ...createAccount(2, 'anthropic-setup-token'), type: 'setup-token' },
@@ -352,7 +352,8 @@ describe('admin AccountsView manual usage refresh', () => {
     await flushPromises()
 
     expect(getUsage).toHaveBeenNthCalledWith(2, 2, 'active')
-    expect(getUsage).toHaveBeenNthCalledWith(3, 3, 'active')
+    expect(getUsage).toHaveBeenCalledTimes(2)
+    expect(getUsage).not.toHaveBeenCalledWith(3, 'active')
     expect(wrapper.get('[data-test="edit-modal"]').text()).toBe('anthropic-oauth')
     wrapper.unmount()
   })

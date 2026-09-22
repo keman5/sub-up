@@ -1713,6 +1713,31 @@ pnpm --dir frontend run build
 
 - 搜索 `HomeView.vue`、`homeData`、`HomeSupportWidget` 和首页模式优先级，确认当前首页入口、滚动恢复、支持组件与部署域名配置没有被覆盖；只有上游提供等价首页行为并通过回归测试后才可删除本地补丁。
 
+### 2026-09-22: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `backend/internal/server/middleware/api_key_auth.go`
+- `backend/internal/server/middleware/api_key_auth_test.go`
+- `backend/internal/server/middleware/middleware.go`
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/views/admin/__tests__/AccountsView.manualRefreshUsage.spec.ts`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：
