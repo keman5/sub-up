@@ -361,7 +361,8 @@ func TestEnforceBillingEligibilityWithFallback_WithoutUsableFallbackRejects(t *t
 	require.True(t, calledHandle)
 	require.Equal(t, http.StatusTooManyRequests, gotStatus)
 	require.Equal(t, "rate_limit_exceeded", gotCode)
-	require.Contains(t, gotMessage, "usage limit exceeded")
+	require.Contains(t, gotMessage, "套餐日限额 $10 已用尽")
+	require.Contains(t, gotMessage, "暂无法确定恢复时间")
 	require.Equal(t, sourceSub, activeSub)
 	require.Equal(t, apiKey, activeAPIKey)
 }

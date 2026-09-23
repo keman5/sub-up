@@ -1064,16 +1064,16 @@ func (s *SubscriptionService) EnsureWindowMaintenance(ctx context.Context, sub *
 // 用于中间件的快速预检查，additionalCost 通常为 0
 func (s *SubscriptionService) CheckUsageLimits(ctx context.Context, sub *UserSubscription, group *Group, additionalCost float64) error {
 	if !sub.CheckDailyLimit(group, additionalCost) {
-		return ErrDailyLimitExceeded
+		return subscriptionLimitError(ErrDailyLimitExceeded, sub, group)
 	}
 	if !sub.CheckWeeklyLimit(group, additionalCost) {
-		return ErrWeeklyLimitExceeded
+		return subscriptionLimitError(ErrWeeklyLimitExceeded, sub, group)
 	}
 	if !sub.CheckMonthlyLimit(group, additionalCost) {
-		return ErrMonthlyLimitExceeded
+		return subscriptionLimitError(ErrMonthlyLimitExceeded, sub, group)
 	}
 	if !sub.CheckTotalLimit(group, additionalCost) {
-		return ErrTotalLimitExceeded
+		return subscriptionLimitError(ErrTotalLimitExceeded, sub, group)
 	}
 	return nil
 }
@@ -1114,16 +1114,16 @@ func (s *SubscriptionService) ValidateAndCheckLimits(sub *UserSubscription, grou
 
 	// 3. 检查用量限额
 	if !sub.CheckDailyLimit(group, 0) {
-		return needsMaintenance, ErrDailyLimitExceeded
+		return needsMaintenance, subscriptionLimitError(ErrDailyLimitExceeded, sub, group)
 	}
 	if !sub.CheckWeeklyLimit(group, 0) {
-		return needsMaintenance, ErrWeeklyLimitExceeded
+		return needsMaintenance, subscriptionLimitError(ErrWeeklyLimitExceeded, sub, group)
 	}
 	if !sub.CheckMonthlyLimit(group, 0) {
-		return needsMaintenance, ErrMonthlyLimitExceeded
+		return needsMaintenance, subscriptionLimitError(ErrMonthlyLimitExceeded, sub, group)
 	}
 	if !sub.CheckTotalLimit(group, 0) {
-		return needsMaintenance, ErrTotalLimitExceeded
+		return needsMaintenance, subscriptionLimitError(ErrTotalLimitExceeded, sub, group)
 	}
 
 	return needsMaintenance, nil

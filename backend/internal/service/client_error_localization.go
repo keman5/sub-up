@@ -96,6 +96,16 @@ func ClientErrorMessageForAcceptLanguage(acceptLanguage string, message string) 
 		return message
 	}
 	locale := clientErrorLocaleForAcceptLanguage(acceptLanguage)
+	// Detailed local quota errors already contain both complete translations.
+	if english, chinese, ok := strings.Cut(message, "\n"); ok && strings.Contains(english, " Limit: USD ") && strings.Contains(chinese, "限额 $") {
+		if locale == clientErrorLocaleChinese {
+			return chinese
+		}
+		if locale == clientErrorLocaleEnglish {
+			return english
+		}
+		return english + " (" + chinese + ")"
+	}
 	translated, known := localizedClientErrorMessages[message]
 	if known {
 		if locale == clientErrorLocaleChinese && strings.TrimSpace(translated) != "" {

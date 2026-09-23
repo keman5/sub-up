@@ -907,7 +907,8 @@ func TestApiKeyAuthWithSubscriptionGoogle_SubscriptionLimitExceededReturns429(t 
 	require.Equal(t, http.StatusTooManyRequests, resp.Error.Code)
 	require.Equal(t, "RESOURCE_EXHAUSTED", resp.Error.Status)
 	require.Contains(t, resp.Error.Message, "daily quota has been exhausted")
-	require.Contains(t, resp.Error.Message, "当前套餐今日额度已用完")
+	require.Contains(t, resp.Error.Message, "套餐日限额 $1 已用尽")
+	require.Contains(t, resp.Error.Message, "分钟恢复")
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_SubscriptionTotalLimitExactlyExhaustedReturns429(t *testing.T) {
@@ -992,5 +993,6 @@ func TestApiKeyAuthWithSubscriptionGoogle_SubscriptionTotalLimitExactlyExhausted
 	require.Equal(t, http.StatusTooManyRequests, resp.Error.Code)
 	require.Equal(t, "RESOURCE_EXHAUSTED", resp.Error.Status)
 	require.Contains(t, resp.Error.Message, "total quota has been exhausted")
-	require.Contains(t, resp.Error.Message, "当前套餐总额度已用完")
+	require.Contains(t, resp.Error.Message, "套餐总限额 $1 已用尽")
+	require.Contains(t, resp.Error.Message, "不会自动恢复")
 }

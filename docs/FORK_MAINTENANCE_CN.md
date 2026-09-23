@@ -1738,6 +1738,36 @@ TODO: 填写验证命令
 
 - TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
 
+### 2026-09-23: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `backend/internal/handler/openai_chat_completions_billing_fallback_test.go`
+- `backend/internal/pkg/response/localization.go`
+- `backend/internal/pkg/response/response_localization_test.go`
+- `backend/internal/server/middleware/api_key_auth_google_test.go`
+- `backend/internal/service/billing_cache_service.go`
+- `backend/internal/service/client_error_localization.go`
+- `backend/internal/service/quota_error_details.go`
+- `backend/internal/service/quota_error_details_test.go`
+- `backend/internal/service/subscription_service.go`
+- `docs/fork-maintenance/2026-09.md`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：

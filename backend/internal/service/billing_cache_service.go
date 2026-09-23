@@ -680,13 +680,13 @@ func (s *BillingCacheService) evaluateRateLimits(ctx context.Context, apiKey *AP
 
 	// Check limits
 	if apiKey.RateLimit5h > 0 && usage5h >= apiKey.RateLimit5h {
-		return ErrAPIKeyRateLimit5hExceeded
+		return apiKeyWindowQuotaError(ErrAPIKeyRateLimit5hExceeded, w5h, RateLimitWindow5h, apiKey.RateLimit5h, usage5h)
 	}
 	if apiKey.RateLimit1d > 0 && usage1d >= apiKey.RateLimit1d {
-		return ErrAPIKeyRateLimit1dExceeded
+		return apiKeyWindowQuotaError(ErrAPIKeyRateLimit1dExceeded, w1d, RateLimitWindow1d, apiKey.RateLimit1d, usage1d)
 	}
 	if apiKey.RateLimit7d > 0 && usage7d >= apiKey.RateLimit7d {
-		return ErrAPIKeyRateLimit7dExceeded
+		return apiKeyWindowQuotaError(ErrAPIKeyRateLimit7dExceeded, w7d, RateLimitWindow7d, apiKey.RateLimit7d, usage7d)
 	}
 	return nil
 }
@@ -916,29 +916,39 @@ func (s *BillingCacheService) checkSubscriptionEligibility(ctx context.Context, 
 	}
 
 	// 检查订阅状态
+	if subData.Status == SubscriptionStatusExpired || !time.Now().Before(subData.ExpiresAt) {
+		return ErrSubscriptionExpired
+	}
+	if subData.Status == SubscriptionStatusSuspended {
+		return ErrSubscriptionSuspended
+	}
 	if subData.Status != SubscriptionStatusActive {
 		return ErrSubscriptionInvalid
 	}
 
-	// 检查是否过期
-	if time.Now().After(subData.ExpiresAt) {
-		return ErrSubscriptionInvalid
+	// Keep usage and expiry from the authoritative billing snapshot.
+	details := UserSubscription{ExpiresAt: subData.ExpiresAt}
+	if subscription != nil {
+		details = *subscription
 	}
+	details.ExpiresAt = subData.ExpiresAt
+	details.DailyUsageUSD, details.WeeklyUsageUSD = subData.DailyUsage, subData.WeeklyUsage
+	details.MonthlyUsageUSD, details.TotalUsageUSD = subData.MonthlyUsage, subData.TotalUsage
 
 	// 检查限额（使用传入的Group限额配置）
 	if group.HasDailyLimit() && subData.DailyUsage > *group.DailyLimitUSD {
-		return ErrDailyLimitExceeded
+		return subscriptionLimitError(ErrDailyLimitExceeded, &details, group)
 	}
 
 	if group.HasWeeklyLimit() && subData.WeeklyUsage > *group.WeeklyLimitUSD {
-		return ErrWeeklyLimitExceeded
+		return subscriptionLimitError(ErrWeeklyLimitExceeded, &details, group)
 	}
 
 	if group.HasMonthlyLimit() && subData.MonthlyUsage > *group.MonthlyLimitUSD {
-		return ErrMonthlyLimitExceeded
+		return subscriptionLimitError(ErrMonthlyLimitExceeded, &details, group)
 	}
 	if group.HasTotalLimit() && subData.TotalUsage > *group.TotalLimitUSD {
-		return ErrTotalLimitExceeded
+		return subscriptionLimitError(ErrTotalLimitExceeded, &details, group)
 	}
 
 	return nil
@@ -1173,13 +1183,13 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 			setCancel()
 		}
 		if entry.DailyLimitUSD != nil && dailyUsage >= *entry.DailyLimitUSD {
-			return withWindowResetsMetadata(ErrUserPlatformDailyQuotaExhausted, nextDailyReset(now))
+			return platformQuotaError(ErrUserPlatformDailyQuotaExhausted, nextDailyReset(now), *entry.DailyLimitUSD, dailyUsage)
 		}
 		if entry.WeeklyLimitUSD != nil && weeklyUsage >= *entry.WeeklyLimitUSD {
-			return withWindowResetsMetadata(ErrUserPlatformWeeklyQuotaExhausted, nextWeeklyReset(now))
+			return platformQuotaError(ErrUserPlatformWeeklyQuotaExhausted, nextWeeklyReset(now), *entry.WeeklyLimitUSD, weeklyUsage)
 		}
 		if entry.MonthlyLimitUSD != nil && monthlyUsage >= *entry.MonthlyLimitUSD {
-			return withWindowResetsMetadata(ErrUserPlatformMonthlyQuotaExhausted, nextMonthlyResetFrom(entry.MonthlyWindowStart, now))
+			return platformQuotaError(ErrUserPlatformMonthlyQuotaExhausted, nextMonthlyResetFrom(entry.MonthlyWindowStart, now), *entry.MonthlyLimitUSD, monthlyUsage)
 		}
 		return nil
 	}
@@ -1260,13 +1270,13 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 	// Redis 故障时 fail-open：不回填，直接用 DB 数据做一次性检查
 	if cacheErr != nil {
 		if rec.DailyLimitUSD != nil && dailyUsage >= *rec.DailyLimitUSD {
-			return withWindowResetsMetadata(ErrUserPlatformDailyQuotaExhausted, nextDailyReset(now))
+			return platformQuotaError(ErrUserPlatformDailyQuotaExhausted, nextDailyReset(now), *rec.DailyLimitUSD, dailyUsage)
 		}
 		if rec.WeeklyLimitUSD != nil && weeklyUsage >= *rec.WeeklyLimitUSD {
-			return withWindowResetsMetadata(ErrUserPlatformWeeklyQuotaExhausted, nextWeeklyReset(now))
+			return platformQuotaError(ErrUserPlatformWeeklyQuotaExhausted, nextWeeklyReset(now), *rec.WeeklyLimitUSD, weeklyUsage)
 		}
 		if rec.MonthlyLimitUSD != nil && monthlyUsage >= *rec.MonthlyLimitUSD {
-			return withWindowResetsMetadata(ErrUserPlatformMonthlyQuotaExhausted, nextMonthlyResetFrom(rec.MonthlyWindowStart, now))
+			return platformQuotaError(ErrUserPlatformMonthlyQuotaExhausted, nextMonthlyResetFrom(rec.MonthlyWindowStart, now), *rec.MonthlyLimitUSD, monthlyUsage)
 		}
 		return nil
 	}
@@ -1297,13 +1307,13 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 	}
 
 	if rec.DailyLimitUSD != nil && dailyUsage >= *rec.DailyLimitUSD {
-		return withWindowResetsMetadata(ErrUserPlatformDailyQuotaExhausted, nextDailyReset(now))
+		return platformQuotaError(ErrUserPlatformDailyQuotaExhausted, nextDailyReset(now), *rec.DailyLimitUSD, dailyUsage)
 	}
 	if rec.WeeklyLimitUSD != nil && weeklyUsage >= *rec.WeeklyLimitUSD {
-		return withWindowResetsMetadata(ErrUserPlatformWeeklyQuotaExhausted, nextWeeklyReset(now))
+		return platformQuotaError(ErrUserPlatformWeeklyQuotaExhausted, nextWeeklyReset(now), *rec.WeeklyLimitUSD, weeklyUsage)
 	}
 	if rec.MonthlyLimitUSD != nil && monthlyUsage >= *rec.MonthlyLimitUSD {
-		return withWindowResetsMetadata(ErrUserPlatformMonthlyQuotaExhausted, nextMonthlyResetFrom(rec.MonthlyWindowStart, now))
+		return platformQuotaError(ErrUserPlatformMonthlyQuotaExhausted, nextMonthlyResetFrom(rec.MonthlyWindowStart, now), *rec.MonthlyLimitUSD, monthlyUsage)
 	}
 	return nil
 }

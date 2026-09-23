@@ -11,6 +11,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDetailedQuotaMessagePreservesAmountAndReset(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	english := "Weekly quota exhausted. Limit: USD 200; used: USD 201. Resets in 3 days 2 hours 15 minutes."
+	chinese := "套餐周限额 $200 已用尽，还有 3 天 2 小时 15 分钟恢复。"
+	for _, tc := range []struct{ language, want string }{{"zh", chinese}, {"en", english}, {"", english + " (" + chinese + ")"}} {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		c.Request.Header.Set("Accept-Language", tc.language)
+		err := infraerrors.TooManyRequests("WEEKLY_LIMIT_EXCEEDED", english+"\n"+chinese).WithMetadata(map[string]string{"limit_usd": "200"})
+		require.True(t, ErrorFrom(c, err))
+		var result Response
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+		require.Equal(t, tc.want, result.Message)
+		require.Equal(t, "200", result.Metadata["limit_usd"])
+		require.Equal(t, "WEEKLY_LIMIT_EXCEEDED", result.Reason)
+	}
+}
+
 func TestErrorFromLocalizesStructuredErrorsByAcceptLanguage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

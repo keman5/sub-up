@@ -678,6 +678,15 @@ var localizedDirectErrorMessages = map[string]map[string]string{
 func localizeErrorMessage(c *gin.Context, reason string, fallback string) string {
 	reason = strings.TrimSpace(reason)
 	locale := requestErrorLocale(c)
+	if english, chinese, ok := strings.Cut(fallback, "\n"); ok && strings.Contains(english, " Limit: USD ") && strings.Contains(chinese, "限额 $") {
+		if locale == errorLocaleChinese {
+			return chinese
+		}
+		if locale == errorLocaleEnglish {
+			return english
+		}
+		return english + " (" + chinese + ")"
+	}
 	if locale == "" {
 		return fallback
 	}
