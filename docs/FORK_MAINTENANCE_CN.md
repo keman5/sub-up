@@ -1713,7 +1713,7 @@ pnpm --dir frontend run build
 
 - 搜索 `HomeView.vue`、`homeData`、`HomeSupportWidget` 和首页模式优先级，确认当前首页入口、滚动恢复、支持组件与部署域名配置没有被覆盖；只有上游提供等价首页行为并通过回归测试后才可删除本地补丁。
 
-### 2026-09-22: 自动记录本地改动
+### 2026-09-22: 订阅限额响应格式与账号用量刷新
 
 **自动记录：**
 
@@ -1727,6 +1727,58 @@ pnpm --dir frontend run build
 - `backend/internal/server/middleware/middleware.go`
 - `frontend/src/views/admin/AccountsView.vue`
 - `frontend/src/views/admin/__tests__/AccountsView.manualRefreshUsage.spec.ts`
+
+**验证：**
+
+```bash
+cd backend && go test ./internal/server/middleware -count=1
+pnpm --dir frontend exec vitest run src/views/admin/__tests__/AccountsView.manualRefreshUsage.spec.ts
+```
+
+**同步官方后的复查：**
+
+- 复查 `abortWithSubscriptionLimitError`，OpenAI 使用 insufficient_quota，Anthropic 使用 rate_limit_error，同时保留具体限额 code 与本地化 message。账号手工刷新跳过不支持 usage 的类型；只有上游完整覆盖这些行为并通过上述测试后才可移除。
+
+### 2026-09-23: 限额金额、恢复时间与套餐状态
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `backend/internal/handler/openai_chat_completions_billing_fallback_test.go`
+- `backend/internal/pkg/response/localization.go`
+- `backend/internal/pkg/response/response_localization_test.go`
+- `backend/internal/server/middleware/api_key_auth_google_test.go`
+- `backend/internal/service/billing_cache_service.go`
+- `backend/internal/service/client_error_localization.go`
+- `backend/internal/service/quota_error_details.go`
+- `backend/internal/service/quota_error_details_test.go`
+- `backend/internal/service/subscription_service.go`
+- `docs/fork-maintenance/2026-09.md`
+
+**验证：**
+
+```bash
+cd backend && go test ./internal/service ./internal/handler ./internal/server/middleware ./internal/pkg/response -count=1
+```
+
+**同步官方后的复查：**
+
+- 逐项复查 [2026-09 维护记录](fork-maintenance/2026-09.md)：限额错误沿真实鉴权和计费链路携带额度、用量与恢复时间；过期、暂停、总额度和未知重置时间不得承诺自动恢复。保留错误身份、接力与双语本地化。仅上游实现等价行为且回归通过后可移除。
+
+### 2026-09-23: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `.gitignore`
 
 **验证：**
 
@@ -1747,16 +1799,385 @@ TODO: 填写验证命令
 
 **涉及文件：**
 
-- `backend/internal/handler/openai_chat_completions_billing_fallback_test.go`
-- `backend/internal/pkg/response/localization.go`
-- `backend/internal/pkg/response/response_localization_test.go`
-- `backend/internal/server/middleware/api_key_auth_google_test.go`
+- `.github/workflows/backend-ci.yml`
+- `Makefile`
+- `README.md`
+- `README_CN.md`
+- `backend/cmd/server/VERSION`
+- `backend/cmd/server/wire.go`
+- `backend/cmd/server/wire_gen.go`
+- `backend/cmd/server/wire_gen_test.go`
+- `backend/go.mod`
+- `backend/go.sum`
+- `backend/internal/config/config.go`
+- `backend/internal/config/config_test.go`
+- `backend/internal/handler/admin/account_handler.go`
+- `backend/internal/handler/admin/account_handler_long_context_billing_test.go`
+- `backend/internal/handler/admin/affiliate_handler.go`
+- `backend/internal/handler/admin/backup_handler.go`
+- `backend/internal/handler/admin/setting_handler.go`
+- `backend/internal/handler/admin/setting_handler_audit.go`
+- `backend/internal/handler/admin/setting_handler_update.go`
+- `backend/internal/handler/auth_email_oauth_test.go`
+- `backend/internal/handler/dto/mappers.go`
+- `backend/internal/handler/dto/settings.go`
+- `backend/internal/handler/dto/types.go`
+- `backend/internal/handler/gateway_handler.go`
+- `backend/internal/handler/gateway_models_test.go`
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/handler/openai_gateway_handler_test.go`
+- `backend/internal/handler/openai_images.go`
+- `backend/internal/handler/wire.go`
+- `backend/internal/pkg/antigravity/attribution_test.go`
+- `backend/internal/pkg/antigravity/request_transformer.go`
+- `backend/internal/pkg/antigravity/schema_cleaner.go`
+- `backend/internal/pkg/apicompat/anthropic_responses_test.go`
+- `backend/internal/pkg/apicompat/anthropic_to_responses.go`
+- `backend/internal/pkg/apicompat/anthropic_to_responses_response.go`
+- `backend/internal/pkg/apicompat/anthropic_to_responses_stream_test.go`
+- `backend/internal/pkg/apicompat/chatcompletions_to_responses.go`
+- `backend/internal/pkg/apicompat/responses_to_anthropic_instructions_test.go`
+- `backend/internal/pkg/apicompat/responses_to_anthropic_request.go`
+- `backend/internal/pkg/apicompat/responses_to_anthropic_tool_pairing_test.go`
+- `backend/internal/pkg/apicompat/types.go`
+- `backend/internal/pkg/claude/cli_version_test.go`
+- `backend/internal/pkg/claude/constants.go`
+- `backend/internal/pkg/claude/constants_cli_version_test.go`
+- `backend/internal/pkg/claude/constants_model_test.go`
+- `backend/internal/pkg/claude/effort_catalog.go`
+- `backend/internal/pkg/openai/constants.go`
+- `backend/internal/pkg/openai/constants_test.go`
+- `backend/internal/pkg/xai/models.go`
+- `backend/internal/pkg/xai/models_test.go`
+- `backend/internal/repository/account_repo.go`
+- `backend/internal/repository/account_repo_upstream_billing_probe_update_test.go`
+- `backend/internal/repository/affiliate_repo.go`
+- `backend/internal/repository/affiliate_repo_integration_test.go`
+- `backend/internal/repository/affiliate_repo_test.go`
+- `backend/internal/repository/dashboard_aggregation_group_usage_test.go`
+- `backend/internal/repository/dashboard_aggregation_repo.go`
+- `backend/internal/repository/ent.go`
+- `backend/internal/repository/http_upstream.go`
+- `backend/internal/repository/proxy_repo.go`
+- `backend/internal/repository/scheduler_cache.go`
+- `backend/internal/repository/scheduler_cache_unit_test.go`
+- `backend/internal/server/api_contract_test.go`
+- `backend/internal/server/routes/admin.go`
+- `backend/internal/service/account.go`
+- `backend/internal/service/account_test_models_test.go`
+- `backend/internal/service/account_test_service.go`
+- `backend/internal/service/account_test_service_cn_adaptive.go`
+- `backend/internal/service/admin_account.go`
+- `backend/internal/service/admin_account_upstream_billing_probe_test.go`
+- `backend/internal/service/affiliate_service.go`
+- `backend/internal/service/affiliate_service_test.go`
+- `backend/internal/service/antigravity_gateway_claude.go`
+- `backend/internal/service/antigravity_gateway_compat.go`
+- `backend/internal/service/antigravity_gateway_gemini.go`
+- `backend/internal/service/antigravity_gateway_service.go`
+- `backend/internal/service/antigravity_gemini_thinking_variant.go`
+- `backend/internal/service/antigravity_gemini_thinking_variant_test.go`
+- `backend/internal/service/backup_service.go`
+- `backend/internal/service/backup_service_test.go`
 - `backend/internal/service/billing_cache_service.go`
-- `backend/internal/service/client_error_localization.go`
-- `backend/internal/service/quota_error_details.go`
-- `backend/internal/service/quota_error_details_test.go`
-- `backend/internal/service/subscription_service.go`
-- `docs/fork-maintenance/2026-09.md`
+- `backend/internal/service/billing_service.go`
+- `backend/internal/service/billing_service_test.go`
+- `backend/internal/service/content_moderation_input.go`
+- `backend/internal/service/content_moderation_input_test.go`
+- `backend/internal/service/dashboard_aggregation_service.go`
+- `backend/internal/service/dashboard_aggregation_service_test.go`
+- `backend/internal/service/domain_constants.go`
+- `backend/internal/service/gateway_anthropic_apikey_passthrough_test.go`
+- `backend/internal/service/gateway_billing_header.go`
+- `backend/internal/service/gateway_billing_header_test.go`
+- `backend/internal/service/gateway_claude_oauth_body.go`
+- `backend/internal/service/gateway_count_tokens.go`
+- `backend/internal/service/gateway_forward.go`
+- `backend/internal/service/gateway_forward_as_chat_completions.go`
+- `backend/internal/service/gateway_forward_as_responses.go`
+- `backend/internal/service/gateway_forward_as_responses_test.go`
+- `backend/internal/service/gateway_multiplatform_test.go`
+- `backend/internal/service/gateway_request.go`
+- `backend/internal/service/gateway_scheduling.go`
+- `backend/internal/service/gateway_service.go`
+- `backend/internal/service/gateway_upstream_request.go`
+- `backend/internal/service/gateway_upstream_response.go`
+- `backend/internal/service/gateway_upstream_transport_error.go`
+- `backend/internal/service/gateway_usage_billing.go`
+- `backend/internal/service/gemini_chat_completions_compat_service.go`
+- `backend/internal/service/gemini_error_policy_test.go`
+- `backend/internal/service/gemini_messages_compat_service.go`
+- `backend/internal/service/gemini_messages_compat_service_test.go`
+- `backend/internal/service/grok_quota_service.go`
+- `backend/internal/service/identity_service.go`
+- `backend/internal/service/identity_service_user_agent_validation_test.go`
+- `backend/internal/service/model_not_found_error_test.go`
+- `backend/internal/service/openai_access_state_failover_test.go`
+- `backend/internal/service/openai_account_runtime_block_fastpath.go`
+- `backend/internal/service/openai_account_scheduler.go`
+- `backend/internal/service/openai_account_scheduler_canonical_quota_test.go`
+- `backend/internal/service/openai_account_scheduler_upstream_cost_test.go`
+- `backend/internal/service/openai_capacity_shed_test.go`
+- `backend/internal/service/openai_codex_account_identity.go`
+- `backend/internal/service/openai_codex_fingerprint.go`
+- `backend/internal/service/openai_codex_model_metadata_test.go`
+- `backend/internal/service/openai_codex_models_service.go`
+- `backend/internal/service/openai_codex_models_service_test.go`
+- `backend/internal/service/openai_codex_transform.go`
+- `backend/internal/service/openai_compat_prompt_cache_key.go`
+- `backend/internal/service/openai_compat_prompt_cache_key_test.go`
+- `backend/internal/service/openai_gateway_cc_pipeline.go`
+- `backend/internal/service/openai_gateway_chat_completions.go`
+- `backend/internal/service/openai_gateway_chat_completions_anthropic_native.go`
+- `backend/internal/service/openai_gateway_chat_completions_raw.go`
+- `backend/internal/service/openai_gateway_chat_completions_test.go`
+- `backend/internal/service/openai_gateway_forward.go`
+- `backend/internal/service/openai_gateway_grok.go`
+- `backend/internal/service/openai_gateway_grok_chat_bridge.go`
+- `backend/internal/service/openai_gateway_messages.go`
+- `backend/internal/service/openai_gateway_messages_anthropic_native.go`
+- `backend/internal/service/openai_gateway_passthrough.go`
+- `backend/internal/service/openai_gateway_request_body.go`
+- `backend/internal/service/openai_gateway_response_flush_test.go`
+- `backend/internal/service/openai_gateway_response_handling.go`
+- `backend/internal/service/openai_gateway_responses_anthropic_native.go`
+- `backend/internal/service/openai_gateway_scheduling.go`
+- `backend/internal/service/openai_gateway_service_test.go`
+- `backend/internal/service/openai_gateway_upstream_errors.go`
+- `backend/internal/service/openai_gateway_usage.go`
+- `backend/internal/service/openai_images.go`
+- `backend/internal/service/openai_model_alias.go`
+- `backend/internal/service/openai_opencode_session.go`
+- `backend/internal/service/openai_opencode_session_test.go`
+- `backend/internal/service/openai_passthrough_normalization_test.go`
+- `backend/internal/service/openai_responses_item_id.go`
+- `backend/internal/service/openai_responses_item_id_test.go`
+- `backend/internal/service/openai_responses_tool_schema.go`
+- `backend/internal/service/openai_responses_tool_schema_test.go`
+- `backend/internal/service/openai_upstream_transport_error.go`
+- `backend/internal/service/openai_visible_ttft_test.go`
+- `backend/internal/service/openai_ws_http_bridge.go`
+- `backend/internal/service/openai_ws_http_bridge_test.go`
+- `backend/internal/service/opencode_go.go`
+- `backend/internal/service/opencode_go_test.go`
+- `backend/internal/service/ops_log_runtime.go`
+- `backend/internal/service/ops_settings_models.go`
+- `backend/internal/service/payment_fulfillment_test.go`
+- `backend/internal/service/pricing_service.go`
+- `backend/internal/service/proxy_fallback.go`
+- `backend/internal/service/proxy_fallback_test.go`
+- `backend/internal/service/ratelimit_service.go`
+- `backend/internal/service/ratelimit_service_401_test.go`
+- `backend/internal/service/ratelimit_service_403_html_test.go`
+- `backend/internal/service/ratelimit_service_model_not_found_test.go`
+- `backend/internal/service/redeem_service.go`
+- `backend/internal/service/setting_gateway_runtime.go`
+- `backend/internal/service/setting_parse.go`
+- `backend/internal/service/setting_service.go`
+- `backend/internal/service/setting_service_update_test.go`
+- `backend/internal/service/setting_update.go`
+- `backend/internal/service/settings_view.go`
+- `backend/internal/service/upstream_models.go`
+- `backend/internal/service/upstream_response_model.go`
+- `backend/internal/service/wire.go`
+- `backend/resources/model-pricing/model_prices_and_context_window.json`
+- `deploy/.env.example`
+- `deploy/config.example.yaml`
+- `deploy/docker-compose.dev.yml`
+- `deploy/docker-compose.local.yml`
+- `deploy/docker-compose.standalone.yml`
+- `deploy/docker-compose.yml`
+- `docs/ANTIGRAVITY_ATTRIBUTION_429.md`
+- `frontend/src/api/admin/accounts.ts`
+- `frontend/src/api/admin/affiliates.ts`
+- `frontend/src/api/admin/backup.ts`
+- `frontend/src/api/admin/ops.ts`
+- `frontend/src/api/admin/settings.ts`
+- `frontend/src/api/admin/users.ts`
+- `frontend/src/components/account/AccountStatusIndicator.vue`
+- `frontend/src/components/account/AccountUsageCell.vue`
+- `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/components/account/TempUnschedStatusModal.vue`
+- `frontend/src/components/account/__tests__/AccountUsageCell.spec.ts`
+- `frontend/src/components/admin/channel/IntervalRow.vue`
+- `frontend/src/components/admin/channel/ModelTagInput.vue`
+- `frontend/src/components/admin/channel/__tests__/ModelTagInput.keyboard.spec.ts`
+- `frontend/src/components/admin/group/GroupRPMOverridesModal.vue`
+- `frontend/src/components/admin/group/GroupRateMultipliersModal.vue`
+- `frontend/src/components/admin/monitor/MonitorTemplateApplyPickerDialog.vue`
+- `frontend/src/components/admin/user/GroupReplaceModal.vue`
+- `frontend/src/components/admin/user/UserAllowedGroupsModal.vue`
+- `frontend/src/components/admin/user/UserApiKeysModal.vue`
+- `frontend/src/components/admin/user/UserBalanceHistoryModal.vue`
+- `frontend/src/components/admin/user/UserBalanceModal.vue`
+- `frontend/src/components/admin/user/UserPlatformQuotaModal.vue`
+- `frontend/src/components/admin/user/__tests__/UserPlatformQuotaModal.spec.ts`
+- `frontend/src/components/channels/SupportedModelChip.vue`
+- `frontend/src/components/channels/__tests__/SupportedModelChip.spec.ts`
+- `frontend/src/components/common/DateRangePicker.vue`
+- `frontend/src/components/common/ImageUpload.vue`
+- `frontend/src/components/common/SearchInput.vue`
+- `frontend/src/components/common/Select.vue`
+- `frontend/src/components/common/SubscriptionProgressMini.vue`
+- `frontend/src/components/keys/UseKeyModal.vue`
+- `frontend/src/components/keys/__tests__/UseKeyModal.spec.ts`
+- `frontend/src/components/payment/PaymentProviderDialog.vue`
+- `frontend/src/components/payment/__tests__/PaymentProviderDialog.spec.ts`
+- `frontend/src/components/user/MonitorDetailDialog.vue`
+- `frontend/src/components/user/UserAttributeForm.vue`
+- `frontend/src/components/user/UserAttributesConfigModal.vue`
+- `frontend/src/components/user/UserErrorDetailModal.vue`
+- `frontend/src/components/user/profile/ProfileInfoCard.vue`
+- `frontend/src/components/user/profile/TotpDisableDialog.vue`
+- `frontend/src/components/user/profile/TotpSetupModal.vue`
+- `frontend/src/components/user/profile/__tests__/ProfileInfoCard.spec.ts`
+- `frontend/src/components/user/profile/__tests__/totp-timer-cleanup.spec.ts`
+- `frontend/src/composables/__tests__/useModelWhitelist.spec.ts`
+- `frontend/src/composables/useAutoRefresh.ts`
+- `frontend/src/composables/useModelWhitelist.ts`
+- `frontend/src/i18n/locales/en/admin/accounts.ts`
+- `frontend/src/i18n/locales/en/admin/channels.ts`
+- `frontend/src/i18n/locales/en/admin/ops.ts`
+- `frontend/src/i18n/locales/en/admin/overview.ts`
+- `frontend/src/i18n/locales/en/admin/settings.ts`
+- `frontend/src/i18n/locales/en/dashboard.ts`
+- `frontend/src/i18n/locales/zh/admin/accounts.ts`
+- `frontend/src/i18n/locales/zh/admin/channels.ts`
+- `frontend/src/i18n/locales/zh/admin/ops.ts`
+- `frontend/src/i18n/locales/zh/admin/overview.ts`
+- `frontend/src/i18n/locales/zh/admin/settings.ts`
+- `frontend/src/i18n/locales/zh/dashboard.ts`
+- `frontend/src/stores/adminSettings.ts`
+- `frontend/src/stores/announcements.ts`
+- `frontend/src/types/index.ts`
+- `frontend/src/utils/__tests__/ccswitchImport.spec.ts`
+- `frontend/src/utils/ccswitchImport.ts`
+- `frontend/src/utils/proxyExpiry.ts`
+- `frontend/src/views/admin/BackupView.vue`
+- `frontend/src/views/admin/SettingsView.vue`
+- `frontend/src/views/admin/UsersView.vue`
+- `frontend/src/views/admin/__tests__/BackupView.spec.ts`
+- `frontend/src/views/admin/__tests__/SettingsView.spec.ts`
+- `frontend/src/views/admin/__tests__/UsersView.spec.ts`
+- `frontend/src/views/admin/affiliates/AdminAffiliateRecordsTable.vue`
+- `frontend/src/views/admin/ops/components/OpsSystemLogTable.vue`
+- `frontend/src/views/admin/ops/components/__tests__/OpsSystemLogTable.spec.ts`
+- `frontend/src/views/user/ChannelStatusV1View.vue`
+- `frontend/src/views/user/UsageView.vue`
+- `frontend/src/views/user/__tests__/ChannelStatusV1View.refresh.spec.ts`
+- `frontend/src/views/user/__tests__/UsageView.spec.ts`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
+### 2026-09-23: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `backend/internal/handler/admin/account_opencode_go_usage.go`
+- `backend/internal/handler/admin/account_opencode_go_usage_test.go`
+- `backend/internal/handler/admin/affiliate_handler_withdraw_test.go`
+- `backend/internal/handler/admin/setting_handler_oauth_rate_test.go`
+- `backend/internal/handler/dto/account_list_item_opencode_usage_test.go`
+- `backend/internal/handler/openai_images_balance_test.go`
+- `backend/internal/pkg/antigravity/schema_cleaner_test.go`
+- `backend/internal/pkg/claude/cli_version_runtime.go`
+- `backend/internal/pkg/claude/cli_version_runtime_test.go`
+- `backend/internal/repository/account_repo_opencode_go_usage.go`
+- `backend/internal/repository/account_repo_opencode_go_usage_integration_test.go`
+- `backend/internal/repository/account_repo_opencode_go_usage_test.go`
+- `backend/internal/repository/http_upstream_billing_lifecycle_test.go`
+- `backend/internal/repository/http_upstream_body_lifecycle_test.go`
+- `backend/internal/repository/proxy_expiry_renewal_integration_test.go`
+- `backend/internal/repository/proxy_inactive_backup_integration_test.go`
+- `backend/internal/repository/proxy_restore_probe_integration_test.go`
+- `backend/internal/repository/redeem_reduction_lock_integration_test.go`
+- `backend/internal/repository/redeem_reduction_remainder_integration_test.go`
+- `backend/internal/repository/request_log_retention_integration_test.go`
+- `backend/internal/repository/simple_mode_startup_test.go`
+- `backend/internal/server/routes/composite_images_compatible_test.go`
+- `backend/internal/service/backup_recovery_test.go`
+- `backend/internal/service/backup_restore_state.go`
+- `backend/internal/service/backup_retention.go`
+- `backend/internal/service/backup_retention_test.go`
+- `backend/internal/service/billing_cache_service_simple_mode_test.go`
+- `backend/internal/service/claude_code_version_sync_service.go`
+- `backend/internal/service/claude_code_version_sync_service_test.go`
+- `backend/internal/service/gateway_cli_version_runtime_test.go`
+- `backend/internal/service/gateway_simple_mode_record_usage_test.go`
+- `backend/internal/service/gateway_thinking_budget_test.go`
+- `backend/internal/service/gateway_usage_billing_simple_mode_test.go`
+- `backend/internal/service/gemini_upstream_transport_error.go`
+- `backend/internal/service/gemini_upstream_transport_error_test.go`
+- `backend/internal/service/grok_quota_cooldown_test.go`
+- `backend/internal/service/openai_codex_turn_metadata.go`
+- `backend/internal/service/openai_codex_turn_metadata_test.go`
+- `backend/internal/service/openai_gateway_deepseek_input_image_test.go`
+- `backend/internal/service/openai_images_balance.go`
+- `backend/internal/service/openai_images_balance_test.go`
+- `backend/internal/service/openai_images_compatible_test.go`
+- `backend/internal/service/openai_legacy_scheduler_decision_test.go`
+- `backend/internal/service/openai_lite_mapped_gpt55.go`
+- `backend/internal/service/openai_lite_mapped_gpt55_test.go`
+- `backend/internal/service/openai_scheduling_rate_fallback_test.go`
+- `backend/internal/service/opencode_go_usage.go`
+- `backend/internal/service/opencode_go_usage_test.go`
+- `backend/internal/service/redeem_subscription_reduction_lock_test.go`
+- `backend/internal/service/redeem_subscription_reduction_remainder_test.go`
+- `backend/internal/service/request_log_retention_test.go`
+- `backend/internal/service/setting_claude_code_version_test.go`
+- `backend/migrations/240_affiliate_ledger_operation_id.sql`
+- `deploy/tests/docker-compose-simple-mode-env-test.sh`
+- `frontend/src/api/__tests__/admin.accounts.opencodeGoUsage.spec.ts`
+- `frontend/src/components/account/OpenCodeGoUsageCell.vue`
+- `frontend/src/components/account/__tests__/OpenCodeGoUsageCell.spec.ts`
+- `frontend/src/components/account/__tests__/TempUnschedStatusModal.spec.ts`
+- `frontend/src/components/admin/BackupArchiveSettings.vue`
+- `frontend/src/components/admin/channel/__tests__/IntervalRow.spec.ts`
+- `frontend/src/components/admin/group/__tests__/GroupRPMOverridesModal.spec.ts`
+- `frontend/src/components/admin/group/__tests__/GroupRateMultipliersModal.spec.ts`
+- `frontend/src/components/admin/monitor/__tests__/MonitorTemplateApplyPickerDialog.spec.ts`
+- `frontend/src/components/admin/user/__tests__/GroupReplaceModal.spec.ts`
+- `frontend/src/components/admin/user/__tests__/UserAllowedGroupsModal.spec.ts`
+- `frontend/src/components/admin/user/__tests__/UserApiKeysModal.spec.ts`
+- `frontend/src/components/admin/user/__tests__/UserBalanceHistoryModal.spec.ts`
+- `frontend/src/components/admin/user/__tests__/UserBalanceModal.spec.ts`
+- `frontend/src/components/common/__tests__/BaseDialog.scrollLock.spec.ts`
+- `frontend/src/components/common/__tests__/DateRangePicker.dismiss.spec.ts`
+- `frontend/src/components/common/__tests__/DateRangePicker.midnight.spec.ts`
+- `frontend/src/components/common/__tests__/ImageUpload.readOrder.spec.ts`
+- `frontend/src/components/common/__tests__/SearchInput.spec.ts`
+- `frontend/src/components/common/__tests__/Select.keyboard.spec.ts`
+- `frontend/src/components/common/__tests__/Select.searchHighlight.spec.ts`
+- `frontend/src/components/common/__tests__/SubscriptionProgressMini.spec.ts`
+- `frontend/src/components/user/__tests__/MonitorDetailDialog.spec.ts`
+- `frontend/src/components/user/__tests__/UserAttributeForm.race.spec.ts`
+- `frontend/src/components/user/__tests__/UserAttributeForm.spec.ts`
+- `frontend/src/components/user/__tests__/UserAttributesConfigModal.spec.ts`
+- `frontend/src/components/user/__tests__/UserErrorDetailModal.spec.ts`
+- `frontend/src/composables/__tests__/antigravityMappings.retry.spec.ts`
+- `frontend/src/stores/__tests__/adminSettings.retry.spec.ts`
+- `frontend/src/stores/__tests__/announcements.fetch.spec.ts`
+- `frontend/src/utils/__tests__/ccswitchImport.antigravityUrl.spec.ts`
+- `frontend/src/utils/__tests__/proxyExpiry.boundary.spec.ts`
+- `frontend/src/views/admin/affiliates/AffiliateOfflineWithdrawDialog.vue`
+- `frontend/src/views/admin/affiliates/__tests__/AdminAffiliateRecordsTable.spec.ts`
+- `frontend/src/views/admin/affiliates/__tests__/AffiliateOfflineWithdrawDialog.spec.ts`
+- `frontend/src/views/admin/affiliates/__tests__/affiliateWithdrawOperation.spec.ts`
+- `frontend/src/views/admin/affiliates/affiliateWithdrawOperation.ts`
+- `frontend/src/views/admin/ops/components/LogRetentionSelect.vue`
 
 **验证：**
 
