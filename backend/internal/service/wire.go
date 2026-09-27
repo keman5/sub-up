@@ -109,6 +109,18 @@ func ProvideAnnouncementUserRepository(userRepo UserRepository) AnnouncementUser
 	return userRepo
 }
 
+func ProvideAnnouncementService(
+	announcementRepo AnnouncementRepository,
+	readRepo AnnouncementReadRepository,
+	userRepo AnnouncementUserRepository,
+	userSubRepo UserSubscriptionRepository,
+	notificationEmailService *NotificationEmailService,
+) *AnnouncementService {
+	svc := NewAnnouncementService(announcementRepo, readRepo, userRepo, userSubRepo)
+	svc.SetNotificationEmailService(notificationEmailService)
+	return svc
+}
+
 func ProvideBatchImageModelPricingResolver(resolver *ModelPricingResolver) *BatchImageModelPricingResolver {
 	return &BatchImageModelPricingResolver{Resolver: resolver}
 }
@@ -879,7 +891,7 @@ var ProviderSet = wire.NewSet(
 	ProvidePricingService,
 	NewBillingService,
 	ProvideBillingCacheService,
-	NewAnnouncementService,
+	ProvideAnnouncementService,
 	ProvideAnnouncementUserRepository,
 	NewAdminService,
 	NewGatewayService,

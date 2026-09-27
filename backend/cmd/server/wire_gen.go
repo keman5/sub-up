@@ -175,7 +175,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	announcementRepository := repository.NewAnnouncementRepository(client)
 	announcementReadRepository := repository.NewAnnouncementReadRepository(client)
 	announcementUserRepository := service.ProvideAnnouncementUserRepository(userRepository)
-	announcementService := service.NewAnnouncementService(announcementRepository, announcementReadRepository, announcementUserRepository, userSubscriptionRepository)
+	announcementService := service.ProvideAnnouncementService(announcementRepository, announcementReadRepository, announcementUserRepository, userSubscriptionRepository, notificationEmailService)
 	announcementHandler := handler.NewAnnouncementHandler(announcementService)
 	channelMonitorRepository := repository.NewChannelMonitorRepository(client, db)
 	channelMonitorService := service.ProvideChannelMonitorService(channelMonitorRepository, secretEncryptor, settingService)
