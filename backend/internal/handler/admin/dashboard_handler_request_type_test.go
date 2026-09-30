@@ -236,6 +236,7 @@ func (s *dashboardUsageRepoCapture) GetUserUsageTrendForView(
 	startTime, endTime time.Time,
 	granularity string,
 	limit int,
+	metric string,
 	usePresentation bool,
 ) ([]usagestats.UserUsageTrendPoint, error) {
 	s.usersTrendViewCalled = true

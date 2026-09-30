@@ -375,16 +375,19 @@ func (r *usageLogRepository) GetAPIKeyUsageTrendForView(ctx context.Context, sta
 	return results, rows.Err()
 }
 
-func (r *usageLogRepository) GetUserUsageTrendForView(ctx context.Context, startTime, endTime time.Time, granularity string, limit int, usePresentation bool) (results []UserUsageTrendPoint, err error) {
+func (r *usageLogRepository) GetUserUsageTrendForView(ctx context.Context, startTime, endTime time.Time, granularity string, limit int, metric string, usePresentation bool) (results []UserUsageTrendPoint, err error) {
 	if !usePresentation {
-		return r.GetUserUsageTrend(ctx, startTime, endTime, granularity, limit)
+		return r.GetUserUsageTrend(ctx, startTime, endTime, granularity, limit, metric)
 	}
 	dateFormat := safeDateFormat(granularity)
 	presentationFactor := usagePresentationFactorSQL("u.", true)
 	totalTokensExpr := usagePresentationTotalTokensSQL("u.", presentationFactor)
 	totalCostExpr := usagePresentationCostSQL("u.total_cost", presentationFactor)
 	actualCostExpr := usagePresentationCostSQL("u.actual_cost", presentationFactor)
-	topTokensExpr := usagePresentationTotalTokensSQL("", usagePresentationFactorSQL("", true))
+	topMetricExpr := usagePresentationTotalTokensSQL("", usagePresentationFactorSQL("", true))
+	if metric == "actual_cost" {
+		topMetricExpr = usagePresentationCostSQL("actual_cost", usagePresentationFactorSQL("", true))
+	}
 
 	query := fmt.Sprintf(`
 		WITH top_users AS (
@@ -410,7 +413,7 @@ func (r *usageLogRepository) GetUserUsageTrendForView(ctx context.Context, start
 		  AND u.created_at >= $4 AND u.created_at < $5
 		GROUP BY date, u.user_id, us.email, us.username
 		ORDER BY date ASC, tokens DESC
-	`, topTokensExpr, dateFormat, totalTokensExpr, totalCostExpr, actualCostExpr)
+	`, topMetricExpr, dateFormat, totalTokensExpr, totalCostExpr, actualCostExpr)
 	rows, err := r.sql.QueryContext(ctx, query, startTime, endTime, limit, startTime, endTime)
 	if err != nil {
 		return nil, err

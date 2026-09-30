@@ -1718,7 +1718,7 @@ pnpm --dir frontend run build
 **自动记录：**
 
 - 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 本条已补充具体验证命令和同步复查边界。
 
 **涉及文件：**
 
@@ -1744,7 +1744,7 @@ pnpm --dir frontend exec vitest run src/views/admin/__tests__/AccountsView.manua
 **自动记录：**
 
 - 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 本条已补充具体验证命令和同步复查边界。
 
 **涉及文件：**
 
@@ -1774,7 +1774,7 @@ cd backend && go test ./internal/service ./internal/handler ./internal/server/mi
 **自动记录：**
 
 - 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 本条已补充具体验证命令和同步复查边界。
 
 **涉及文件：**
 
@@ -1783,19 +1783,20 @@ cd backend && go test ./internal/service ./internal/handler ./internal/server/mi
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+git check-ignore -v .pnpm-store/store.json __pycache__/probe.py .wrangler/state.json
+git diff --check
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 同步后检查 `.pnpm-store/`、Python 缓存和 `.wrangler/` 仍不会进入版本库；若上游已有等价忽略规则，可删除重复项。运行上述 `git check-ignore` 与 `git diff --check`。
 
 ### 2026-09-23: 自动记录本地改动
 
 **自动记录：**
 
 - 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 本条已补充具体验证命令和同步复查边界。
 
 **涉及文件：**
 
@@ -2070,19 +2071,23 @@ TODO: 填写验证命令
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+make test
+make secret-scan
+pnpm --dir frontend run typecheck
+pnpm --dir frontend run build
+tools/fork-maintenance/fork-maintenance.sh verify-after-upstream
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 按本条涉及文件与月度维护记录逐项重建上游能力、产品面和本地差异表；重点复查 Wire 注入、用量展示倍率、账号运行态、网关接力、Pages/VPS 路由、统一弹窗和 CC Switch 导入。仅在上游行为等价且上述全量检查、专项回归与部署静态护栏均通过后删除对应本地补丁。
 
 ### 2026-09-23: 自动记录本地改动
 
 **自动记录：**
 
 - 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 本条已补充具体验证命令和同步复查边界。
 
 **涉及文件：**
 
@@ -2182,12 +2187,16 @@ TODO: 填写验证命令
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+make test
+make secret-scan
+pnpm --dir frontend run typecheck
+pnpm --dir frontend run build
+tools/fork-maintenance/fork-maintenance.sh verify-after-upstream
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 搜索 `OpenCodeGoUsage`、`AffiliateOfflineWithdrawDialog`、`BaseDialog`、`LogRetentionSelect`、`CC_SWITCH_USAGE_SCRIPT` 与对应测试，确认上游同步没有删除本地运行态、交互和边界回归。只有上游提供等价实现并通过本条全量检查与专项测试时，才可按功能逐项删除本地补丁。
 
 ## 同步官方版本后的复查流程
 

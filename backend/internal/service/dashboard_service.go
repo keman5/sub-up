@@ -71,7 +71,7 @@ type batchAPIKeyUsageWithViewRepository interface {
 
 type entityTrendWithViewRepository interface {
 	GetAPIKeyUsageTrendForView(ctx context.Context, startTime, endTime time.Time, granularity string, limit int, usePresentation bool) ([]usagestats.APIKeyUsageTrendPoint, error)
-	GetUserUsageTrendForView(ctx context.Context, startTime, endTime time.Time, granularity string, limit int, usePresentation bool) ([]usagestats.UserUsageTrendPoint, error)
+	GetUserUsageTrendForView(ctx context.Context, startTime, endTime time.Time, granularity string, limit int, metric string, usePresentation bool) ([]usagestats.UserUsageTrendPoint, error)
 }
 
 type dashboardStatsCacheEntry struct {
@@ -546,23 +546,23 @@ func (s *DashboardService) GetAPIKeyUsageTrendForView(ctx context.Context, start
 	return s.GetAPIKeyUsageTrend(ctx, startTime, endTime, granularity, limit)
 }
 
-func (s *DashboardService) GetUserUsageTrend(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) ([]usagestats.UserUsageTrendPoint, error) {
-	trend, err := s.usageRepo.GetUserUsageTrend(ctx, startTime, endTime, granularity, limit)
+func (s *DashboardService) GetUserUsageTrend(ctx context.Context, startTime, endTime time.Time, granularity string, limit int, metric string) ([]usagestats.UserUsageTrendPoint, error) {
+	trend, err := s.usageRepo.GetUserUsageTrend(ctx, startTime, endTime, granularity, limit, metric)
 	if err != nil {
 		return nil, fmt.Errorf("get user usage trend: %w", err)
 	}
 	return trend, nil
 }
 
-func (s *DashboardService) GetUserUsageTrendForView(ctx context.Context, startTime, endTime time.Time, granularity string, limit int, usePresentation bool) ([]usagestats.UserUsageTrendPoint, error) {
+func (s *DashboardService) GetUserUsageTrendForView(ctx context.Context, startTime, endTime time.Time, granularity string, limit int, metric string, usePresentation bool) ([]usagestats.UserUsageTrendPoint, error) {
 	if repo, ok := s.usageRepo.(entityTrendWithViewRepository); ok {
-		trend, err := repo.GetUserUsageTrendForView(ctx, startTime, endTime, granularity, limit, usePresentation)
+		trend, err := repo.GetUserUsageTrendForView(ctx, startTime, endTime, granularity, limit, metric, usePresentation)
 		if err != nil {
 			return nil, fmt.Errorf("get user usage trend: %w", err)
 		}
 		return trend, nil
 	}
-	return s.GetUserUsageTrend(ctx, startTime, endTime, granularity, limit)
+	return s.GetUserUsageTrend(ctx, startTime, endTime, granularity, limit, metric)
 }
 
 func (s *DashboardService) GetUserSpendingRanking(ctx context.Context, startTime, endTime time.Time, limit int) (*usagestats.UserSpendingRankingResponse, error) {
