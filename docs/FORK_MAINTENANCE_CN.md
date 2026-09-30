@@ -2198,6 +2198,30 @@ tools/fork-maintenance/fork-maintenance.sh verify-after-upstream
 
 - 搜索 `OpenCodeGoUsage`、`AffiliateOfflineWithdrawDialog`、`BaseDialog`、`LogRetentionSelect`、`CC_SWITCH_USAGE_SCRIPT` 与对应测试，确认上游同步没有删除本地运行态、交互和边界回归。只有上游提供等价实现并通过本条全量检查与专项测试时，才可按功能逐项删除本地补丁。
 
+### 2026-09-30: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `backend/internal/handler/gemini_v1beta_handler.go`
+- `backend/internal/service/billing_cache_service.go`
+- `docs/fork-maintenance/2026-09.md`
+- `frontend/src/views/admin/__tests__/SettingsView.spec.ts`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：

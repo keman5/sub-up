@@ -1675,7 +1675,7 @@ describe("admin SettingsView OpenAI Fast/Flex allowlists", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("admin.settings.openaiFastPolicy.accountAllowlist");
-    expect(wrapper.findAll(".openai-fast-policy-user-selector-stub")).toHaveLength(2);
+    expect(wrapper.findAll(".openai-fast-policy-user-selector-stub")).toHaveLength(3);
 
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();

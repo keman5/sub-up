@@ -1351,17 +1351,6 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 	return nil
 }
 
-// withWindowResetsMetadata 给 quota error 附加 window_resets_at metadata（RFC3339）。
-func withWindowResetsMetadata(err error, resetAt time.Time) error {
-	appErr, ok := err.(*infraerrors.ApplicationError)
-	if !ok || appErr == nil {
-		return err
-	}
-	return appErr.WithMetadata(map[string]string{
-		"window_resets_at": resetAt.Format(time.RFC3339),
-	})
-}
-
 // nextDailyReset 计算下一个日窗口起点（次日全局时区 0 点）。
 // 必须与 timezone.StartOfDay 同口径，否则 Retry-After 会偏差。
 func nextDailyReset(now time.Time) time.Time {
