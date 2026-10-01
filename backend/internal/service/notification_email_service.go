@@ -1334,8 +1334,7 @@ var notificationEmailOfficialTemplates = map[string]map[string]notificationEmail
 <p>Hello {{recipient_name}},</p>
 <p>A new announcement has been published:</p>
 <p><strong>{{announcement_title}}</strong></p>
-<p style="white-space: pre-wrap;">{{announcement_content}}</p>
-<p><a class="button" href="{{announcement_url}}">View announcement</a></p>`),
+<p style="white-space: pre-wrap;">{{announcement_content}}</p>`),
 		},
 		notificationEmailLocaleChinese: {
 			Subject: "[{{site_name}}] {{announcement_title}}",
@@ -1343,8 +1342,7 @@ var notificationEmailOfficialTemplates = map[string]map[string]notificationEmail
 <p>{{recipient_name}}，您好：</p>
 <p>有一条新的系统公告：</p>
 <p><strong>{{announcement_title}}</strong></p>
-<p style="white-space: pre-wrap;">{{announcement_content}}</p>
-<p><a class="button" href="{{announcement_url}}">查看公告</a></p>`),
+<p style="white-space: pre-wrap;">{{announcement_content}}</p>`),
 		},
 	},
 	NotificationEmailEventBalanceLow: {
