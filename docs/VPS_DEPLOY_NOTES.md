@@ -2,6 +2,8 @@
 
 本文记录将当前 `sub2api` 服务部署到 VPS 时遇到的问题、判断方法和可复用处理方案。当前线上以后端容器 `sub2api`、`sub2api-ap1`、`sub2api-test` 和 Cloudflare Pages 前台为准。
 
+> 2026-10-09：按用户要求下线 test 前后端。`sub2api-test` 已停止，容器及 `/opt/sub2api-test-deploy/docker-compose.yml` 的 restart 均为 `no`，8083 不再监听。Cloudflare Pages 项目 `sub2api-frontend-test` 当前生产部署为 `547cf622`，所有路径返回 HTTP 410；`test.upit.top`、项目默认 `pages.dev` 域名及 Caddy 的 `a2t.upit.top` / `test.51tokens.upit.top` 入口均已配置下线响应。共享 PostgreSQL、Redis 和其他应用继续运行，test 数据保留。原 Compose / Caddy 配置备份在 VPS `/opt/sub2api-test-offline-backup-20261009`，原 Pages 生产部署 ID 为 `a7314691-fd1e-4658-bceb-3d60f08d5900`。本文下方关于 test 常开、不可关闭和 test-first 部署的说明均为历史记录；后续发布须跳过已下线的 test，恢复服务需用户明确要求。
+
 > 注意：不要把 `SQL_DSN`、`SESSION_SECRET`、`CRYPTO_SECRET`、Redis 密码等环境变量写入文档、聊天记录或公开日志。排障时只确认变量是否存在，避免展开具体值。
 
 ***

@@ -2296,6 +2296,167 @@ go test -tags=unit ./internal/service ./internal/handler/admin -run 'Test(EmailB
 go test -tags=unit ./internal/service ./internal/handler/admin -run 'Test(.*Email|.*SMTP|.*Setting|.*Notification|.*ContentModeration|.*OpsAlert|.*AccountPoolHealth)' -count=1
 ```
 
+### 2026-10-09: 自动记录本地改动
+
+**自动记录：**
+
+- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
+- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+
+**涉及文件：**
+
+- `.github/workflows/backend-ci.yml`
+- `.github/workflows/release.yml`
+- `.github/workflows/security-scan.yml`
+- `Dockerfile`
+- `Makefile`
+- `backend/.golangci.yml`
+- `backend/Dockerfile`
+- `backend/cmd/server/VERSION`
+- `backend/ent/runtime/runtime.go`
+- `backend/ent/schema/composite_model_route.go`
+- `backend/ent/schema/user_platform_quota.go`
+- `backend/go.mod`
+- `backend/go.sum`
+- `backend/internal/domain/constants.go`
+- `backend/internal/domain/platforms.go`
+- `backend/internal/domain/platforms_test.go`
+- `backend/internal/handler/admin/account_handler.go`
+- `backend/internal/handler/admin/channel_handler.go`
+- `backend/internal/handler/admin/group_handler.go`
+- `backend/internal/handler/admin/group_handler_platform_test.go`
+- `backend/internal/handler/admin/platform_validation.go`
+- `backend/internal/handler/gateway_handler.go`
+- `backend/internal/handler/openai_gateway_handler.go`
+- `backend/internal/model/error_passthrough_rule.go`
+- `backend/internal/model/error_passthrough_rule_test.go`
+- `backend/internal/repository/platform_list_db_integration_test.go`
+- `backend/internal/repository/user_platform_quota_repo.go`
+- `backend/internal/server/api_contract_test.go`
+- `backend/internal/server/routes/gateway.go`
+- `backend/internal/service/account.go`
+- `backend/internal/service/account_header_override.go`
+- `backend/internal/service/account_scheduling_threshold_eval.go`
+- `backend/internal/service/account_service.go`
+- `backend/internal/service/account_test_service.go`
+- `backend/internal/service/account_test_service_cn_adaptive.go`
+- `backend/internal/service/admin_account.go`
+- `backend/internal/service/admin_group.go`
+- `backend/internal/service/anthropic_apikey_auth.go`
+- `backend/internal/service/auth_service.go`
+- `backend/internal/service/channel_service.go`
+- `backend/internal/service/channel_service_test.go`
+- `backend/internal/service/cline.go`
+- `backend/internal/service/cline_test.go`
+- `backend/internal/service/cline_usage.go`
+- `backend/internal/service/cn_provider_balance_check_service.go`
+- `backend/internal/service/cn_provider_balance_service.go`
+- `backend/internal/service/cn_provider_quota_service.go`
+- `backend/internal/service/cn_providers_test.go`
+- `backend/internal/service/command_code.go`
+- `backend/internal/service/command_code_test.go`
+- `backend/internal/service/command_code_usage.go`
+- `backend/internal/service/command_code_usage_test.go`
+- `backend/internal/service/composite_platform.go`
+- `backend/internal/service/composite_platform_test.go`
+- `backend/internal/service/domain_constants.go`
+- `backend/internal/service/model_protocol_catalog.go`
+- `backend/internal/service/model_protocol_catalog_test.go`
+- `backend/internal/service/model_rate_limit.go`
+- `backend/internal/service/openai_apikey_responses_probe.go`
+- `backend/internal/service/openai_codex_transform.go`
+- `backend/internal/service/openai_gateway_chat_completions.go`
+- `backend/internal/service/openai_gateway_count_tokens.go`
+- `backend/internal/service/openai_gateway_forward.go`
+- `backend/internal/service/openai_gateway_messages.go`
+- `backend/internal/service/openai_gateway_messages_anthropic_native.go`
+- `backend/internal/service/openai_gateway_passthrough.go`
+- `backend/internal/service/openai_gateway_provider_claude_billing_test.go`
+- `backend/internal/service/openai_gateway_request_body.go`
+- `backend/internal/service/openai_gateway_scheduling.go`
+- `backend/internal/service/openai_oauth_web_search_history.go`
+- `backend/internal/service/openai_oauth_web_search_history_forward_test.go`
+- `backend/internal/service/openai_oauth_web_search_history_test.go`
+- `backend/internal/service/opencode_go.go`
+- `backend/internal/service/opencode_go_test.go`
+- `backend/internal/service/opencode_unsupported_models_routing_test.go`
+- `backend/internal/service/opencode_unsupported_models_test.go`
+- `backend/internal/service/platform_catalog.go`
+- `backend/internal/service/platform_catalog_test.go`
+- `backend/internal/service/platform_list_test.go`
+- `backend/internal/service/provider_profile.go`
+- `backend/internal/service/provider_profile_test.go`
+- `backend/internal/service/ratelimit_cline.go`
+- `backend/internal/service/ratelimit_cline_test.go`
+- `backend/internal/service/ratelimit_cn_providers.go`
+- `backend/internal/service/ratelimit_command_code.go`
+- `backend/internal/service/ratelimit_service.go`
+- `backend/internal/service/scheduler_snapshot_service.go`
+- `backend/internal/service/testdata/record_upstream_protocol_routing_main.py`
+- `backend/internal/service/testdata/upstream_protocol_routing_main_golden.json`
+- `backend/internal/service/upstream_billing_probe.go`
+- `backend/internal/service/upstream_models.go`
+- `backend/internal/service/upstream_protocol_routing.go`
+- `backend/internal/service/upstream_protocol_routing_matrix_test.go`
+- `backend/internal/service/upstream_protocol_routing_test.go`
+- `backend/migrations/242_drop_platform_check_constraints.sql`
+- `backend/migrations/platform_check_constraints_drop_migration_test.go`
+- `deploy/Dockerfile`
+- `docs/VPS_DEPLOY_NOTES.md`
+- `frontend/src/api/__tests__/settings.authSourceDefaults.spec.ts`
+- `frontend/src/api/admin/cnProviders.ts`
+- `frontend/src/api/admin/settings.ts`
+- `frontend/src/api/admin/users.ts`
+- `frontend/src/components/account/AccountUsageCell.vue`
+- `frontend/src/components/account/CNProviderBalanceCell.vue`
+- `frontend/src/components/account/CNProviderQuotaCell.vue`
+- `frontend/src/components/account/CreateAccountModal.vue`
+- `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/components/account/ModelWhitelistSelector.vue`
+- `frontend/src/components/account/OpenCodeGoProtocolRulesEditor.vue`
+- `frontend/src/components/account/__tests__/AccountUsageCell.spec.ts`
+- `frontend/src/components/account/__tests__/CreateAccountModal.spec.ts`
+- `frontend/src/components/account/__tests__/EditAccountModal.spec.ts`
+- `frontend/src/components/account/__tests__/ModelWhitelistSelector.spec.ts`
+- `frontend/src/components/account/__tests__/OpenCodeGoProtocolRulesEditor.spec.ts`
+- `frontend/src/components/account/__tests__/credentialsBuilder.platformCatalog.spec.ts`
+- `frontend/src/components/account/__tests__/credentialsBuilder.spec.ts`
+- `frontend/src/components/account/credentialsBuilder.ts`
+- `frontend/src/components/admin/group/GroupRPMOverridesModal.vue`
+- `frontend/src/components/admin/group/GroupRateMultipliersModal.vue`
+- `frontend/src/components/admin/user/UserPlatformQuotaModal.vue`
+- `frontend/src/components/admin/user/__tests__/UserPlatformQuotaModal.spec.ts`
+- `frontend/src/components/common/PlatformIcon.vue`
+- `frontend/src/components/keys/UseKeyModal.vue`
+- `frontend/src/components/keys/__tests__/UseKeyModal.spec.ts`
+- `frontend/src/components/user/UserPlatformQuotaCell.vue`
+- `frontend/src/composables/__tests__/useModelWhitelist.spec.ts`
+- `frontend/src/composables/useModelWhitelist.ts`
+- `frontend/src/constants/__tests__/platforms.spec.ts`
+- `frontend/src/constants/platformCatalog.builtin.json`
+- `frontend/src/constants/platformCatalog.ts`
+- `frontend/src/constants/platforms.ts`
+- `frontend/src/i18n/locales/en/admin/accounts.ts`
+- `frontend/src/i18n/locales/zh/admin/accounts.ts`
+- `frontend/src/types/index.ts`
+- `frontend/src/utils/keyGroupProviders.ts`
+- `frontend/src/utils/platformColors.ts`
+- `frontend/src/views/admin/ChannelsView.vue`
+- `frontend/src/views/admin/GroupsView.vue`
+- `frontend/src/views/admin/SettingsView.vue`
+- `frontend/src/views/admin/__tests__/ChannelsView.modelSync.spec.ts`
+- `frontend/src/views/admin/__tests__/channelPlatformOptions.spec.ts`
+
+**验证：**
+
+```bash
+TODO: 填写验证命令
+```
+
+**同步官方后的复查：**
+
+- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+
 ## 同步官方版本后的复查流程
 
 1. 记录当前 fork 状态：
