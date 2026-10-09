@@ -238,7 +238,11 @@ func (s *SubscriptionExpiryService) sendExpiredAdminNotificationBatch(ctx contex
 				"expired_subscriptions": renderExpiredAdminNotificationRows(rows),
 			},
 		}); err != nil {
-			log.Printf("[SubscriptionExpiry] Send expired admin notification failed: count=%d recipient=%s err=%v", len(rows), recipient, err)
+			if errors.Is(err, ErrEmailBlocked) {
+				log.Printf("[SubscriptionExpiry] Expired admin notification blocked by keyword policy")
+			} else {
+				log.Printf("[SubscriptionExpiry] Send expired admin notification failed: count=%d recipient=%s err=%v", len(rows), recipient, err)
+			}
 		}
 	}
 }

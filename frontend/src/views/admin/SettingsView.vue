@@ -8513,6 +8513,38 @@
             </div>
           </div>
 
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.emailBlockedKeywords.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.emailBlockedKeywords.description") }}
+              </p>
+            </div>
+            <div class="space-y-2 p-6">
+              <label for="email-blocked-keywords" class="input-label">
+                {{ t("admin.settings.emailBlockedKeywords.label") }}
+              </label>
+              <textarea
+                id="email-blocked-keywords"
+                v-model="emailBlockedKeywordsInput"
+                class="input"
+                rows="5"
+                aria-describedby="email-blocked-keywords-hint"
+                :placeholder="t('admin.settings.emailBlockedKeywords.placeholder')"
+              ></textarea>
+              <p
+                id="email-blocked-keywords-hint"
+                class="text-xs text-gray-500 dark:text-gray-400"
+              >
+                {{ t("admin.settings.emailBlockedKeywords.hint") }}
+              </p>
+            </div>
+          </div>
+
           <!-- SMTP Settings - Only show when email verification is enabled -->
           <div v-if="form.email_verify_enabled" class="card">
             <div
@@ -9877,6 +9909,7 @@ const form = reactive<SettingsForm>({
   }>,
   frontend_url: "",
   smtp_host: "",
+  email_blocked_keywords: [],
   smtp_port: 587,
   smtp_username: "",
   smtp_password: "",
@@ -10106,6 +10139,13 @@ const riskControlAllowlistedUserIds = computed<number[]>({
   )),
   set: (ids) => {
     form.cyber_policy_user_allowlist = ids.join(",");
+  },
+});
+
+const emailBlockedKeywordsInput = computed({
+  get: () => form.email_blocked_keywords.join("\n"),
+  set: (value: string) => {
+    form.email_blocked_keywords = value.split(/\r?\n/);
   },
 });
 
@@ -11073,6 +11113,7 @@ async function loadSettings() {
       form.openai_oauth_scheduling_rate_multiplier = null;
     }
     syncCaptchaProviderSelection();
+    form.email_blocked_keywords = settings.email_blocked_keywords ?? [];
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
         defaultClaudeOAuthSystemPromptBlocks;
@@ -11548,6 +11589,9 @@ async function saveSettings() {
       custom_endpoints: form.custom_endpoints,
       frontend_url: form.frontend_url,
       smtp_host: form.smtp_host,
+      email_blocked_keywords: form.email_blocked_keywords
+        .map((keyword) => keyword.trim())
+        .filter(Boolean),
       smtp_port: form.smtp_port,
       smtp_username: form.smtp_username,
       smtp_password: form.smtp_password || undefined,

@@ -967,6 +967,13 @@ export default {
         zh: '中文',
         en: '英文'
       },
+      emailBlockedKeywords: {
+        title: '邮件关键词拦截',
+        description: '邮件标题或正文包含任一关键词子串时，该邮件不发送。',
+        label: '拦截关键词',
+        placeholder: '每行输入一个关键词',
+        hint: '每行一个关键词，忽略大小写；留空不过滤。保存后适用于所有邮件，包括验证码、密码重置、通知和测试邮件。'
+      },
       smtp: {
         title: 'SMTP 设置',
         description: '配置用于发送验证码的邮件服务',

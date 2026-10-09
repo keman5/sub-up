@@ -38,6 +38,7 @@ type SystemSettings struct {
 	SMTPFrom                       string
 	SMTPFromName                   string
 	SMTPUseTLS                     bool
+	EmailBlockedKeywords           []string
 	NotificationEmailDefaultLocale string
 
 	TurnstileEnabled                       bool

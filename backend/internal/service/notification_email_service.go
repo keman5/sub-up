@@ -221,7 +221,7 @@ func notificationEmailDeliveryErr(err error) error {
 }
 
 func shouldFallbackNotificationEmail(err error) bool {
-	if err == nil {
+	if err == nil || errors.Is(err, ErrEmailBlocked) {
 		return false
 	}
 	var templateErr notificationEmailTemplateError
@@ -425,6 +425,9 @@ func (s *NotificationEmailService) Send(ctx context.Context, input NotificationE
 		return notificationEmailConfigErr(errors.New("email service is not configured"))
 	}
 	if err := s.emailService.SendEmail(ctx, recipient, rendered.Subject, rendered.HTML); err != nil {
+		if errors.Is(err, ErrEmailBlocked) {
+			return notificationEmailDeliveryErr(err)
+		}
 		// Record failed delivery attempts as terminal for this idempotency key.
 		// Expiry reminders are scanned periodically; without this marker, a
 		// permanent SMTP rejection is sent again on every scan.

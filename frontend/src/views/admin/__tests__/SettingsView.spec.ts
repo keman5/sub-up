@@ -612,6 +612,16 @@ async function openUsersTab(wrapper: ReturnType<typeof mountView>) {
   await flushPromises();
 }
 
+async function openEmailTab(wrapper: ReturnType<typeof mountView>) {
+  const emailTabButton = wrapper
+    .findAll("button")
+    .find((node) => node.text().includes("admin.settings.tabs.email"));
+
+  expect(emailTabButton).toBeDefined();
+  await emailTabButton?.trigger("click");
+  await flushPromises();
+}
+
 describe("admin SettingsView email domain quota copy", () => {
   it("documents the email domain quota and empty-whitelist behavior in both locales", () => {
     expect(zhCommon.auth.emailDomainRegistrationLimit).toContain("主流邮箱");
@@ -726,6 +736,133 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     fetchPublicSettings.mockResolvedValue(undefined);
     adminSettingsFetch.mockResolvedValue(undefined);
+  });
+
+  describe("email blocked keywords", () => {
+    it("loads keywords even when email verification is disabled and preserves them on save", async () => {
+      getSettings.mockResolvedValue({
+        ...baseSettingsResponse,
+        email_blocked_keywords: ["OTP", "密码重置"],
+      });
+      const wrapper = mountView();
+      await flushPromises();
+      await openEmailTab(wrapper);
+
+      const input = wrapper.get<HTMLTextAreaElement>("#email-blocked-keywords");
+      expect(input.isVisible()).toBe(true);
+      expect(input.element.disabled).toBe(false);
+      expect(input.element.value).toBe("OTP\n密码重置");
+
+      await wrapper.find("form").trigger("submit.prevent");
+      await flushPromises();
+      expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+        email_verify_enabled: false,
+        email_blocked_keywords: ["OTP", "密码重置"],
+      }));
+      expect(input.element.value).toBe("OTP\n密码重置");
+      wrapper.unmount();
+    });
+
+    it("roundtrips multiline edits through the saved array while trimming whitespace and ignoring empty lines", async () => {
+      getSettings.mockResolvedValue({
+        ...baseSettingsResponse,
+        email_verify_enabled: true,
+        email_blocked_keywords: ["old"],
+      });
+      const wrapper = mountView();
+      await flushPromises();
+      await openEmailTab(wrapper);
+
+      const input = wrapper.get<HTMLTextAreaElement>("#email-blocked-keywords");
+      await input.setValue("  OTP  \r\n\r\nreset link\r\n 通知 \r\n ");
+      await wrapper.find("form").trigger("submit.prevent");
+      await flushPromises();
+
+      expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+        email_blocked_keywords: ["OTP", "reset link", "通知"],
+      }));
+      expect(input.element.value).toBe("OTP\nreset link\n通知");
+      wrapper.unmount();
+    });
+
+    it("preserves a trailing newline while entering the next keyword", async () => {
+      const wrapper = mountView();
+      await flushPromises();
+      await openEmailTab(wrapper);
+
+      const input = wrapper.get<HTMLTextAreaElement>("#email-blocked-keywords");
+      await input.setValue("OTP\n");
+      expect(input.element.value).toBe("OTP\n");
+      await input.setValue(`${input.element.value}reset`);
+      await wrapper.find("form").trigger("submit.prevent");
+      await flushPromises();
+      expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+        email_blocked_keywords: ["OTP", "reset"],
+      }));
+      wrapper.unmount();
+    });
+
+    it.each(["", " \n\t\n "])("disables filtering after clearing keywords to %j", async (value) => {
+      getSettings.mockResolvedValue({
+        ...baseSettingsResponse,
+        email_blocked_keywords: ["OTP", "reset"],
+      });
+      const wrapper = mountView();
+      await flushPromises();
+      await openEmailTab(wrapper);
+
+      const input = wrapper.get<HTMLTextAreaElement>("#email-blocked-keywords");
+      await input.setValue(value);
+      await wrapper.find("form").trigger("submit.prevent");
+      await flushPromises();
+      expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+        email_blocked_keywords: [],
+      }));
+      expect(input.element.value).toBe("");
+      wrapper.unmount();
+    });
+
+    it("defaults to an empty list when a legacy response omits the field", async () => {
+      expect(baseSettingsResponse).not.toHaveProperty("email_blocked_keywords");
+      const wrapper = mountView();
+      await flushPromises();
+      await openEmailTab(wrapper);
+
+      expect(wrapper.get<HTMLTextAreaElement>("#email-blocked-keywords").element.value).toBe("");
+      await wrapper.find("form").trigger("submit.prevent");
+      await flushPromises();
+      expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+        email_blocked_keywords: [],
+      }));
+      wrapper.unmount();
+    });
+
+    it("explains subject/body OR matching, case insensitivity, disabling and all-email scope in both locales", () => {
+      const zh = zhSettings.settings.emailBlockedKeywords;
+      const en = enSettings.settings.emailBlockedKeywords;
+      expect(zh.description).toContain("标题或正文");
+      expect(zh.description).toContain("任一关键词");
+      expect(zh.description).toContain("子串");
+      expect(zh.description).toContain("不发送");
+      expect(zh.hint).toContain("每行一个");
+      expect(zh.hint).toContain("忽略大小写");
+      expect(zh.hint).toContain("留空不过滤");
+      expect(zh.hint).toContain("所有邮件");
+      expect(zh.hint).toContain("验证码");
+      expect(zh.hint).toContain("密码重置");
+      expect(zh.hint).toContain("测试邮件");
+      expect(en.description).toContain("subject or body");
+      expect(en.description).toContain("any keyword");
+      expect(en.description).toContain("substring");
+      expect(en.description).toContain("not sent");
+      expect(en.hint).toContain("One keyword per line");
+      expect(en.hint).toContain("case-insensitive");
+      expect(en.hint).toContain("Leave empty to disable filtering");
+      expect(en.hint).toContain("all emails");
+      expect(en.hint).toContain("verification codes");
+      expect(en.hint).toContain("password resets");
+      expect(en.hint).toContain("test emails");
+    });
   });
 
   it("loads and saves the open button visibility for each custom menu", async () => {

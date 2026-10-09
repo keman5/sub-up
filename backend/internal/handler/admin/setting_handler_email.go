@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"html"
 	"strings"
 
@@ -186,7 +187,11 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 </html>
 `
 
-	if err := h.emailService.SendEmailWithConfig(config, req.Email, subject, body); err != nil {
+	if err := h.emailService.SendEmailWithConfigContext(c.Request.Context(), config, req.Email, subject, body); err != nil {
+		if errors.Is(err, service.ErrEmailBlocked) {
+			response.ErrorFrom(c, err)
+			return
+		}
 		response.BadRequest(c, "Failed to send test email: "+err.Error())
 		return
 	}

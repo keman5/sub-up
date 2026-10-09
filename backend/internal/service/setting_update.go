@@ -203,6 +203,16 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeySMTPFrom] = settings.SMTPFrom
 	updates[SettingKeySMTPFromName] = settings.SMTPFromName
 	updates[SettingKeySMTPUseTLS] = strconv.FormatBool(settings.SMTPUseTLS)
+	keywords, err := NormalizeEmailBlockedKeywords(settings.EmailBlockedKeywords)
+	if err != nil {
+		return nil, infraerrors.BadRequest("INVALID_EMAIL_BLOCKED_KEYWORDS", err.Error())
+	}
+	keywordsJSON, err := json.Marshal(keywords)
+	if err != nil {
+		return nil, fmt.Errorf("marshal email blocked keywords: %w", err)
+	}
+	updates[SettingKeyEmailBlockedKeywords] = string(keywordsJSON)
+	settings.EmailBlockedKeywords = keywords
 
 	// Cloudflare Turnstile 设置（只有非空才更新密钥）
 	updates[SettingKeyTurnstileEnabled] = strconv.FormatBool(settings.TurnstileEnabled)

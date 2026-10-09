@@ -972,6 +972,13 @@ export default {
         zh: 'Chinese',
         en: 'English'
       },
+      emailBlockedKeywords: {
+        title: 'Email Keyword Blocking',
+        description: 'An email is not sent if its subject or body contains any keyword as a substring.',
+        label: 'Blocked Keywords',
+        placeholder: 'Enter one keyword per line',
+        hint: 'One keyword per line; matching is case-insensitive. Leave empty to disable filtering. Once saved, this applies to all emails, including verification codes, password resets, notifications and test emails.'
+      },
       smtp: {
         title: 'SMTP Settings',
         description: 'Configure email sending for verification codes',

@@ -376,7 +376,13 @@ func (s *SettingService) GetAllSettings(ctx context.Context) (*SystemSettings, e
 		return nil, fmt.Errorf("get all settings: %w", err)
 	}
 
-	return s.parseSettings(settings), nil
+	keywords, err := parseEmailBlockedKeywords(settings[SettingKeyEmailBlockedKeywords])
+	if err != nil {
+		return nil, err
+	}
+	result := s.parseSettings(settings)
+	result.EmailBlockedKeywords = keywords
+	return result, nil
 }
 
 // SetOnUpdateCallback sets a callback function to be called when settings are updated

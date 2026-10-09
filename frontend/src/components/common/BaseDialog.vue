@@ -44,6 +44,7 @@
 
 <script lang="ts">
 let dialogIdCounter = 0
+const openDialogs = new Set<string>()
 let openModalCount = 0
 let lockedScrollY = 0
 let previousBodyStyles: Partial<Record<'overflow' | 'position' | 'top' | 'width', string>> | null = null
@@ -151,7 +152,7 @@ const unlockBodyScroll = () => {
     document.body.style.position = previousBodyStyles?.position || ''
     document.body.style.top = previousBodyStyles?.top || ''
     document.body.style.width = previousBodyStyles?.width || ''
-    window.scrollTo(0, lockedScrollY)
+    if (lockedScrollY !== 0) window.scrollTo(0, lockedScrollY)
     previousBodyStyles = null
     lockedScrollY = 0
   }
@@ -178,6 +179,7 @@ watch(
   () => props.show,
   async (isOpen) => {
     if (isOpen) {
+      openDialogs.add(dialogId)
       pendingUnlockAfterLeave = false
       // 保存当前焦点元素
       previousActiveElement = document.activeElement as HTMLElement
@@ -195,6 +197,7 @@ watch(
         firstFocusable?.focus()
       }
     } else {
+      openDialogs.delete(dialogId)
       if (hasLockedBodyScroll) {
         pendingUnlockAfterLeave = true
       } else {
@@ -211,6 +214,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleEscape)
+  openDialogs.delete(dialogId)
   unlockBodyScroll()
 })
 </script>

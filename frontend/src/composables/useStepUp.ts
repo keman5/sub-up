@@ -71,7 +71,7 @@ export function useStepUp() {
   let pendingPrompt: Promise<boolean> | null = null
 
   /** Open the TOTP dialog and resolve true once a grant is obtained. */
-  function prompt(): Promise<boolean> {
+  function requestStepUp(): Promise<boolean> {
     if (pendingPrompt) return pendingPrompt
     visible.value = true
     pendingPrompt = new Promise<boolean>((resolve) => {
@@ -112,7 +112,7 @@ export function useStepUp() {
       if (!isStepUpRequired(err)) {
         throw err
       }
-      const ok = await prompt()
+      const ok = await requestStepUp()
       if (!ok) {
         throw new StepUpCancelledError()
       }
@@ -124,7 +124,7 @@ export function useStepUp() {
   return {
     visible,
     blockedReason,
-    prompt,
+    prompt: requestStepUp,
     onVerified,
     onCancel,
     run

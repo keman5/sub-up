@@ -160,7 +160,11 @@ func (s *AccountPoolHealthNotifyService) sendUnavailableAlertIfNeeded(ctx contex
 				"accounts": rows,
 			},
 		}); err != nil {
-			log.Printf("[AccountPoolHealthNotify] Send unavailable alert failed: count=%d recipient=%s err=%v", len(accounts), recipient, err)
+			if errors.Is(err, ErrEmailBlocked) {
+				log.Printf("[AccountPoolHealthNotify] Unavailable alert blocked by keyword policy")
+			} else {
+				log.Printf("[AccountPoolHealthNotify] Send unavailable alert failed: count=%d recipient=%s err=%v", len(accounts), recipient, err)
+			}
 			continue
 		}
 		sent++

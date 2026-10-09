@@ -25,6 +25,7 @@ import (
 
 var (
 	ErrEmailNotConfigured    = infraerrors.ServiceUnavailable("EMAIL_NOT_CONFIGURED", "email service not configured")
+	ErrEmailBlocked          = infraerrors.BadRequest("EMAIL_BLOCKED", "email blocked by keyword policy")
 	ErrInvalidVerifyCode     = infraerrors.BadRequest("INVALID_VERIFY_CODE", "invalid or expired verification code")
 	ErrVerifyCodeTooFrequent = infraerrors.TooManyRequests("VERIFY_CODE_TOO_FREQUENT", "please wait before requesting a new code")
 	ErrVerifyCodeMaxAttempts = infraerrors.TooManyRequests("VERIFY_CODE_MAX_ATTEMPTS", "too many failed attempts, please request a new code")
@@ -189,7 +190,7 @@ func (s *EmailService) SendEmail(ctx context.Context, to, subject, body string) 
 	if err != nil {
 		return err
 	}
-	return s.SendEmailWithConfig(config, to, subject, body)
+	return s.SendEmailWithConfigContext(ctx, config, to, subject, body)
 }
 
 const smtpDialTimeout = 10 * time.Second
@@ -197,6 +198,24 @@ const smtpIOTimeout = 20 * time.Second
 
 // SendEmailWithConfig 使用指定配置发送邮件
 func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body string) error {
+	return s.SendEmailWithConfigContext(context.Background(), config, to, subject, body)
+}
+
+// SendEmailWithConfigContext always enforces the saved global policy, even for test configurations.
+func (s *EmailService) SendEmailWithConfigContext(ctx context.Context, config *SMTPConfig, to, subject, body string) error {
+	if s.settingRepo != nil {
+		settings, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyEmailBlockedKeywords})
+		if err != nil {
+			return fmt.Errorf("get email keyword policy: %w", err)
+		}
+		keywords, err := parseEmailBlockedKeywords(settings[SettingKeyEmailBlockedKeywords])
+		if err != nil {
+			return err
+		}
+		if emailMatchesBlockedKeywords(keywords, subject, body) {
+			return ErrEmailBlocked
+		}
+	}
 	message, err := buildSMTPMessage(config, to, subject, body)
 	if err != nil {
 		return err

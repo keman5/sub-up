@@ -50,14 +50,15 @@ type SystemSettings struct {
 	LoginAgreementUpdatedAt             string                   `json:"login_agreement_updated_at"`
 	LoginAgreementDocuments             []LoginAgreementDocument `json:"login_agreement_documents"`
 
-	SMTPHost                       string `json:"smtp_host"`
-	SMTPPort                       int    `json:"smtp_port"`
-	SMTPUsername                   string `json:"smtp_username"`
-	SMTPPasswordConfigured         bool   `json:"smtp_password_configured"`
-	SMTPFrom                       string `json:"smtp_from_email"`
-	SMTPFromName                   string `json:"smtp_from_name"`
-	SMTPUseTLS                     bool   `json:"smtp_use_tls"`
-	NotificationEmailDefaultLocale string `json:"notification_email_default_locale"`
+	SMTPHost                       string   `json:"smtp_host"`
+	SMTPPort                       int      `json:"smtp_port"`
+	SMTPUsername                   string   `json:"smtp_username"`
+	SMTPPasswordConfigured         bool     `json:"smtp_password_configured"`
+	SMTPFrom                       string   `json:"smtp_from_email"`
+	SMTPFromName                   string   `json:"smtp_from_name"`
+	SMTPUseTLS                     bool     `json:"smtp_use_tls"`
+	EmailBlockedKeywords           []string `json:"email_blocked_keywords"`
+	NotificationEmailDefaultLocale string   `json:"notification_email_default_locale"`
 
 	TurnstileEnabled                       bool     `json:"turnstile_enabled"`
 	TurnstileSiteKey                       string   `json:"turnstile_site_key"`

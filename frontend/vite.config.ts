@@ -148,7 +148,7 @@ export default defineConfig(({ mode }) => {
             return 'vendor-misc'
           }
 
-          if (id.includes('/src/views/admin/AccountsView.vue') || id.includes('/src/components/admin/account/')) {
+          if (id.includes('/src/views/admin/AccountsView.vue')) {
             return 'admin-accounts'
           }
 

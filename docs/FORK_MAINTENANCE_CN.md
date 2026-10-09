@@ -2226,92 +2226,75 @@ git diff --check
 
 - 搜索 `googleError`、`quotaErrorDetails`、`window_resets_at`、`openai-fast-policy-user-selector-stub`、`account_allowlist` 和 `openai_account_allowlist`。只有上游同时覆盖 nil request 安全、详细配额恢复信息和三类选择器状态保存，并通过上述专项测试时，才可删除对应本地兼容代码或调整断言。
 
-### 2026-10-09: 自动记录本地改动
+### 2026-10-08: 恢复账号管理按需加载与本机镜像发布
 
-**自动记录：**
+**目的与实现：**
 
-- 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 按 2026-06-06 的账号首屏体积决策，将账号创建/编辑/批量编辑、同步、测试、统计、重授权、计划、导入、错误透传和 TLS 指纹弹窗恢复为异步组件，并收窄 `admin-accounts` 手动分包范围，避免 Rollup 把异步弹窗重新合回首屏 chunk。
+- BaseDialog 的 Escape 活跃栈与滚动锁分开维护，关闭时即时移出键盘栈，离场动画结束后再释放滚动锁。`useStepUp` 的内部函数保留 `requestStepUp` 名称，避免被原生 `prompt()` 静态护栏误报；公开 API 仍为 `prompt`。
+- 部署脚本支持 gzip 分块上传本机生成的 Docker 镜像归档并在 VPS `docker load`，切换环境前检查镜像已加载；该模式不在 VPS 编译二进制或构建镜像，继续使用 test -> ap1 -> primary 健康门禁。
+- Dockerfile 的 Node/Go 构建阶段固定使用 `$BUILDPLATFORM`，Go 按 `$TARGETOS/$TARGETARCH` 产出目标二进制，并将 Node heap 提高到 3 GB；避免 Apple Silicon 上模拟 amd64 构建时 Node/Rosetta 崩溃，同时仍生成 `linux/amd64` 运行镜像。
 
 **涉及文件：**
 
-- `.github/SECURITY.md`
-- `backend/internal/handler/admin/setting_handler_recharge_bonus.go`
-- `backend/internal/handler/dto/recharge_bonus_tiers.go`
-- `backend/internal/handler/gateway_systemone.go`
-- `backend/internal/handler/gateway_systemone_test.go`
-- `backend/internal/handler/openai_gateway_ws_group_pricing_test.go`
-- `backend/internal/payment/provider/easypay_notify_security_test.go`
-- `backend/internal/pkg/apicompat/chatcompletions_to_responses_developer_role_test.go`
-- `backend/internal/pkg/apicompat/chatcompletions_to_responses_legacy_function_call_test.go`
-- `backend/internal/pkg/apicompat/chatcompletions_to_responses_tool_choice_test.go`
-- `backend/internal/pkg/apicompat/responses_to_chatcompletions_refusal_test.go`
-- `backend/internal/pkg/apicompat/thinking_signature_wire_test.go`
-- `backend/internal/pkg/typesafe/systemone.go`
-- `backend/internal/pkg/typesafe/systemone_test.go`
-- `backend/internal/repository/api_key_repo_sort_test.go`
-- `backend/internal/repository/email_cache_atomic_test.go`
-- `backend/internal/repository/ops_repo_dashboard_integration_test.go`
-- `backend/internal/server/routes/payment_public_rate_limit_test.go`
-- `backend/internal/service/account_test_logging.go`
-- `backend/internal/service/account_test_logging_test.go`
-- `backend/internal/service/account_test_service_typesafe.go`
-- `backend/internal/service/account_test_service_typesafe_test.go`
-- `backend/internal/service/anthropic_buffered_negative_index_test.go`
-- `backend/internal/service/antigravity_upstream_error_sanitize.go`
-- `backend/internal/service/antigravity_upstream_error_sanitize_test.go`
-- `backend/internal/service/content_moderation_systemone_test.go`
-- `backend/internal/service/email_service_reset_token_test.go`
-- `backend/internal/service/gateway_cache_ttl_order_test.go`
-- `backend/internal/service/gateway_forward_as_chat_completions_ping_test.go`
-- `backend/internal/service/gateway_systemone.go`
-- `backend/internal/service/gateway_systemone_test.go`
-- `backend/internal/service/gateway_tool_changes_beta_test.go`
-- `backend/internal/service/openai_responses_namespace_benchmark_test.go`
-- `backend/internal/service/openai_ws_v2/passthrough_relay_image_usage_test.go`
-- `backend/internal/service/openai_ws_v2_passthrough_image_usage_test.go`
-- `backend/internal/service/opencode_unsupported_models_test.go`
-- `backend/internal/service/payment_recharge_bonus.go`
-- `backend/internal/service/payment_recharge_bonus_test.go`
-- `backend/migrations/241_add_payment_order_bonus_amount.sql`
-- `backend/migrations/241_add_typesafe_platform.sql`
-- `backend/migrations/typesafe_platform_migration_test.go`
-- `frontend/src/components/account/AccountPriorityCell.vue`
-- `frontend/src/components/account/__tests__/AccountPriorityCell.spec.ts`
-- `frontend/src/components/admin/__tests__/ErrorPassthroughRulesModal.toggle.spec.ts`
-- `frontend/src/components/admin/account/__tests__/ScheduledTestsPanel.results.spec.ts`
-- `frontend/src/components/admin/channel/__tests__/PricingEntryCard.modelDefaultPrice.spec.ts`
-- `frontend/src/components/admin/group/__tests__/GroupRPMOverridesModal.edit.spec.ts`
-- `frontend/src/components/admin/group/__tests__/GroupRateMultipliersModal.requests.spec.ts`
-- `frontend/src/components/admin/monitor/__tests__/MonitorTemplateManagerDialog.requests.spec.ts`
-- `frontend/src/components/admin/settings/RechargeBonusTierEditor.vue`
-- `frontend/src/components/admin/usage/__tests__/UsageCleanupDialog.spec.ts`
-- `frontend/src/components/common/__tests__/AnnouncementBell.spec.ts`
-- `frontend/src/components/common/__tests__/BaseDialog.escape.spec.ts`
-- `frontend/src/components/common/__tests__/disabledSelectors.spec.ts`
-- `frontend/src/components/user/profile/__tests__/ProfileEditForm.draft.spec.ts`
-- `frontend/src/composables/__tests__/useBatchImageAccess.retry.spec.ts`
-- `frontend/src/stores/__tests__/adminCompliance.reset.spec.ts`
-- `frontend/src/utils/__tests__/formatBytes.spec.ts`
-- `frontend/src/utils/__tests__/pricing.formatScaled.spec.ts`
-- `frontend/src/utils/__tests__/rechargeBonus.spec.ts`
-- `frontend/src/utils/rechargeBonus.ts`
-- `frontend/src/views/admin/ops/components/__tests__/OpsAlertEventsCard.pagination.spec.ts`
-- `frontend/src/views/admin/ops/components/__tests__/OpsAlertRulesCard.duration.spec.ts`
-- `frontend/src/views/admin/ops/components/__tests__/OpsDashboardHeader.spec.ts`
-- `frontend/src/views/admin/ops/components/__tests__/OpsSettingsDialog.loading.spec.ts`
-- `frontend/src/views/user/__tests__/AirwallexPaymentView.lifecycle.spec.ts`
-- `frontend/src/views/user/__tests__/CustomPageView.race.spec.ts`
+- `deploy/local-gzip-binary-deploy.sh`
+- `deploy/Dockerfile`
+- `docs/VPS_DEPLOY_NOTES.md`
+- `frontend/src/components/common/BaseDialog.vue`
+- `frontend/src/composables/useStepUp.ts`
+- `frontend/src/views/admin/AccountsView.vue`
+- `frontend/vite.config.ts`
 
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+make test
+make secret-scan
+pnpm --dir frontend run build
+pnpm --dir frontend exec vitest run src/components/common/__tests__/BaseDialog.escape.spec.ts src/components/common/__tests__/nativeDialogUsage.spec.ts src/composables/__tests__/useStepUp.spec.ts src/components/admin/account/__tests__/AccountTableFilters.spec.ts src/components/admin/account/__tests__/ScheduledTestsPanel.spec.ts
+pnpm --dir frontend exec vitest run src/views/admin/__tests__/AccountsView.manualRefreshUsage.spec.ts src/views/admin/__tests__/AccountsView.searchSuggest.spec.ts src/views/admin/__tests__/AccountsView.schedulerScore.spec.ts
+bash -n deploy/local-gzip-binary-deploy.sh
+tools/fork-maintenance/fork-maintenance.sh verify-after-upstream --skip-build
+docker image inspect "${IMAGE_TAG:?set IMAGE_TAG}" --format '{{.Os}}/{{.Architecture}}'
+git diff --check
 ```
+
+结果：上述验证通过。构建中的 `admin-accounts` chunk 为 556 KB，重型账号弹窗已输出独立动态 chunk。本机跨架构试构建产出 `linux/amd64` 镜像；部署时必须从最终提交重新构建并再次检查镜像架构。
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 搜索 `defineAsyncComponent(() => import('@/components/account/`、`admin-accounts`、`IMAGE_ARCHIVE`、`docker load`、`openDialogs` 和 `requestStepUp`。只有上游保留账号弹窗按需加载与分包边界、Escape 栈/滚动锁生命周期，并提供“不在 VPS 构建且部署前校验已加载镜像”的 staged rollout 时，才可删除对应本地兼容改动；重新验证账号用量刷新、账号筛选、弹窗 Escape、静态护栏、部署脚本语法和前端构建。
+
+### 2026-10-09: 邮件标题与正文关键词拦截
+
+**现象与实现：**
+
+- 本地此前只有通知订阅偏好与发送去重，没有根据邮件内容阻止发送的规则。新增后台邮件设置 `email_blocked_keywords`，使用现有 settings KV 保存 JSON 数组，无需数据库迁移。
+- 每行一个关键词，忽略大小写，任意关键词出现在最终邮件标题或正文中就停止发送；正文同时检查原始 HTML 和解析后的文本，覆盖 HTML 实体及跨内联标签的文字。默认空数组不拦截，更新省略此字段保留原规则，显式空数组清空。
+- 在连接 SMTP 前统一检查，覆盖验证码、密码重置、通知、风控、运维报告及管理员测试邮件。拦截结果与 SMTP 发送成功分开，不写已发送状态或订阅提醒投递标记，不通过备用模板重新发送；纯 SMTP 连接测试保持连接检测用途。
+- 拦截日志只记录固定事件和必要内部标识，不记录收件人、完整内容或命中的关键词。规则对所有邮件生效，不受“启用邮箱验证”开关控制。
+
+**涉及文件：**
+
+- `backend/internal/service/email_service.go`、`notification_email_service.go` 与相应发送调用方。
+- `backend/internal/service/setting_parse.go`、`setting_update.go`、`settings_view.go` 及管理员设置 DTO / GET / PUT 映射。
+- `frontend/src/api/admin/settings.ts`、`frontend/src/views/admin/SettingsView.vue` 与中英文邮件设置文案。
+
+**验证与同步官方后的复查：**
+
+- 使用本地 fake SMTP 验证标题/正文、大小写、中文、HTML 实体与内联标签匹配，命中时 SMTP 连接数为零；验证配置省略保留、显式清空和清空后恢复发送。
+- 搜索 `email_blocked_keywords`、`ErrEmailBlocked` 和 `shouldFallbackNotificationEmail`；复查所有发送入口、测试邮件、通知去重及已发送状态，确保上游改动没有绕开策略或把拦截当作成功。
+- 运行带 `-tags=unit` 的邮件服务和管理员设置专项测试、设置页组件测试、前端类型检查与构建、`make secret-scan` 和 `git diff --check`。本条为本地功能补齐，未部署线上，也未使用真实 SMTP 发送测试邮件。
+
+本地已通过邮件/SMTP/设置/通知/风控相关 service 与 admin 回归、设置页及语言完整性检查（54 项）、前端 lint/类型检查/生产构建、后端构建、secret-scan 与 diff-check。全仓 unit 编译检查 `go test -tags=unit ./... -run '^$'` 被现有 `admin_auth_test.go:69` 的 `GenerateToken` 参数缺少 context，以及 `openai_images_failover_test.go:157` 的 `NewOpenAIGatewayHandler` 多传参数阻挡；两处均已核对存在于本次改动前的 HEAD，没有在本补丁中调整。
+
+专项命令：
+
+```bash
+cd backend
+go test -tags=unit ./internal/service ./internal/handler/admin -run 'Test(EmailBlockedKeywords|UpdateSettingsEmailBlockedKeywords|SendTestEmailEnforcesSavedEmailBlockedKeywords)' -count=1
+go test -tags=unit ./internal/service ./internal/handler/admin -run 'Test(.*Email|.*SMTP|.*Setting|.*Notification|.*ContentModeration|.*OpsAlert|.*AccountPoolHealth)' -count=1
+```
 
 ## 同步官方版本后的复查流程
 

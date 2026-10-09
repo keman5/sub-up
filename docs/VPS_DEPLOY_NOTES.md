@@ -136,6 +136,23 @@ deploy/local-gzip-binary-deploy.sh --apply --deploy --skip-frontend-build
 deploy/local-gzip-binary-deploy.sh --apply --deploy
 ```
 
+如需保证 VPS 完全不参与构建（推荐），先在本机完成 `linux/amd64` Docker 镜像构建，再通过 gzip 分块上传并在 VPS `docker load`。部署脚本不会执行远端 `docker build`，并会先检查镜像标签，再按 test、ap1、primary 逐级切换：
+
+```bash
+IMAGE_TAG="sub2api:subapi-$(git rev-parse --short HEAD)-local-$(date +%Y%m%d%H%M%S)"
+docker buildx build --platform linux/amd64 \
+  --build-arg COMMIT="$(git rev-parse --short HEAD)" \
+  --tag "$IMAGE_TAG" --load -f deploy/Dockerfile .
+docker save "$IMAGE_TAG" | gzip -c > "/tmp/${IMAGE_TAG##*/}.tar.gz"
+
+deploy/local-gzip-binary-deploy.sh --apply --deploy \
+  --skip-frontend-build --skip-image-build \
+  --image-tag "$IMAGE_TAG" \
+  --image-archive "/tmp/${IMAGE_TAG##*/}.tar.gz"
+```
+
+不要在此模式下传入 `--skip-backend-build`；本模式跳过独立二进制构建与上传，因为镜像归档已包含本机编译的后端和前端。`--skip-image-build` 单独使用且不提供归档时，仅适用于目标镜像已预先加载到 VPS 的情况；脚本会在更新环境配置前校验该镜像。
+
 可用环境变量或参数覆盖目标：
 
 ```bash

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -337,6 +338,11 @@ func (s *BalanceNotifyService) sendEmails(recipients []string, subject, body str
 	for _, to := range recipients {
 		ctx, cancel := context.WithTimeout(context.Background(), emailSendTimeout)
 		if err := s.emailService.SendEmail(ctx, to, subject, body); err != nil {
+			if errors.Is(err, ErrEmailBlocked) {
+				slog.Info("notification email blocked by keyword policy")
+				cancel()
+				continue
+			}
 			attrs := append([]any{"to", to, "error", err}, logAttrs...)
 			slog.Error("failed to send notification", attrs...)
 		} else {
@@ -372,6 +378,10 @@ func (s *BalanceNotifyService) sendBalanceLowEmails(recipients []string, userID 
 			})
 			cancel()
 			if err != nil {
+				if errors.Is(err, ErrEmailBlocked) {
+					slog.Info("balance low notification blocked by keyword policy")
+					continue
+				}
 				if shouldFallbackNotificationEmail(err) {
 					slog.Warn("template balance low notification failed; falling back to built-in body", "to", to, "err", err.Error())
 					fallbackRecipients = append(fallbackRecipients, to)
@@ -431,6 +441,10 @@ func (s *BalanceNotifyService) sendQuotaAlertEmails(adminEmails []string, accoun
 			})
 			cancel()
 			if err != nil {
+				if errors.Is(err, ErrEmailBlocked) {
+					slog.Info("account quota alert blocked by keyword policy")
+					continue
+				}
 				if shouldFallbackNotificationEmail(err) {
 					slog.Warn("template account quota alert failed; falling back to built-in body", "to", to, "account_id", accountID, "dimension", dim.name, "err", err.Error())
 					fallbackRecipients = append(fallbackRecipients, to)

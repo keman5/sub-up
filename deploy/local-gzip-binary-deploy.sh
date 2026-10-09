@@ -23,6 +23,7 @@ PRIMARY_API_PUBLIC_HEALTH_URL="${PRIMARY_API_PUBLIC_HEALTH_URL:-https://api.upit
 AP1_API_PUBLIC_HEALTH_URL="${AP1_API_PUBLIC_HEALTH_URL:-https://ap1.upit.top/health}"
 TEST_API_PUBLIC_HEALTH_URL="${TEST_API_PUBLIC_HEALTH_URL:-https://a2t.upit.top/health}"
 OUTPUT="${OUTPUT:-/tmp/sub2api-build-output/sub2api}"
+IMAGE_ARCHIVE="${IMAGE_ARCHIVE:-}"
 BASE_IMAGE="${BASE_IMAGE:-}"
 IMAGE_TAG="${IMAGE_TAG:-}"
 VERSION="${VERSION:-}"
@@ -53,7 +54,8 @@ Options:
   --output PATH           Local binary output path. Default: /tmp/sub2api-build-output/sub2api.
   --skip-frontend-build   Do not run pnpm frontend build.
   --skip-backend-build    Do not run go build; upload the existing --output file.
-  --skip-image-build      Upload/decompress only; do not build a Docker image.
+  --skip-image-build      Do not build on the VPS; use a preloaded image or --image-archive.
+  --image-archive PATH    Gzipped docker save archive to upload/load before rollout.
   -h, --help              Show this help.
 
 Environment overrides:
@@ -63,7 +65,7 @@ Environment overrides:
   PUBLIC_HEALTH_URL, AP1_PUBLIC_HEALTH_URL, TEST_PUBLIC_HEALTH_URL,
   PRIMARY_API_PUBLIC_HEALTH_URL, AP1_API_PUBLIC_HEALTH_URL,
   TEST_API_PUBLIC_HEALTH_URL,
-  BASE_IMAGE, IMAGE_TAG, VERSION, TAG_SUFFIX, OUTPUT, UPLOAD_CHUNK_SIZE
+  BASE_IMAGE, IMAGE_TAG, VERSION, TAG_SUFFIX, OUTPUT, IMAGE_ARCHIVE, UPLOAD_CHUNK_SIZE
 
 Compatibility:
   STANDBY_COMPOSE_DIR, STANDBY_CONTAINER, and STANDBY_HEALTH_URL are still
@@ -134,6 +136,7 @@ parse_args() {
       --image-tag) IMAGE_TAG="$2"; shift ;;
       --tag-suffix) TAG_SUFFIX="$2"; shift ;;
       --output) OUTPUT="$2"; shift ;;
+      --image-archive) IMAGE_ARCHIVE="$2"; shift ;;
       --skip-frontend-build) SKIP_FRONTEND=1 ;;
       --skip-backend-build) SKIP_BACKEND=1 ;;
       --skip-image-build) SKIP_IMAGE=1 ;;
@@ -158,6 +161,10 @@ build_frontend() {
 }
 
 build_backend() {
+  if [[ "$DEPLOY" -eq 1 && "$SKIP_IMAGE" -eq 1 ]]; then
+    log "skip standalone binary build; deploying a prebuilt image"
+    return
+  fi
   if [[ "$SKIP_BACKEND" -eq 1 ]]; then
     if [[ -x "$OUTPUT" ]]; then
       log "skip backend build; using $OUTPUT"
@@ -198,6 +205,10 @@ show_size_plan() {
 }
 
 upload_gzip() {
+  if [[ "$DEPLOY" -eq 1 && "$SKIP_IMAGE" -eq 1 ]]; then
+    log "skip standalone binary upload; deploying a prebuilt image"
+    return
+  fi
   if [[ ! -f "$OUTPUT" ]]; then
     if [[ "$APPLY" -eq 1 ]]; then
       die "missing binary output: $OUTPUT"
@@ -284,10 +295,46 @@ EOF
 docker build -f '$REMOTE_DIR/Dockerfile.replace-binary' -t '$IMAGE_TAG' '$REMOTE_DIR'"
 }
 
+load_prebuilt_image() {
+  [[ "$DEPLOY" -eq 1 && "$SKIP_IMAGE" -eq 1 && -n "$IMAGE_ARCHIVE" ]] || return 0
+  if [[ ! -f "$IMAGE_ARCHIVE" ]]; then
+    die "missing image archive: $IMAGE_ARCHIVE"
+  fi
+  if [[ "$APPLY" -eq 0 ]]; then
+    log "dry-run upload and docker load of prebuilt image archive: $IMAGE_ARCHIVE"
+    return
+  fi
+
+  local ts chunk_dir remote_chunk_dir chunk_count n chunk
+  ts="$(date +%Y%m%d%H%M%S)"
+  chunk_dir="$(mktemp -d "${TMPDIR:-/tmp}/sub2api-image-chunks.XXXXXX")"
+  remote_chunk_dir="/tmp/sub2api-image-upload-$ts"
+  split -b "$UPLOAD_CHUNK_SIZE" "$IMAGE_ARCHIVE" "$chunk_dir/chunk-"
+  chunk_count="$(find "$chunk_dir" -type f -name 'chunk-*' | wc -l | tr -d ' ')"
+  log "upload prebuilt image archive in $chunk_count chunks"
+  retry_cmd ssh -o BatchMode=yes -o ConnectTimeout=10 "$HOST" "rm -rf '$remote_chunk_dir' && mkdir -p '$remote_chunk_dir'"
+  n=0
+  for chunk in "$chunk_dir"/chunk-*; do
+    n=$((n + 1))
+    log "upload image chunk $n/$chunk_count: $(basename "$chunk")"
+    upload_file_via_ssh "$chunk" "$remote_chunk_dir/$(basename "$chunk")"
+  done
+  rm -rf "$chunk_dir"
+  ssh_run "set -eu
+archive='$REMOTE_DIR/image-$ts.tar.gz'
+cat '$remote_chunk_dir'/chunk-* > \"\$archive\"
+rm -rf '$remote_chunk_dir'
+gzip -t \"\$archive\"
+gzip -dc \"\$archive\" | docker load
+docker image inspect '$IMAGE_TAG' >/dev/null
+rm -f \"\$archive\"
+echo 'prebuilt image loaded and verified: $IMAGE_TAG'"
+}
+
 rollout() {
   [[ "$DEPLOY" -eq 1 ]] || return 0
-  [[ "$SKIP_IMAGE" -eq 0 ]] || die "--deploy cannot be used with --skip-image-build"
   ssh_run "set -eu
+docker image inspect '$IMAGE_TAG' >/dev/null
 wait_healthy() {
   container=\"\$1\"
   for i in \$(seq 1 40); do
@@ -347,6 +394,7 @@ main() {
   show_size_plan
   upload_gzip
   build_remote_image
+  load_prebuilt_image
   rollout
 }
 
