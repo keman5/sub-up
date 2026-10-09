@@ -83,6 +83,9 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	reqModel, body = applyGroupModelPolicyToBody(apiKey.Group, reqModel, body)
+	if rejectSystemOneOnlyPlatform(c, apiKey, h.chatCompletionsErrorResponse) {
+		return
+	}
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
 		h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)

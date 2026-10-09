@@ -2198,7 +2198,35 @@ tools/fork-maintenance/fork-maintenance.sh verify-after-upstream
 
 - 搜索 `OpenCodeGoUsage`、`AffiliateOfflineWithdrawDialog`、`BaseDialog`、`LogRetentionSelect`、`CC_SWITCH_USAGE_SCRIPT` 与对应测试，确认上游同步没有删除本地运行态、交互和边界回归。只有上游提供等价实现并通过本条全量检查与专项测试时，才可按功能逐项删除本地补丁。
 
-### 2026-09-30: 自动记录本地改动
+### 2026-09-30: 配额详情集中化后的兼容修复
+
+**目的与实现：**
+
+- `googleError` 仅在 Gin context 和 request 均存在时读取 `Accept-Language`，避免单元测试或内部调用传入无 request 的 context 时发生 nil pointer；正常 HTTP 请求仍保留客户端错误本地化。
+- 配额错误的限额、已用金额和恢复时间已统一由 `quota_error_details.go` 写入，删除 `billing_cache_service.go` 中未再使用的旧 `withWindowResetsMetadata`，避免两套 reset metadata 逻辑重新分叉。
+- 设置页同时存在 OpenAI Fast/Flex 规则用户范围、用户白名单和风控用户白名单三处用户选择器；测试按当前真实页面结构断言 3 个，并继续验证 `user_ids`、`account_allowlist` 和 `openai_account_allowlist` 保存不丢失。
+
+**涉及文件：**
+
+- `backend/internal/handler/gemini_v1beta_handler.go`
+- `backend/internal/service/billing_cache_service.go`
+- `docs/fork-maintenance/2026-09.md`
+- `frontend/src/views/admin/__tests__/SettingsView.spec.ts`
+
+**验证：**
+
+```bash
+cd backend && go test ./internal/handler -run 'Test.*Gemini|Test.*Google' -count=1
+cd backend && go test ./internal/service -run 'Test.*Quota|Test.*BillingCache' -count=1
+pnpm --dir frontend exec vitest run src/views/admin/__tests__/SettingsView.spec.ts
+git diff --check
+```
+
+**同步官方后的复查：**
+
+- 搜索 `googleError`、`quotaErrorDetails`、`window_resets_at`、`openai-fast-policy-user-selector-stub`、`account_allowlist` 和 `openai_account_allowlist`。只有上游同时覆盖 nil request 安全、详细配额恢复信息和三类选择器状态保存，并通过上述专项测试时，才可删除对应本地兼容代码或调整断言。
+
+### 2026-10-09: 自动记录本地改动
 
 **自动记录：**
 
@@ -2207,10 +2235,73 @@ tools/fork-maintenance/fork-maintenance.sh verify-after-upstream
 
 **涉及文件：**
 
-- `backend/internal/handler/gemini_v1beta_handler.go`
-- `backend/internal/service/billing_cache_service.go`
-- `docs/fork-maintenance/2026-09.md`
-- `frontend/src/views/admin/__tests__/SettingsView.spec.ts`
+- `.github/SECURITY.md`
+- `backend/internal/handler/admin/setting_handler_recharge_bonus.go`
+- `backend/internal/handler/dto/recharge_bonus_tiers.go`
+- `backend/internal/handler/gateway_systemone.go`
+- `backend/internal/handler/gateway_systemone_test.go`
+- `backend/internal/handler/openai_gateway_ws_group_pricing_test.go`
+- `backend/internal/payment/provider/easypay_notify_security_test.go`
+- `backend/internal/pkg/apicompat/chatcompletions_to_responses_developer_role_test.go`
+- `backend/internal/pkg/apicompat/chatcompletions_to_responses_legacy_function_call_test.go`
+- `backend/internal/pkg/apicompat/chatcompletions_to_responses_tool_choice_test.go`
+- `backend/internal/pkg/apicompat/responses_to_chatcompletions_refusal_test.go`
+- `backend/internal/pkg/apicompat/thinking_signature_wire_test.go`
+- `backend/internal/pkg/typesafe/systemone.go`
+- `backend/internal/pkg/typesafe/systemone_test.go`
+- `backend/internal/repository/api_key_repo_sort_test.go`
+- `backend/internal/repository/email_cache_atomic_test.go`
+- `backend/internal/repository/ops_repo_dashboard_integration_test.go`
+- `backend/internal/server/routes/payment_public_rate_limit_test.go`
+- `backend/internal/service/account_test_logging.go`
+- `backend/internal/service/account_test_logging_test.go`
+- `backend/internal/service/account_test_service_typesafe.go`
+- `backend/internal/service/account_test_service_typesafe_test.go`
+- `backend/internal/service/anthropic_buffered_negative_index_test.go`
+- `backend/internal/service/antigravity_upstream_error_sanitize.go`
+- `backend/internal/service/antigravity_upstream_error_sanitize_test.go`
+- `backend/internal/service/content_moderation_systemone_test.go`
+- `backend/internal/service/email_service_reset_token_test.go`
+- `backend/internal/service/gateway_cache_ttl_order_test.go`
+- `backend/internal/service/gateway_forward_as_chat_completions_ping_test.go`
+- `backend/internal/service/gateway_systemone.go`
+- `backend/internal/service/gateway_systemone_test.go`
+- `backend/internal/service/gateway_tool_changes_beta_test.go`
+- `backend/internal/service/openai_responses_namespace_benchmark_test.go`
+- `backend/internal/service/openai_ws_v2/passthrough_relay_image_usage_test.go`
+- `backend/internal/service/openai_ws_v2_passthrough_image_usage_test.go`
+- `backend/internal/service/opencode_unsupported_models_test.go`
+- `backend/internal/service/payment_recharge_bonus.go`
+- `backend/internal/service/payment_recharge_bonus_test.go`
+- `backend/migrations/241_add_payment_order_bonus_amount.sql`
+- `backend/migrations/241_add_typesafe_platform.sql`
+- `backend/migrations/typesafe_platform_migration_test.go`
+- `frontend/src/components/account/AccountPriorityCell.vue`
+- `frontend/src/components/account/__tests__/AccountPriorityCell.spec.ts`
+- `frontend/src/components/admin/__tests__/ErrorPassthroughRulesModal.toggle.spec.ts`
+- `frontend/src/components/admin/account/__tests__/ScheduledTestsPanel.results.spec.ts`
+- `frontend/src/components/admin/channel/__tests__/PricingEntryCard.modelDefaultPrice.spec.ts`
+- `frontend/src/components/admin/group/__tests__/GroupRPMOverridesModal.edit.spec.ts`
+- `frontend/src/components/admin/group/__tests__/GroupRateMultipliersModal.requests.spec.ts`
+- `frontend/src/components/admin/monitor/__tests__/MonitorTemplateManagerDialog.requests.spec.ts`
+- `frontend/src/components/admin/settings/RechargeBonusTierEditor.vue`
+- `frontend/src/components/admin/usage/__tests__/UsageCleanupDialog.spec.ts`
+- `frontend/src/components/common/__tests__/AnnouncementBell.spec.ts`
+- `frontend/src/components/common/__tests__/BaseDialog.escape.spec.ts`
+- `frontend/src/components/common/__tests__/disabledSelectors.spec.ts`
+- `frontend/src/components/user/profile/__tests__/ProfileEditForm.draft.spec.ts`
+- `frontend/src/composables/__tests__/useBatchImageAccess.retry.spec.ts`
+- `frontend/src/stores/__tests__/adminCompliance.reset.spec.ts`
+- `frontend/src/utils/__tests__/formatBytes.spec.ts`
+- `frontend/src/utils/__tests__/pricing.formatScaled.spec.ts`
+- `frontend/src/utils/__tests__/rechargeBonus.spec.ts`
+- `frontend/src/utils/rechargeBonus.ts`
+- `frontend/src/views/admin/ops/components/__tests__/OpsAlertEventsCard.pagination.spec.ts`
+- `frontend/src/views/admin/ops/components/__tests__/OpsAlertRulesCard.duration.spec.ts`
+- `frontend/src/views/admin/ops/components/__tests__/OpsDashboardHeader.spec.ts`
+- `frontend/src/views/admin/ops/components/__tests__/OpsSettingsDialog.loading.spec.ts`
+- `frontend/src/views/user/__tests__/AirwallexPaymentView.lifecycle.spec.ts`
+- `frontend/src/views/user/__tests__/CustomPageView.race.spec.ts`
 
 **验证：**
 
