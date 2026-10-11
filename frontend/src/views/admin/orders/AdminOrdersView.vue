@@ -26,6 +26,11 @@
               <Icon name="eye" size="sm" />
               {{ t('common.view') }}
             </button>
+            <template v-if="canManageSubscriptionSync && row.order_type === 'subscription'">
+              <button v-if="row.status === 'COMPLETED'" :disabled="syncBusyIds.has(row.user_id)" @click="handleSubscriptionSync(row, true)" class="btn btn-secondary px-2 py-1 text-xs" :title="t('payment.admin.subscriptionSyncHint')">{{ t('payment.admin.syncToPrimary') }}</button>
+              <button :disabled="syncBusyIds.has(row.user_id)" @click="handleSubscriptionSync(row, false)" class="btn btn-secondary px-2 py-1 text-xs" :title="t('payment.admin.cancelSubscriptionSyncHint')">{{ t('payment.admin.cancelSubscriptionSync') }}</button>
+              <span v-if="syncRequests[row.user_id]" class="text-xs text-gray-500">{{ syncRequests[row.user_id].enabled ? t('payment.admin.syncRequested') : t('payment.admin.syncCancelRequested') }}</span>
+            </template>
             <button v-if="row.status === 'PENDING'" @click="handleCancelOrder(row)" class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-yellow-600 hover:bg-yellow-50 dark:text-yellow-400 dark:hover:bg-yellow-900/20">
               <Icon name="x" size="sm" />
               {{ t('payment.orders.cancel') }}
@@ -119,8 +124,9 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
-import { adminPaymentAPI } from '@/api/admin/payment'
+import { adminPaymentAPI, type SubscriptionSyncRequest } from '@/api/admin/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import { formatOrderDateTime } from '@/components/payment/orderUtils'
 import type { PaymentOrder } from '@/types/payment'
@@ -144,6 +150,24 @@ interface AuditLog {
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
+const canManageSubscriptionSync = computed(() => authStore.user?.email?.toLowerCase() === 'macseek@upit.top')
+const syncBusyIds = ref(new Set<number>())
+const syncRequests = ref<Record<number, SubscriptionSyncRequest>>({})
+
+async function handleSubscriptionSync(order: PaymentOrder, enabled: boolean) {
+  if (!canManageSubscriptionSync.value || syncBusyIds.value.has(order.user_id)) return
+  syncBusyIds.value.add(order.user_id)
+  try {
+    const { data } = await adminPaymentAPI.requestSubscriptionSync(order.id, enabled)
+    syncRequests.value[order.user_id] = data
+    appStore.showSuccess(t(enabled ? 'payment.admin.syncRequested' : 'payment.admin.syncCancelRequested'))
+  } catch (err: unknown) {
+    appStore.showError(extractI18nErrorMessage(err, t, 'payment.errors', t('common.error')))
+  } finally {
+    syncBusyIds.value.delete(order.user_id)
+  }
+}
 
 const ordersLoading = ref(false)
 const orders = ref<PaymentOrder[]>([])
@@ -325,5 +349,12 @@ function formatDateTime(dateStr: string): string { return formatOrderDateTime(da
 onMounted(() => {
   adminOrderRouteQuerySync.restoreFromRoute()
   loadOrders()
+  if (canManageSubscriptionSync.value) {
+    adminPaymentAPI.getSubscriptionSyncRequests().then(({ data }) => {
+      syncRequests.value = Object.fromEntries(data.map(request => [request.user_id, request]))
+    }).catch((err: unknown) => {
+      appStore.showError(extractI18nErrorMessage(err, t, 'payment.errors', t('common.error')))
+    })
+  }
 })
 </script>
