@@ -1,0 +1,42 @@
+enabled: false
+# Same server credentials as target_database; relay requests and mirror executed states by email.
+status_database_names: [sub2api_3dbooks]
+run_on_start: true
+interval_minutes: 30
+
+# A1 source environment user IDs to sync.
+user_ids: []
+
+# IDs here are excluded from user_ids. Edit this file on VPS; service reloads it every round.
+remove_user_ids: []
+
+source_database:
+  # You can use dsn instead of individual fields, for example:
+  # dsn: "host=127.0.0.1 port=5432 user=postgres password=${A1_DB_PASSWORD} dbname=sub2api_a1 sslmode=prefer TimeZone=Asia/Shanghai"
+  dsn: ""
+  host: "127.0.0.1"
+  port: 5432
+  user: "postgres"
+  password: ""
+  dbname: "sub2api_a1"
+  sslmode: "prefer"
+  timezone: "Asia/Shanghai"
+  max_open_conns: 8
+  max_idle_conns: 2
+  conn_max_lifetime_minutes: 30
+  conn_max_idle_time_minutes: 5
+
+target_database:
+  # Main environment database.
+  dsn: ""
+  host: "127.0.0.1"
+  port: 5432
+  user: "postgres"
+  password: ""
+  dbname: "sub2api"
+  sslmode: "prefer"
+  timezone: "Asia/Shanghai"
+  max_open_conns: 8
+  max_idle_conns: 2
+  conn_max_lifetime_minutes: 30
+  conn_max_idle_time_minutes: 5

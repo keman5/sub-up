@@ -406,6 +406,11 @@
 
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-1">
+              <template v-if="canManageSubscriptionSync">
+                <button v-if="row.status === 'active' && !syncRequests[row.user_id]?.synced" :disabled="syncBusyIds.has(row.user_id)" @click="handleSubscriptionSync(row, true)" class="btn btn-secondary px-2 py-1 text-xs" :title="t('payment.admin.subscriptionSyncHint')">{{ t('payment.admin.syncToPrimary') }}</button>
+                <button v-if="syncRequests[row.user_id]?.synced" :disabled="syncBusyIds.has(row.user_id)" @click="handleSubscriptionSync(row, false)" class="btn btn-secondary px-2 py-1 text-xs" :title="t('payment.admin.cancelSubscriptionSyncHint')">{{ t('payment.admin.cancelSubscriptionSync') }}</button>
+                <span v-if="syncRequests[row.user_id]?.executed" class="text-xs text-gray-500">{{ syncRequests[row.user_id].synced ? t('payment.admin.syncCompleted') : t('payment.admin.syncCancelled') }}</span>
+              </template>
               <button
                 v-if="row.status === 'active' || row.status === 'expired'"
                 @click="handleExtend(row)"
@@ -896,6 +901,8 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
+import { adminPaymentAPI, type SubscriptionSyncRequest } from '@/api/admin/payment'
 import { adminAPI } from '@/api/admin'
 import type { AdminUser, AssignSubscriptionRequest, UserSubscription, Group, GroupPlatform, SubscriptionType } from '@/types'
 import type { SimpleUser } from '@/api/admin/usage'
@@ -933,6 +940,41 @@ import { GROUP_PLATFORM_OPTIONS } from '@/constants/platforms'
 const { t } = useI18n()
 const appStore = useAppStore()
 const appDialog = useAppDialog()
+const authStore = useAuthStore()
+const canManageSubscriptionSync = computed(() => authStore.user?.email?.toLowerCase() === 'macseek@upit.top')
+const syncBusyIds = ref(new Set<number>())
+const syncRequests = ref<Record<number, SubscriptionSyncRequest>>({})
+let syncRefreshTimer: ReturnType<typeof setInterval> | undefined
+let syncViewDisposed = false
+let syncRefreshSequence = 0
+
+async function refreshSubscriptionSync() {
+  const sequence = ++syncRefreshSequence
+  const { data } = await adminPaymentAPI.getSubscriptionSyncRequests()
+  if (!syncViewDisposed && sequence === syncRefreshSequence) syncRequests.value = Object.fromEntries(data.map(request => [request.user_id, request]))
+}
+
+async function handleSubscriptionSync(subscription: UserSubscription, enabled: boolean) {
+  if (!canManageSubscriptionSync.value || syncBusyIds.value.has(subscription.user_id)) return
+  syncBusyIds.value.add(subscription.user_id)
+  try {
+    const { data } = await adminPaymentAPI.requestSubscriptionSyncBySubscription(subscription.id, enabled)
+    for (let attempt = 0; attempt < 30 && !syncViewDisposed; attempt++) {
+      await refreshSubscriptionSync()
+      const state = syncRequests.value[subscription.user_id]
+      if (state?.executed && state.updated_at === data.updated_at) {
+        appStore.showSuccess(t(state.synced ? 'payment.admin.syncCompleted' : 'payment.admin.syncCancelled'))
+        return
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+    if (!syncViewDisposed) appStore.showError(t('payment.admin.syncResultTimeout'))
+  } catch (error: unknown) {
+    appStore.showError(extractApiErrorMessage(error, t('common.error')))
+  } finally {
+    syncBusyIds.value.delete(subscription.user_id)
+  }
+}
 const DUPLICATE_SUBSCRIPTION_CONFIRMATION_REASON = 'SUBSCRIPTION_DUPLICATE_CONFIRMATION_REQUIRED'
 
 interface GroupOption {
@@ -1935,9 +1977,17 @@ const initializeSubscriptionsView = async () => {
 
 onMounted(() => {
   void initializeSubscriptionsView()
+  if (canManageSubscriptionSync.value) {
+    void refreshSubscriptionSync().catch((error: unknown) => appStore.showError(extractApiErrorMessage(error, t('common.error'))))
+    syncRefreshTimer = setInterval(() => {
+      void refreshSubscriptionSync().catch(() => { syncRequests.value = {} })
+    }, 5000)
+  }
 })
 
 onUnmounted(() => {
+  syncViewDisposed = true
+  if (syncRefreshTimer) clearInterval(syncRefreshTimer)
   progressRefreshRun++
   document.removeEventListener('click', handleClickOutside)
   if (filterUserSearchTimeout) {

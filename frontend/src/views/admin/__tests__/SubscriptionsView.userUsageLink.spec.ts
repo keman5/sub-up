@@ -257,3 +257,4 @@ describe('admin subscription users', () => {
     expect(link.props('to')).toEqual({ path: '/admin/usage', query: { user_id: 42 } })
   })
 })
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: { email: 'other@upit.top' } }) }))

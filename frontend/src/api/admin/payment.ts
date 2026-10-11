@@ -61,6 +61,16 @@ export interface RefundResult {
   subscription_days_deducted?: number
 }
 
+export interface SubscriptionSyncRequest {
+  synced: boolean
+  executed: boolean
+  user_id: number
+  order_id: number
+  enabled: boolean
+  requested_by: number
+  updated_at: string
+}
+
 export const adminPaymentAPI = {
   // ==================== Config ====================
 
@@ -103,6 +113,18 @@ export const adminPaymentAPI = {
   /** Get a specific order by ID */
   getOrder(id: number) {
     return apiClient.get<PaymentOrder>(`/admin/payment/orders/${id}`)
+  },
+
+  getSubscriptionSyncRequests() {
+    return apiClient.get<SubscriptionSyncRequest[]>('/admin/payment/subscription-sync')
+  },
+
+  requestSubscriptionSync(id: number, enabled: boolean) {
+    return apiClient.post<SubscriptionSyncRequest>(`/admin/payment/orders/${id}/subscription-sync`, { enabled })
+  },
+
+  requestSubscriptionSyncBySubscription(id: number, enabled: boolean) {
+    return apiClient.post<SubscriptionSyncRequest>(`/admin/payment/subscriptions/${id}/subscription-sync`, { enabled })
   },
 
   /** Cancel an order (admin) */

@@ -84,7 +84,8 @@ describe('SubscriptionsView duplicate assignment confirmation', () => {
     await flushPromises()
 
     const vm = wrapper.vm as any
-    vm.selectedAssignUsers = [{ id: 42, email: 'user@example.com', deleted: false }]
+    vm.selectedUser = { id: 42, email: 'user@example.com', deleted: false }
+    vm.assignForm.user_id = 42
     vm.assignForm.group_id = 7
     vm.assignForm.validity_days = 30
     mocks.assign
@@ -174,7 +175,8 @@ describe('SubscriptionsView duplicate assignment confirmation', () => {
     const view = wrapper.findComponent(SubscriptionsView)
     const vm = view.vm as any
     vm.showAssignModal = true
-    vm.selectedAssignUsers = [{ id: 42, email: 'user@example.com', deleted: false }]
+    vm.selectedUser = { id: 42, email: 'user@example.com', deleted: false }
+    vm.assignForm.user_id = 42
     vm.assignForm.group_id = 7
     vm.assignForm.validity_days = 30
     mocks.assign
@@ -207,3 +209,4 @@ describe('SubscriptionsView duplicate assignment confirmation', () => {
     )
   })
 })
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: { email: 'other@upit.top' } }) }))

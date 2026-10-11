@@ -1,10 +1,20 @@
 # VPS 部署与更新排障记录
 
+> 2026-10-11 21:16：订阅同步页面改为读取真实执行回执，取消按钮只对已同步用户显示，不再展示提交/待服务执行文案。a1、3dbooks、主环境均已更新并健康；消费者按邮箱映射跨环境状态并转发新请求，26 条用户回执在三环境一致。当前取消状态不删除原有主环境数据。发布与复核记录见 `deploy/DEPLOY_ALL.md`。
+
+> 2026-10-11 最新拓扑：按用户要求彻底退役 test，移除其容器、部署目录、专属 `sub2api_test` 数据库和 Redis DB2，以及 Caddy test API 入口；3dbooks 从 8084 改为 8083，保留 `sub2api_3dbooks` / Redis DB3 数据。当前发布仅 a1（8082）、3dbooks（8083）、主环境（8081），使用 `npm run deploy`。下方四环境发布和 test 恢复内容均为历史。一次性操作脚本为 `deploy/retire-test-move-3dbooks.sh`，恢复备份在 VPS `/opt/sub2api-retirement-backup-20261011104003`（权限 700），不属于活动服务。
+
+> 同次清理已删除 `sub2api-frontend-test` Pages 项目及 `test.upit.top` 项目绑定。Cloudflare DNS 查询返回认证错误（10000），现有 Wrangler OAuth 无 DNS 权限，因此旧 test DNS 记录尚未清理；可用具备 upit.top DNS 编辑权限的 `CLOUDFLARE_API_TOKEN` 运行 `node deploy/remove-test-pages.mjs` 完成。已验证三容器 healthy、8084 无监听、test 数据库不存在、Redis DB2 大小为 0，三个 API 及 3dbooks 前台 health 正常。
+
+> 2026-10-11：按用户明确要求四套环境全部更新，已通过根目录 `npm run deploy` 恢复 test，并发布 test、a1、3dbooks、主环境后端及四套 Pages。四容器均运行 `sub2api:subapi-847e4dad4-all-20261011102511`，健康且 restart 为 `unless-stopped`；test 的 Caddy API 入口已恢复。下方 10 月 9 日下线说明作为历史记录保留。统一发布说明见 `deploy/DEPLOY_ALL.md`；所有编译与镜像构建在本机完成。
+
 本文记录将当前 `sub2api` 服务部署到 VPS 时遇到的问题、判断方法和可复用处理方案。当前线上以后端容器 `sub2api`、`sub2api-ap1`、`sub2api-test` 和 Cloudflare Pages 前台为准。
 
 > 2026-10-09：按用户要求下线 test 前后端。`sub2api-test` 已停止，容器及 `/opt/sub2api-test-deploy/docker-compose.yml` 的 restart 均为 `no`，8083 不再监听。Cloudflare Pages 项目 `sub2api-frontend-test` 当前生产部署为 `547cf622`，所有路径返回 HTTP 410；`test.upit.top`、项目默认 `pages.dev` 域名及 Caddy 的 `a2t.upit.top` / `test.51tokens.upit.top` 入口均已配置下线响应。共享 PostgreSQL、Redis 和其他应用继续运行，test 数据保留。原 Compose / Caddy 配置备份在 VPS `/opt/sub2api-test-offline-backup-20261009`，原 Pages 生产部署 ID 为 `a7314691-fd1e-4658-bceb-3d60f08d5900`。本文下方关于 test 常开、不可关闭和 test-first 部署的说明均为历史记录；后续发布须跳过已下线的 test，恢复服务需用户明确要求。
 
 > 注意：不要把 `SQL_DSN`、`SESSION_SECRET`、`CRYPTO_SECRET`、Redis 密码等环境变量写入文档、聊天记录或公开日志。排障时只确认变量是否存在，避免展开具体值。
+
+> 2026-10-11：确认 `a1-user-sync.service` 已正常执行订阅同步及用户级开启/取消通知后，下线旧 `a1-subscription-sync.service` 和 timer。旧服务此前因源/目标订阅映射数量不一致失败；已停止并移除两个 systemd unit，验证均为 `not-found/inactive`，新服务仍为 `active`。unit 备份：`/opt/a1-user-sync/backups/retired-subscription-service-20261011111048/`。保留原 `sync-subscriptions.sh`、配置和业务数据；后续部署不要重新安装旧 service/timer。
 
 ***
 

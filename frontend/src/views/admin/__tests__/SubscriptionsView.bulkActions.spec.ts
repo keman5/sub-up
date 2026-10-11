@@ -141,3 +141,4 @@ describe('subscription bulk operations', () => {
     expect(form.find('[data-test="assign-users"]').exists()).toBe(false)
   })
 })
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: { email: 'other@upit.top' } }) }))

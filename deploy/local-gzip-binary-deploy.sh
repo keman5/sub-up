@@ -130,7 +130,7 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --apply) APPLY=1 ;;
-      --deploy) DEPLOY=1 ;;
+      --deploy) die 'Legacy rollout retired; use npm run deploy for a1, 3dbooks (8083), and main.' ;;
       --host) HOST="$2"; shift ;;
       --base-image) BASE_IMAGE="$2"; shift ;;
       --image-tag) IMAGE_TAG="$2"; shift ;;
