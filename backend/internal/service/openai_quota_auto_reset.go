@@ -387,6 +387,12 @@ func (s *OpenAIQuotaAutoResetService) evaluateAccount(ctx context.Context, accou
 		return s.failState(ctx, accountID, failed, infraerrors.Reason(selectErr), selectErr)
 	}
 	creditHash := shortOpenAIAutoResetHash(candidate.ID)
+	if assessment.triggerWindow == "expiry" {
+		expires, err := time.Parse(time.RFC3339, candidate.ExpiresAt)
+		if err != nil || !expires.After(time.Now()) || expires.After(now.Add(time.Duration(config.ExpiryMinutes)*time.Minute)) {
+			return s.failState(ctx, accountID, checking, "RESET_CREDIT_EXPIRY_NOT_DUE", nil)
+		}
+	}
 	stableKey := fmt.Sprintf("oarc:%d:%s:%s", accountID, creditHash, cycleHash)
 	redeemRequestID := uuid.NewSHA1(uuid.NameSpaceURL, []byte(stableKey)).String()
 	resetting := &OpenAIAutoResetCreditState{
@@ -515,14 +521,40 @@ func decodeOpenAIAutoResetConsumeResult(value any) openAIAutoResetConsumeResult 
 func (s *OpenAIQuotaAutoResetService) assessExtra(account *Account, config OpenAIAutoResetCreditConfig, now time.Time) openAIAutoResetAssessment {
 	utilization5h, _ := resolveOpenAIQuotaUtilization(account.Extra, "5h", now)
 	utilization7d, _ := resolveOpenAIQuotaUtilization(account.Extra, "7d", now)
-	return s.buildAssessment(account, config, utilization5h, utilization7d)
+	assessment := s.buildAssessment(account, config, utilization5h, utilization7d)
+	var credits OpenAIRateLimitResetCredits
+	if raw, err := json.Marshal(account.Extra[openaiQuotaResetCreditsKey]); err == nil {
+		_ = json.Unmarshal(raw, &credits)
+	}
+	return assessOpenAIResetExpiry(assessment, &credits, config, now)
 }
 
 func (s *OpenAIQuotaAutoResetService) assessUsage(usage *OpenAIQuotaUsage, account *Account, config OpenAIAutoResetCreditConfig, now time.Time) openAIAutoResetAssessment {
 	updates := buildOpenAIAutoResetUsageUpdates(usage, now)
 	utilization5h := readOpenAIQuotaUsedPercent(updates, "5h") / 100
 	utilization7d := readOpenAIQuotaUsedPercent(updates, "7d") / 100
-	return s.buildAssessment(account, config, utilization5h, utilization7d)
+	return assessOpenAIResetExpiry(s.buildAssessment(account, config, utilization5h, utilization7d), usage.RateLimitResetCredits, config, now)
+}
+
+func assessOpenAIResetExpiry(assessment openAIAutoResetAssessment, credits *OpenAIRateLimitResetCredits, config OpenAIAutoResetCreditConfig, now time.Time) openAIAutoResetAssessment {
+	if !config.ExpiryEnabled || credits == nil || credits.AvailableCount <= 0 {
+		return assessment
+	}
+	minutes := config.ExpiryMinutes
+	if !validOpenAIResetExpiryMinutes(minutes) {
+		minutes = 20
+	}
+	for _, credit := range credits.Credits {
+		expires, err := time.Parse(time.RFC3339, credit.ExpiresAt)
+		if err == nil && expires.After(now) && !expires.After(now.Add(time.Duration(minutes)*time.Minute)) {
+			if !assessment.resetReached {
+				assessment.triggerWindow = "expiry"
+			}
+			assessment.resetReached = true
+			break
+		}
+	}
+	return assessment
 }
 
 func (s *OpenAIQuotaAutoResetService) buildAssessment(account *Account, config OpenAIAutoResetCreditConfig, utilization5h, utilization7d float64) openAIAutoResetAssessment {

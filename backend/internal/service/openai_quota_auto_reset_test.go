@@ -46,6 +46,55 @@ func TestNormalizeOpenAIAutoResetCreditExtra(t *testing.T) {
 	})
 }
 
+func TestOpenAIAutoResetCreditExpiry(t *testing.T) {
+	now := time.Now().UTC()
+	config := ResolveOpenAIAutoResetCreditConfig(&Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth})
+	require.Equal(t, float64(20), config.ExpiryMinutes)
+	require.False(t, config.ExpiryEnabled)
+	credits := &OpenAIRateLimitResetCredits{AvailableCount: 1, Credits: []OpenAIRateLimitResetCreditDetail{{ExpiresAt: now.Add(time.Minute).Format(time.RFC3339)}}}
+	require.False(t, assessOpenAIResetExpiry(openAIAutoResetAssessment{}, credits, config, now).resetReached)
+	config.ExpiryEnabled = true
+	account := &Account{Extra: map[string]any{openaiQuotaResetCreditsKey: credits}}
+	require.True(t, (&OpenAIQuotaAutoResetService{}).assessExtra(account, config, now).resetReached)
+	pauseAssessment := assessOpenAIResetExpiry(openAIAutoResetAssessment{pauseReached: true, triggerWindow: "7d"}, credits, config, now)
+	require.Equal(t, "expiry", pauseAssessment.triggerWindow)
+	for _, tc := range []struct {
+		name   string
+		expiry string
+		want   bool
+	}{
+		{"inside", now.Add(19 * time.Minute).Format(time.RFC3339), true},
+		{"boundary", now.Add(20 * time.Minute).Format(time.RFC3339Nano), true},
+		{"later", now.Add(21 * time.Minute).Format(time.RFC3339), false},
+		{"expired", now.Add(-time.Minute).Format(time.RFC3339), false},
+		{"invalid", "invalid", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			credits := &OpenAIRateLimitResetCredits{AvailableCount: 1, Credits: []OpenAIRateLimitResetCreditDetail{{ExpiresAt: tc.expiry}}}
+			got := assessOpenAIResetExpiry(openAIAutoResetAssessment{}, credits, config, now)
+			require.Equal(t, tc.want, got.resetReached)
+		})
+	}
+	for _, value := range []any{0, -1, 1.5, 10081, "bad"} {
+		_, err := normalizeOpenAIAutoResetCreditExtra(PlatformOpenAI, AccountTypeOAuth, false, map[string]any{OpenAIAutoResetCreditExpiryMinutesExtraKey: value})
+		require.Error(t, err)
+	}
+}
+
+func TestOpenAIQuotaAutoResetService_ExpiryBelowUsageThreshold(t *testing.T) {
+	svc, repo, quota := newResetThresholdTestFixture(t, nil, 1)
+	repo.account.Extra[OpenAIAutoResetCreditExpiryEnabledExtraKey] = true
+	repo.account.Extra["codex_7d_used_percent"] = 10.0
+	quota.usage.RateLimit.SecondaryWindow.UsedPercent = 10
+	expires := time.Now().Add(19 * time.Minute).UTC().Format(time.RFC3339)
+	quota.usage.RateLimitResetCredits.Credits = []OpenAIRateLimitResetCreditDetail{{ExpiresAt: expires}}
+	repo.account.Extra[openaiQuotaResetCreditsKey] = quota.usage.RateLimitResetCredits
+	quota.usage.autoResetCandidates = []openAIAutoResetCreditCandidate{{ID: "expiring-credit", ExpiresAt: expires}}
+	require.NoError(t, svc.evaluateAccount(context.Background(), repo.account.ID))
+	require.Equal(t, int32(1), quota.resetCalls.Load())
+	require.Equal(t, "expiry", openAIAutoResetStateFromExtra(repo.account.Extra).TriggerWindow)
+}
+
 func TestShouldAutoPauseOpenAIAccountByQuota_AutoResetCreditStates(t *testing.T) {
 	now := time.Now().UTC()
 	baseExtra := map[string]any{

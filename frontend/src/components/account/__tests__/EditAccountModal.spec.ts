@@ -1799,6 +1799,33 @@ describe('EditAccountModal OpenAI 自动使用重置卡', () => {
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
   })
 
+  it('到期自动使用默认提前20分钟并保存自定义时间', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="auto-reset-credit-enabled"]').trigger('click')
+    await wrapper.get('[data-testid="auto-reset-credit-expiry-enabled"]').setValue(true)
+    expect((wrapper.get('[data-testid="auto-reset-credit-expiry-minutes"]').element as HTMLInputElement).value).toBe('20')
+    await wrapper.get('[data-testid="auto-reset-credit-expiry-minutes"]').setValue('30')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+      auto_reset_credit_expiry_enabled: true,
+      auto_reset_credit_expiry_minutes: 30
+    })
+    wrapper.unmount()
+  })
+
+  it('读取已保存到期配置并拒绝非整数提前时间', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { auto_reset_credit_enabled: true, auto_reset_credit_expiry_enabled: true, auto_reset_credit_expiry_minutes: 45 }
+    const wrapper = mountModal(account)
+    expect((wrapper.get('[data-testid="auto-reset-credit-expiry-minutes"]').element as HTMLInputElement).value).toBe('45')
+    await wrapper.get('[data-testid="auto-reset-credit-expiry-minutes"]').setValue('1.5')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('仅对 OpenAI OAuth 母账号显示，默认关闭且阈值为 100/100', () => {
     const parent = mountModal(buildOpenAIOAuthParentAccount())
     expect(parent.find('[data-testid="auto-reset-credit-settings"]').exists()).toBe(true)

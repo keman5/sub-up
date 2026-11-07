@@ -985,8 +985,12 @@ export default {
 	    }
 	  },
       autoResetCredit: {
+	    expiryEnabled: 'Automatically use credits before expiry',
+	    expiryMinutes: 'Minutes before expiry',
+	    expiryHint: 'Defaults to 20 minutes. Checks every minute and uses an expiring credit even below usage thresholds. Requires automatic reset credits to be enabled.',
+	    expiryInvalid: 'Minutes before expiry must be an integer between 1 and 10080.',
 	    title: 'Automatically use reset credits',
-	    hint: 'Uses the earliest-expiring available credit only when actual usage reaches a threshold. Off by default; the account remains paused if no credit is available or reset fails.',
+	    hint: 'Uses the earliest-expiring available credit when usage reaches a threshold or the expiry condition is met. Off by default; existing pause rules apply if no credit is available or reset fails.',
 	    threshold5h: '5h auto-reset threshold (%)',
 	    threshold7d: '7d auto-reset threshold (%)',
 	    thresholdHint: 'Each window is evaluated independently. Enter 0.1–100; both default to 100.',
