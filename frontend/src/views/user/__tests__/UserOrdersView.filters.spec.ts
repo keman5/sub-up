@@ -15,6 +15,7 @@ vi.mock('vue-i18n', async (importOriginal) => ({
 enableAutoUnmount(afterEach)
 
 beforeEach(() => {
+  window.history.replaceState({}, '', '/')
   vi.clearAllMocks()
   api.getMyOrders.mockResolvedValue({ data: { items: [], total: 100 } })
   api.getRefundEligibleProviders.mockResolvedValue({ data: { provider_instance_ids: [] } })

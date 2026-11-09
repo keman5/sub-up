@@ -64,6 +64,25 @@ func TestUsageViewModeForRole(t *testing.T) {
 	require.Equal(t, UsageViewPresentation, UsageViewModeForRole(""))
 }
 
+func TestUsageLogForViewCacheDurationsByRole(t *testing.T) {
+	for _, role := range []string{RoleUser, RoleAdmin, RoleSuperAdmin} {
+		t.Run(role, func(t *testing.T) {
+			original := UsageLog{CacheCreation30mTokens: 101, CacheCreation12hTokens: 203, PresentationMultiplier: 2.5, RateMultiplier: 1.7}
+			input := original
+			got := UsageLogForView(&input, UsageViewModeForRole(role))
+			if role == RoleSuperAdmin {
+				require.Equal(t, original, got)
+			} else {
+				require.Equal(t, 252, got.CacheCreation30mTokens)
+				require.Equal(t, 507, got.CacheCreation12hTokens)
+				require.Equal(t, 1.0, got.RateMultiplier)
+			}
+			require.Equal(t, original, input, "presentation must not mutate raw input")
+			require.Equal(t, original, UsageLogForView(&input, UsageViewRaw))
+		})
+	}
+}
+
 func TestUsageLogForView(t *testing.T) {
 	t.Parallel()
 

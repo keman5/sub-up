@@ -49,7 +49,7 @@ const codexOfficialClientFamilyPrefix = "codex "
 // 或在 bump context/codex 时同步补入本集合。
 var codexOfficialClientOriginators = map[string]bool{
 	"codex_cli_rs":          true, // CLI 默认 DEFAULT_ORIGINATOR
-	"codex-tui":             true, // 交互式 TUI（连字符，真实流量占比最高）
+	CodexTUIOriginator:      true, // 交互式 TUI（连字符，真实流量占比最高）
 	"codex_vscode":          true, // VSCode/Cursor 扩展
 	"codex_vscode_copilot":  true, // 扩展 GitHub Copilot 集成模式
 	"codex_app":             true, // 历史保留
@@ -259,8 +259,16 @@ func canonicalizeCodexOriginator(name string) string {
 	return name
 }
 
-// CodexCLIOriginator 是 codex-rs 客户端的历史默认 originator，保留用于兼容识别。
+// CodexCLIOriginator 是 codex-rs 客户端的默认 originator。
 const CodexCLIOriginator = "codex_cli_rs"
+
+// CodexTUIOriginator 是交互式 Codex TUI 使用的 originator。
+const CodexTUIOriginator = "codex-tui"
+
+// CodexDefaultOriginator 是网关默认发送的 Codex originator。
+// 历史 TUI 身份曾触发上游的身份风控分层，因此默认使用 CLI 身份；TUI 仍保留在官方身份集合中，
+// 供入站识别和兼容归一化。
+const CodexDefaultOriginator = CodexCLIOriginator
 
 // codexLoadShedOriginators records known upstream identities that should be
 // normalized for compatibility with deployments that have not enabled the
@@ -287,6 +295,7 @@ func NormalizeCodexClientIdentityToCLI(originator, userAgent string) (string, st
 	if slash <= 0 {
 		return CodexCLIOriginator, ua, true
 	}
+
 	rest := ua[slash:]
 	if trailer := codexUATrailerName(ua); trailer != "" && IsCodexOfficialClientOriginator(trailer) {
 		if open := strings.LastIndex(rest, "("); open > 0 {
@@ -295,9 +304,6 @@ func NormalizeCodexClientIdentityToCLI(originator, userAgent string) (string, st
 	}
 	return CodexCLIOriginator, CodexCLIOriginator + rest, true
 }
-
-// CodexDefaultOriginator 是网关默认使用的 Codex TUI originator。
-const CodexDefaultOriginator = "codex-tui"
 
 // CodexUserAgentVersion 提取 Codex UA 的完整版本段，即 `{client}/{version} (...` 中的 version。
 // 与 ParseCodexEngineVersion 的区别：后者只取三段数字用于引擎版本比较（会丢掉 -alpha.4

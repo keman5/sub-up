@@ -25,6 +25,7 @@ type AvailableGroupRef struct {
 	PeakEnd               string
 	PeakRateMultiplier    float64
 	IsExclusive           bool
+	I18n                  GroupI18n
 }
 
 // AvailableChannel 可用渠道视图：用于「可用渠道」页面展示渠道基础信息 +
@@ -76,6 +77,7 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 			PeakEnd:               g.PeakEnd,
 			PeakRateMultiplier:    g.PeakRateMultiplier,
 			IsExclusive:           g.IsExclusive,
+			I18n:                  g.I18n,
 		}
 	}
 
@@ -139,13 +141,13 @@ func pricingNeedsFallback(p *ChannelModelPricing) bool {
 		return true
 	}
 	if p.InputPrice != nil || p.OutputPrice != nil ||
-		p.CacheWritePrice != nil || p.CacheWrite1hPrice != nil || p.CacheReadPrice != nil ||
+		p.CacheWritePrice != nil || p.CacheWrite1hPrice != nil || p.CacheWrite12hPrice != nil || p.CacheReadPrice != nil ||
 		p.ImageOutputPrice != nil || p.PerRequestPrice != nil {
 		return false
 	}
 	for _, iv := range p.Intervals {
 		if iv.InputPrice != nil || iv.OutputPrice != nil ||
-			iv.CacheWritePrice != nil || iv.CacheWrite1hPrice != nil || iv.CacheReadPrice != nil ||
+			iv.CacheWritePrice != nil || iv.CacheWrite1hPrice != nil || iv.CacheWrite12hPrice != nil || iv.CacheReadPrice != nil ||
 			iv.PerRequestPrice != nil {
 			return false
 		}

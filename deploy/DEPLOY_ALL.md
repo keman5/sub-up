@@ -6,7 +6,9 @@
 
 订阅同步状态修复发布还会调用 `deploy/a1-sync-release.sh --apply`：在本地测试/编译同步消费者，上传并替换现有服务的二进制挂载。消费者读取真实执行回执，按 `lower(trim(email))` 将状态映射到主环境与 3dbooks，并转发这些环境的新请求回 a1。未找到对应用户的环境不创建用户。旧配置用户只在实际复制成功后补回执；取消不删除已复制的数据。test 保持退役。
 
-回归检查：`bash deploy/check-subscription-sync.sh`。脚本检测到本机 Go 1.26 时会使用 jsonv2 和临时 modfile 保持可运行，不改仓库版本声明；Go 1.27 则按仓库版本直接构建。
+同步消费者配置更新依赖 VPS 的 Python3 / PyYAML；缺失时会在修改 unit/config 前停止。配置以 YAML 语义重写，保留值与文件 owner/mode，但移除注释；两个文件的更新可在异常时回滚，不保证断电事务性。
+
+回归检查：`bash deploy/check-subscription-sync.sh`。当前构建固定使用 Go 1.27.3，不再使用旧 Go 1.26 jsonv2 / 临时 modfile 降级路径。应用构建由 `deploy/build.sh` 执行，同步消费者由 `services/a1-user-sync-service/build.sh` 执行；两个脚本均在本地清理 Go build cache 与各自项目 `.artifacts` 后测试、构建。
 
 在仓库根目录执行 `npm run deploy`，或先用 `npm run deploy -- --dry-run` 查看目标；`npm run deploy:check` 检查脚本。
 
@@ -14,7 +16,7 @@
 
 发布顺序为 a1 → 3dbooks → main，每套后端和 Pages 健康通过后才进入下一套。端口分别为 8082、8083、8081。test 已退役，不得重新创建其服务或 Pages 项目；旧 `local-gzip-binary-deploy.sh --deploy` 已禁用。
 
-每套使用自动加载的 `docker-compose.override.yml` 指定应用镜像和重启策略，原有 Compose、数据库和 Redis 不重建。既有 override 会备份为 `.bak-<时间戳>`；test Caddy 备份在 `/opt/cf-origin-ssl/Caddyfile.bak-deploy-<时间戳>`。后续手动 Compose 操作也会加载该 override。
+每套使用自动加载的 `docker-compose.override.yml` 指定应用镜像和重启策略，原有 Compose、数据库和 Redis 不重建。切换前在 `/opt/sub2api-release-backups/<时间戳>/<环境>/` 保存 Compose/override 与经 `pg_restore --list` 验证的数据库归档；备份失败即停止，同次重试不覆盖首次备份。既有 override 还会保留 `.bak-<时间戳>`。后续手动 Compose 操作也会加载该 override。
 
 发布前检查应用不能挂载 `/app/sub2api`，否则挂载文件会覆盖新镜像的程序。2026-10-11 a1 的订阅同步 POST 返回 404，原因是旧 `/opt/a1-sync-release/20261011015401/sub2api` 挂载仍在；通过 `bash deploy/fix-a1-binary-mount.sh` 备份并移除后，a1 实际运行镜像中的 `50119f2e2`，健康检查通过，公网订阅同步接口未登录响应为 401。备份为 `/opt/sub2api-ap1-deploy/docker-compose.yml.bak-binary-mount-20261011202450`。修复脚本仅适用于该旧挂载，重复运行会拒绝修改。
 

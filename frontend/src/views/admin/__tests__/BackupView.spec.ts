@@ -3,6 +3,11 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import BackupView from '../BackupView.vue'
 
+const confirm = vi.hoisted(() => vi.fn())
+vi.mock('@/composables/useAppDialog', () => ({
+  useAppDialog: () => ({ confirm }),
+}))
+
 const {
   getS3Config,
   getImageStorageConfig,
@@ -285,16 +290,17 @@ describe('admin BackupView', () => {
 
   it('归档删除需要单独确认，有限归档不会显示永不过期', async () => {
     listBackups.mockResolvedValue({ items: [{ ...baseRecord('archived'), monthly_archive: { dates: ['2026-09-01', '2026-09-15'], retain_count: 12 } }] })
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    confirm.mockResolvedValue(false)
     const wrapper = mountBackupView()
     await flushPromises()
     expect(wrapper.text()).toContain('admin.backup.archive.badge')
     expect(wrapper.get('tbody tr td:nth-child(6)').text()).toBe('admin.backup.archive.retainLatest')
     const button = wrapper.findAll('button').find(button => button.text() === 'common.delete')!
     await button.trigger('click')
-    expect(confirm).toHaveBeenCalledWith('admin.backup.archive.deleteConfirm')
+    await flushPromises()
+    expect(confirm).toHaveBeenCalledWith({ message: 'admin.backup.archive.deleteConfirm', danger: true })
     expect(deleteBackup).not.toHaveBeenCalled()
-    confirm.mockReturnValue(true)
+    confirm.mockResolvedValue(true)
     await button.trigger('click')
     await flushPromises()
     expect(deleteBackup).toHaveBeenCalledWith('archived', true)

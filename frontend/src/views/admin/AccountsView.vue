@@ -489,11 +489,13 @@
 
 <script setup lang="ts">
 import { defineAsyncComponent, ref, reactive, computed, nextTick, onMounted, onUnmounted, toRaw, watch, type CSSProperties } from 'vue'
+import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
+import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
@@ -682,6 +684,31 @@ const isSameColumnSet = (left: string[], right: string[]) => {
   return leftSet.size === rightSet.size && [...leftSet].every(key => rightSet.has(key))
 }
 
+// Account filter settings
+const ACCOUNT_FILTER_STORAGE_KEY = 'account-filter-values'
+type AccountFilterValues = {
+  platform: string
+  status: string
+}
+const loadInitialAccountFilterValues = (): AccountFilterValues => {
+  const fallback: AccountFilterValues = { platform: '', status: 'active' }
+  try {
+    const raw = localStorage.getItem(ACCOUNT_FILTER_STORAGE_KEY)
+    if (!raw) return fallback
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return fallback
+    const values = parsed as Record<string, unknown>
+    return {
+      platform: typeof values.platform === 'string' && CONCRETE_PLATFORM_OPTIONS.some(option => option.value === values.platform)
+        ? values.platform : '',
+      status: typeof values.status === 'string' && ['', 'active', 'inactive', 'error', 'rate_limited', 'temp_unschedulable', 'unschedulable'].includes(values.status)
+        ? values.status : fallback.status
+    }
+  } catch {
+    return fallback
+  }
+}
+
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
 type AccountSortOrder = 'asc' | 'desc'
@@ -749,9 +776,7 @@ const runListLoadAndUsageRefresh = async (loadTask: () => Promise<void>) => {
 }
 
 const refreshCurrentPageUsageCells = async () => {
-  // The list request already performs the authoritative forced refresh. Read
-  // each current-page result individually so usage cells receive the updated
-  // cache without issuing a second upstream probe.
+  // Refresh current-page upstream windows serially, including hidden usage cells.
   const refreshRun = ++activeUsageRefreshRun
   activeUsageRefreshInFlight = true
   let runtimeStateChanged = false
@@ -786,7 +811,7 @@ const refreshCurrentPageUsageCells = async () => {
           }
         }
 
-        const usage = await adminAPI.accounts.getUsage(accountID, 'active')
+        const usage = await adminAPI.accounts.getUsage(accountID, 'active', true)
         if (refreshRun !== activeUsageRefreshRun) return
         if (usageBatchRequestTokenByAccountId.value[key] !== requestToken) continue
 
@@ -1208,9 +1233,8 @@ const {
 } = useTableLoader<AccountListItem, any>({
   fetchFn: adminAPI.accounts.list,
   initialParams: {
-    platform: '',
+    ...loadInitialAccountFilterValues(),
     type: '',
-    status: 'active',
     privacy_mode: '',
     group: '',
     search: '',
@@ -1220,6 +1244,16 @@ const {
     sort_order: sortState.sort_order
   }
 })
+
+const filterQuerySync = useRouteQuerySync({
+  fields: ['platform', 'type', 'status', 'privacy_mode', 'group', 'search'].map((key) => ({
+    queryKey: key,
+    get: () => params[key],
+    set: (value: string) => { params[key] = value },
+    ...(key === 'search' ? {} : { emptyQueryValue: 'all' }),
+  })),
+})
+filterQuerySync.restoreFromRoute()
 
 const {
   selectedSet,
@@ -1416,7 +1450,20 @@ const refreshUpstreamBillingSortedList = async (force = false) => {
 
 useIntervalFn(() => { void refreshUpstreamBillingRates() }, 5 * 60_000, { immediate: false })
 
+const saveAccountFilterValues = () => {
+  try {
+    localStorage.setItem(ACCOUNT_FILTER_STORAGE_KEY, JSON.stringify({
+      platform: params.platform,
+      status: params.status
+    }))
+  } catch {
+    // Filtering must remain available when browser storage is unavailable.
+  }
+}
+
 const debouncedReload = () => {
+  void filterQuerySync.syncToRoute()
+  saveAccountFilterValues()
   clearSelection()
   syncAccountListDerivedParams()
   hasPendingListSync.value = false
@@ -1454,7 +1501,7 @@ const handleSort = async (key: string, order: AccountSortOrder) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
-  await runListLoadAndUsageRefresh(load)
+  await load()
 }
 
 watch(loading, (isLoading, wasLoading) => {
@@ -2712,6 +2759,7 @@ const handleClickOutside = (event: MouseEvent) => {
 }
 
 onMounted(async () => {
+  await filterQuerySync.syncToRoute()
   if (typeof window !== 'undefined') {
     desktopViewportMediaQuery = window.matchMedia(desktopViewportQuery)
     isDesktopViewport.value = desktopViewportMediaQuery.matches

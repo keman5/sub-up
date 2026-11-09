@@ -16,6 +16,13 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func credentialFailoverTestContext(recorder *httptest.ResponseRecorder) *gin.Context {
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Request.Header.Set("Accept-Language", "en")
+	return c
+}
+
 func TestGatewayChatCredentialStopDoesNotSelectAnotherAccountAndReturnsSafe503(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	stopErr := &service.UpstreamFailoverError{
@@ -34,7 +41,7 @@ func TestGatewayChatCredentialStopDoesNotSelectAnotherAccountAndReturnsSafe503(t
 	require.Empty(t, state.FailedAccountIDs)
 
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c := credentialFailoverTestContext(recorder)
 	(&GatewayHandler{}).handleCCFailoverExhausted(c, state.LastFailoverErr, false)
 
 	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
@@ -46,7 +53,7 @@ func TestGatewayChatCredentialStopDoesNotSelectAnotherAccountAndReturnsSafe503(t
 func TestGatewayChatAntigravityCredentialFailureReturnsActionableMessage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c := credentialFailoverTestContext(recorder)
 
 	(&GatewayHandler{}).handleCCFailoverExhausted(c, &service.UpstreamFailoverError{
 		StatusCode:        http.StatusUnauthorized,
@@ -68,7 +75,7 @@ func TestGatewayChatAntigravityCredentialFailureReturnsActionableMessage(t *test
 func TestOpenAIAccessStateCredentialFailureUsesTypedSafeResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c := credentialFailoverTestContext(recorder)
 
 	(&OpenAIGatewayHandler{}).handleFailoverExhausted(c, &service.UpstreamFailoverError{
 		StatusCode:        http.StatusForbidden,
@@ -101,7 +108,7 @@ func TestOpenAICapacityFailoverExhaustionPreservesMessageAsServerError(t *testin
 
 	t.Run("native_openai", func(t *testing.T) {
 		recorder := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(recorder)
+		c := credentialFailoverTestContext(recorder)
 		(&OpenAIGatewayHandler{}).handleFailoverExhausted(c, failoverErr, false)
 		require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 		require.Equal(t, "server_error", gjson.Get(recorder.Body.String(), "error.type").String())
@@ -111,7 +118,7 @@ func TestOpenAICapacityFailoverExhaustionPreservesMessageAsServerError(t *testin
 
 	t.Run("responses_compat", func(t *testing.T) {
 		recorder := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(recorder)
+		c := credentialFailoverTestContext(recorder)
 		(&GatewayHandler{}).handleResponsesFailoverExhausted(c, failoverErr, false)
 		require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 		require.Equal(t, "server_error", gjson.Get(recorder.Body.String(), "error.code").String())
@@ -120,7 +127,7 @@ func TestOpenAICapacityFailoverExhaustionPreservesMessageAsServerError(t *testin
 
 	t.Run("anthropic_compat", func(t *testing.T) {
 		recorder := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(recorder)
+		c := credentialFailoverTestContext(recorder)
 		(&OpenAIGatewayHandler{}).handleAnthropicFailoverExhausted(c, failoverErr, false)
 		require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 		require.Equal(t, "api_error", gjson.Get(recorder.Body.String(), "error.type").String())
@@ -131,7 +138,7 @@ func TestOpenAICapacityFailoverExhaustionPreservesMessageAsServerError(t *testin
 func TestOpenAIManagedSingleAccountModelNotFoundExhaustionPreservesStructured400(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c := credentialFailoverTestContext(recorder)
 	body := []byte(`{"error":{"type":"invalid_request_error","code":"model_not_found","param":"model","message":"The requested model is unavailable on this account"}}`)
 
 	(&OpenAIGatewayHandler{}).handleFailoverExhausted(c, &service.UpstreamFailoverError{
@@ -149,7 +156,7 @@ func TestOpenAIManagedSingleAccountModelNotFoundExhaustionPreservesStructured400
 func TestOpenAIManagedModelNotFoundExhaustionSanitizesMessage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c := credentialFailoverTestContext(recorder)
 	body := []byte(`{"error":{"code":"model_not_found","message":"Model not found; inspect https://upstream.example/debug?access_token=super-secret-value&model=x"}}`)
 
 	(&OpenAIGatewayHandler{}).handleFailoverExhausted(c, &service.UpstreamFailoverError{
@@ -169,7 +176,7 @@ func TestOpenAIManagedModelNotFoundExhaustionSanitizesMessage(t *testing.T) {
 func TestResponsesFailoverExhaustedAfterForwardedTerminalMarksOpsWithoutDuplicateFrame(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c := credentialFailoverTestContext(recorder)
 	official := "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"server_error\",\"message\":\"official failure\"}}}\n\n"
 	_, err := c.Writer.Write([]byte(official))
 	require.NoError(t, err)
@@ -186,7 +193,7 @@ func TestResponsesFailoverExhaustedAfterForwardedTerminalMarksOpsWithoutDuplicat
 	require.Equal(t, "official failure", streamErr.Message)
 
 	markerRecorder := httptest.NewRecorder()
-	markerContext, _ := gin.CreateTestContext(markerRecorder)
+	markerContext := credentialFailoverTestContext(markerRecorder)
 	(&GatewayHandler{}).handleResponsesFailoverExhausted(markerContext, &service.UpstreamFailoverError{
 		StatusCode: http.StatusTooManyRequests,
 	}, true)
@@ -198,7 +205,7 @@ func TestResponsesFailoverExhaustedAfterForwardedTerminalMarksOpsWithoutDuplicat
 	require.Equal(t, "rate_limit_error", streamErr.ErrType)
 
 	heartbeatRecorder := httptest.NewRecorder()
-	heartbeatContext, _ := gin.CreateTestContext(heartbeatRecorder)
+	heartbeatContext := credentialFailoverTestContext(heartbeatRecorder)
 	heartbeat := ": keepalive\n\n"
 	written, err := heartbeatRecorder.Write([]byte(heartbeat))
 	require.NoError(t, err)
@@ -213,7 +220,7 @@ func TestResponsesFailoverExhaustedAfterForwardedTerminalMarksOpsWithoutDuplicat
 func TestGatewayChatInferenceExhaustionRestoresRetryAfter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c := credentialFailoverTestContext(recorder)
 
 	(&GatewayHandler{}).handleCCFailoverExhausted(c, &service.UpstreamFailoverError{
 		StatusCode:      http.StatusTooManyRequests,
@@ -227,7 +234,7 @@ func TestGatewayChatInferenceExhaustionRestoresRetryAfter(t *testing.T) {
 func TestCredentialFailoverExhaustionReturnsFixedSafe503(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c := credentialFailoverTestContext(recorder)
 	h := &OpenAIGatewayHandler{}
 
 	h.handleFailoverExhausted(c, &service.UpstreamFailoverError{
@@ -249,7 +256,7 @@ func TestCredentialFailoverExhaustionReturnsFixedSafe503(t *testing.T) {
 func TestInferenceFailoverExhaustionRestoresRetryAfter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c := credentialFailoverTestContext(recorder)
 	h := &OpenAIGatewayHandler{}
 
 	h.handleFailoverExhausted(c, &service.UpstreamFailoverError{
@@ -264,7 +271,7 @@ func TestInferenceFailoverExhaustionRestoresRetryAfter(t *testing.T) {
 func TestFailoverExhaustionRejectsSecretBearingRetryAfter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c := credentialFailoverTestContext(recorder)
 	h := &OpenAIGatewayHandler{}
 
 	h.handleFailoverExhausted(c, &service.UpstreamFailoverError{
@@ -280,7 +287,7 @@ func TestFailoverExhaustionRejectsSecretBearingRetryAfter(t *testing.T) {
 func TestFailoverExhaustionRejectsFarFutureRetryAfterDate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c := credentialFailoverTestContext(recorder)
 	h := &OpenAIGatewayHandler{}
 
 	h.handleFailoverExhausted(c, &service.UpstreamFailoverError{
@@ -297,7 +304,7 @@ func TestFailoverExhaustionRejectsFarFutureRetryAfterDate(t *testing.T) {
 func TestFailoverExhaustionAllowsBoundedRetryAfterDate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c := credentialFailoverTestContext(recorder)
 	h := &OpenAIGatewayHandler{}
 	retryAfter := time.Now().Add(time.Hour).UTC().Format(http.TimeFormat)
 
@@ -312,7 +319,7 @@ func TestFailoverExhaustionAllowsBoundedRetryAfterDate(t *testing.T) {
 
 func TestOpsClassificationTreatsCredentialFailureAsAuthNotInference(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c := credentialFailoverTestContext(httptest.NewRecorder())
 	c.Set(service.OpsUpstreamStatusCodeKey, http.StatusForbidden)
 	c.Set(service.OpsUpstreamErrorMessageKey, "stale inference message")
 	c.Set(service.OpsUpstreamErrorDetailKey, "stale inference detail")

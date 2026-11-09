@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -23,6 +24,16 @@ import (
 )
 
 // Group management implementations
+func normalizeAdminDisplayRateMultiplier(value *float64) (float64, error) {
+	if value == nil {
+		return 1, nil
+	}
+	if *value <= 0 || math.IsNaN(*value) || math.IsInf(*value, 0) {
+		return 0, infraerrors.New(http.StatusBadRequest, "INVALID_DISPLAY_RATE_MULTIPLIER", "display_rate_multiplier must be finite and > 0")
+	}
+	return *value, nil
+}
+
 func (s *adminServiceImpl) ValidateSimpleModeGroupOperation(operation AdminGroupOperation) error {
 	return ValidateSimpleModeGroupOperation(s.cfg, operation)
 }
@@ -311,10 +322,17 @@ func defaultModelsListCandidateIDs(platform string) []string {
 	}
 }
 
-func defaultAllowImageGenerationForPlatform(platform string) bool {
-	// Grok image and video generation routes share the legacy image-generation gate.
-	// Older clients send the false zero value, so Grok groups must default enabled.
-	return platform == PlatformGrok
+// DefaultAllowImageGenerationForPlatform reports whether new groups on the platform allow
+// image generation. CreateGroup ORs the requested value with it, so a false in the create
+// request does not turn it off. Composite defaults disabled because the same switch also
+// gates OpenAI image generation there.
+func DefaultAllowImageGenerationForPlatform(platform string) bool {
+	switch platform {
+	case PlatformGrok, PlatformGemini, PlatformAntigravity:
+		return true
+	default:
+		return false
+	}
 }
 
 func compositeDefaultModelsListCandidateIDs() []string {
@@ -372,7 +390,7 @@ func normalizeCreateGroupInputForSimpleMode(input *CreateGroupInput) {
 		return
 	}
 	*input = CreateGroupInput{
-		Name: input.Name, Description: input.Description, Platform: input.Platform,
+		Name: input.Name, Description: input.Description, I18n: input.I18n, Platform: input.Platform,
 		RateMultiplier: 1, SubscriptionType: SubscriptionTypeStandard,
 	}
 }
@@ -381,7 +399,7 @@ func normalizeUpdateGroupInputForSimpleMode(input *UpdateGroupInput) {
 	if input == nil {
 		return
 	}
-	*input = UpdateGroupInput{Name: input.Name, Description: input.Description}
+	*input = UpdateGroupInput{Name: input.Name, Description: input.Description, I18n: input.I18n}
 }
 
 func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {
@@ -393,6 +411,14 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 	if input.RateMultiplier <= 0 {
 		return nil, errors.New("rate_multiplier must be > 0")
+	}
+	displayRateMultiplier, err := normalizeAdminDisplayRateMultiplier(input.DisplayRateMultiplier)
+	if err != nil {
+		return nil, err
+	}
+	i18n, err := normalizeGroupI18n(input.I18n)
+	if err != nil {
+		return nil, err
 	}
 
 	platform := NormalizeGroupPlatform(input.Platform)
@@ -526,8 +552,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		mcpXMLInject = *input.MCPXMLInject
 	}
 
-	allowImageGeneration := input.AllowImageGeneration || defaultAllowImageGenerationForPlatform(platform)
+	allowImageGeneration := input.AllowImageGeneration || DefaultAllowImageGenerationForPlatform(platform)
 	allowBatchImageGeneration := input.AllowBatchImageGeneration && allowImageGeneration && platform == PlatformGemini
+	imageCountBilling := input.ImageCountBilling && allowImageGeneration &&
+		(platform == PlatformComposite || platform == PlatformOpenAI)
 
 	// 如果指定了复制账号的源分组，先获取账号 ID 列表
 	var accountIDsToCopy []int64
@@ -570,8 +598,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	group := &Group{
 		Name:                            input.Name,
 		Description:                     input.Description,
+		I18n:                            i18n,
 		Platform:                        platform,
 		RateMultiplier:                  input.RateMultiplier,
+		DisplayRateMultiplier:           displayRateMultiplier,
 		UsageMultiplierEnabled:          input.UsageMultiplierEnabled,
 		UsageMultiplier:                 usageMultiplier,
 		IsExclusive:                     input.IsExclusive,
@@ -585,6 +615,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ModelPricing:                    modelPricing,
 		AllowImageGeneration:            allowImageGeneration,
 		AllowBatchImageGeneration:       allowBatchImageGeneration,
+		ImageCountBilling:               imageCountBilling,
 		ImageRateIndependent:            input.ImageRateIndependent,
 		ImageRateMultiplier:             imageRateMultiplier,
 		BatchImageDiscountMultiplier:    batchImageDiscountMultiplier,
@@ -784,6 +815,13 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.Description != nil {
 		group.Description = *input.Description
 	}
+	if input.I18n != nil {
+		i18n, err := normalizeGroupI18n(*input.I18n)
+		if err != nil {
+			return nil, err
+		}
+		group.I18n = i18n
+	}
 	if input.Platform != "" {
 		group.Platform = input.Platform
 	}
@@ -792,6 +830,13 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 			return nil, errors.New("rate_multiplier must be > 0")
 		}
 		group.RateMultiplier = *input.RateMultiplier
+	}
+	if input.DisplayRateMultiplier != nil {
+		value, err := normalizeAdminDisplayRateMultiplier(input.DisplayRateMultiplier)
+		if err != nil {
+			return nil, err
+		}
+		group.DisplayRateMultiplier = value
 	}
 	if input.UsageMultiplierEnabled != nil {
 		group.UsageMultiplierEnabled = *input.UsageMultiplierEnabled
@@ -833,12 +878,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.MonthlyLimitUSD != nil {
 		group.MonthlyLimitUSD = normalizeLimit(input.MonthlyLimitUSD)
 	}
-	// 限额字段：nil/负数 表示"无限制"，0 表示"不允许用量"，正数表示具体限额
-	// 前端始终发送这三个字段，无需 nil 守卫
-	group.DailyLimitUSD = normalizeLimit(input.DailyLimitUSD)
-	group.WeeklyLimitUSD = normalizeLimit(input.WeeklyLimitUSD)
-	group.MonthlyLimitUSD = normalizeLimit(input.MonthlyLimitUSD)
-	group.TotalLimitUSD = normalizeLimit(input.TotalLimitUSD)
+	if input.TotalLimitUSD != nil {
+		group.TotalLimitUSD = normalizeLimit(input.TotalLimitUSD)
+	}
 	// 图片生成计费配置：负数表示清除（使用默认价格）
 	if input.AllowImageGeneration != nil {
 		group.AllowImageGeneration = *input.AllowImageGeneration
@@ -848,6 +890,12 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if !group.AllowImageGeneration || group.Platform != PlatformGemini {
 		group.AllowBatchImageGeneration = false
+	}
+	if input.ImageCountBilling != nil {
+		group.ImageCountBilling = *input.ImageCountBilling
+	}
+	if !group.AllowImageGeneration || (group.Platform != PlatformComposite && group.Platform != PlatformOpenAI) {
+		group.ImageCountBilling = false
 	}
 	if input.ImageRateIndependent != nil {
 		group.ImageRateIndependent = *input.ImageRateIndependent

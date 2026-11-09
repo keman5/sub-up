@@ -190,7 +190,7 @@ describe('SubscriptionsView duplicate assignment confirmation', () => {
     await flushPromises()
 
     const dialogs = wrapper.findAll('[data-test="base-dialog"]')
-    expect(dialogs.at(-1)?.attributes('data-title')).toBe('admin.subscriptions.duplicateConfirmTitle')
+    expect(dialogs.at(-1)?.attributes('data-title')).toBe('覆盖已有订阅')
     expect(dialogs.at(-1)?.attributes('data-z-index')).toBe('100')
 
     await dialogs.at(-1)?.findAll('button').at(-1)?.trigger('click')

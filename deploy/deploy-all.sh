@@ -15,6 +15,7 @@ TARGETS=(a1 3dbooks main)
 DIRS=(/opt/sub2api-ap1-deploy /opt/sub2api-retired/sub2api-3dbooks-deploy-20260918151421 /opt/sub2api-deploy)
 SERVICES=(sub2api sub2api-3dbooks sub2api)
 PORTS=(8082 8083 8081)
+DATABASES=(sub2api_ap1 sub2api_3dbooks sub2api)
 ORIGINS=(https://ap1.upit.top https://api.3dbooks.top https://api.upit.top)
 SITES=(https://a1.upit.top https://ai.3dbooks.top https://ai.upit.top)
 log() { printf '[deploy] %s\n' "$*"; }
@@ -32,53 +33,22 @@ done
 PNPM=(npx --yes pnpm@9.15.9)
 # A remote Docker context would violate the local-build requirement.
 endpoint="$(docker context inspect --format '{{.Endpoints.docker.Host}}')"
-[[ "${DOCKER_HOST:-$endpoint}" == unix://* ]] || { echo 'Use a local Docker unix socket context.' >&2; exit 1; }
+[[ "$endpoint" == unix://* && "${DOCKER_HOST:-$endpoint}" == unix://* ]] || { echo 'Use a local Docker unix socket context.' >&2; exit 1; }
 docker info >/dev/null
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 "$HOST")
 "${SSH[@]}" 'command -v python3 >/dev/null; docker compose version >/dev/null; docker image ls >/dev/null'
 "${PNPM[@]}" dlx wrangler whoami
 work="$(mktemp -d "${TMPDIR:-/tmp}/sub2api-deploy.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
-# The installed 1.26 toolchain gates jsontext behind jsonv2; keep compatibility local to the release.
-if [[ "$(GOTOOLCHAIN=local go env GOVERSION)" == go1.26.* ]]; then
-  export GO_COMPAT_VERSION="${GO_COMPAT_VERSION:-$(GOTOOLCHAIN=local go env GOVERSION | sed 's/^go//')}"
-  export GOEXPERIMENT="${GOEXPERIMENT:-jsonv2}"
-  export GOTOOLCHAIN=local
-  log "Using local Go $GO_COMPAT_VERSION with jsonv2 and a temporary modfile"
-fi
 stamp="$(date +%Y%m%d%H%M%S)"
 if [[ -n "${UPLOADED_RELEASE:-}" ]]; then
   [[ "$UPLOADED_RELEASE" =~ ^[0-9]{14}$ && -n "${PREBUILT_IMAGE:-}" ]] || exit 2
   stamp="$UPLOADED_RELEASE"
 fi
 commit="$(git rev-parse --short HEAD)"
-if [[ -n "${GO_COMPAT_VERSION:-}" ]]; then
-  cp backend/go.mod "$work/build.mod"
-  cp backend/go.sum "$work/build.sum"
-  (cd backend && go mod edit -modfile="$work/build.mod" -go="$GO_COMPAT_VERSION")
-  export GOFLAGS="${GOFLAGS:-} -modfile=$work/build.mod"
-fi
 image="${PREBUILT_IMAGE:-sub2api:subapi-$commit-all-$stamp}"
 log "Build and verify release $image"
-CI=true "${PNPM[@]}" --dir frontend install --frozen-lockfile
-"${PNPM[@]}" --dir frontend exec vitest run src/cloudflare/__tests__/pages-worker.spec.ts src/cloudflare/__tests__/pages-config-injection.spec.ts
-(cd backend && go test ./internal/handler/admin ./cmd/server)
-VITE_OPS_HOST_HEALTH_VISIBLE=false "${PNPM[@]}" --dir frontend run build
-cp -R backend/internal/web/dist "$work/main"
-cp -R backend/internal/web/dist "$work/3dbooks"
-version="$(bash backend/scripts/resolve-version.sh)"
-if [[ -z "${PREBUILT_IMAGE:-}" ]]; then
-  (cd backend && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags embed -trimpath -ldflags="-s -w -X main.Version=$version -X main.Commit=$commit -X main.BuildType=release" -o "$work/sub2api" ./cmd/server)
-fi
-VITE_OPS_HOST_HEALTH_VISIBLE=true "${PNPM[@]}" --dir frontend run build
-cp -R backend/internal/web/dist "$work/a1"
-mkdir -p "$work/backend" "$work/deploy"
-cp -R backend/resources "$work/backend/resources"
-cp deploy/docker-entrypoint.sh "$work/deploy/"
-if [[ -z "${PREBUILT_IMAGE:-}" ]]; then
-  docker buildx build --platform linux/amd64 --load -t "$image" -f Dockerfile.goreleaser "$work"
-fi
-[[ "$(docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}')" == linux/amd64 ]]
+bash deploy/build.sh "$work" "$image"
 remote="/tmp/sub2api-deploy-$stamp"
 if [[ -z "${UPLOADED_RELEASE:-}" ]]; then
 docker save "$image" | gzip -c > "$work/image.tar.gz"
@@ -106,15 +76,27 @@ REMOTE
 for i in "${!TARGETS[@]}"; do
   name="${TARGETS[$i]}"
   log "Deploy $name backend"
-  "${SSH[@]}" bash -s -- "${DIRS[$i]}" "${SERVICES[$i]}" "$image" "${PORTS[$i]}" "$name" "$stamp" <<'REMOTE'
+  "${SSH[@]}" bash -s -- "${DIRS[$i]}" "${SERVICES[$i]}" "$image" "${PORTS[$i]}" "$name" "$stamp" "${DATABASES[$i]}" <<'REMOTE'
 set -euo pipefail
 cd "$1"
 service="$2"; image="$3"; port="$4"; name="$5"; stamp="$6"
 # Compose override updates only the application, preserving secrets and shared dependencies.
 override=docker-compose.override.yml
-[ ! -f "$override" ] || cp "$override" "$override.bak-$stamp"
+[[ ! -f "$override" || -f "$override.bak-$stamp" ]] || cp "$override" "$override.bak-$stamp"
 docker compose config --format json | python3 -c 'import json,sys; c=json.load(sys.stdin); assert sys.argv[1] in c["services"]' "$service"
 docker compose config --format json | python3 -c 'import json,sys; c=json.load(sys.stdin); assert not any(v.get("target") == "/app/sub2api" for v in c["services"][sys.argv[1]].get("volumes", [])), "Remove the obsolete /app/sub2api bind mount before deploying; it overrides the image binary"' "$service"
+umask 077
+backup="/opt/sub2api-release-backups/$stamp/$name"
+mkdir -p "$backup"
+[[ -f "$backup/docker-compose.yml" ]] || cp docker-compose.yml "$backup/"
+[[ ! -f "$override" || -f "$backup/$override" ]] || cp "$override" "$backup/"
+if [[ ! -f "$backup/database.dump" ]]; then
+  docker exec sub2api-postgres sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$1" --format=custom' sh "$7" > "$backup/database.dump.part"
+  docker exec -i sub2api-postgres pg_restore --list < "$backup/database.dump.part" >/dev/null
+  mv "$backup/database.dump.part" "$backup/database.dump"
+fi
+docker exec -i sub2api-postgres pg_restore --list < "$backup/database.dump" >/dev/null
+echo "Verified release backup: $backup"
 # Preserve existing override settings, including mounts and resource limits.
 if [ -f "$override" ]; then
   docker compose -f "$override" config --no-consistency --format json > release-override.tmp.json

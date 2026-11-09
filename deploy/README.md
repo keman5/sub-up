@@ -2,6 +2,8 @@
 
 This directory contains files for deploying Sub2API on Linux servers and Apple-silicon Macs.
 
+本仓库当前线上发布使用 `npm run deploy`，仅更新 a1 → 3dbooks → 主环境；test 已退役。构建仅在本地通过 `build.sh` 执行，VPS 不构建。步骤、备份及验收以 [DEPLOY_ALL.md](DEPLOY_ALL.md) 为准；下方通用安装方式不替代现有环境的发布流程。
+
 ## Deployment Methods
 
 | Method | Best For | Setup Wizard |

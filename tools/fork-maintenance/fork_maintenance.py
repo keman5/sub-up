@@ -74,7 +74,7 @@ VERIFY_SEARCHES = (
     ),
     (
         "account action menu measured positioning",
-        'ref="menuRef".*useResizeObserver|useResizeObserver\(menuRef',
+        r'ref="menuRef".*useResizeObserver|useResizeObserver\(menuRef',
         "frontend/src/components/admin/account/AccountActionMenu.vue",
     ),
     (
@@ -103,7 +103,7 @@ VERIFY_SEARCHES = (
         "deploy/local-gzip-binary-deploy.sh",
     ),
     (
-        "test production-state verification",
+        "3dbooks production-state verification",
         '127\\.0\\.0\\.1:8083/api/v1/settings/public',
         "tools/fork-maintenance/fork_maintenance.py",
     ),
@@ -652,10 +652,12 @@ def cmd_reapply_production_state(args: argparse.Namespace) -> int:
     static_cmd = f"""set -eu
 cd /opt/51token-home
 TS=$(date +%Y%m%d%H%M%S)
-cp index.html "index.html.bak-fork-maint-$TS"
-cp favicon.ico "favicon.ico.bak-fork-maint-$TS" 2>/dev/null || true
-cp logo.png "logo.png.bak-fork-maint-$TS" 2>/dev/null || true
-cp logo.svg "logo.svg.bak-fork-maint-$TS" 2>/dev/null || true
+test -f index.html
+for asset in index.html favicon.ico logo.png logo.svg; do
+  if [ -e "$asset" ]; then
+    cp "$asset" "$asset.bak-fork-maint-$TS"
+  fi
+done
 cp /tmp/fork-maintenance/logo.png ./logo.png
 cp /tmp/fork-maintenance/logo.svg ./logo.svg
 cp /tmp/fork-maintenance/favicon.ico ./favicon.ico
@@ -685,28 +687,31 @@ docker exec cf-origin-ssl sh -lc "grep -o '<link rel=\\"[^\\"]*\\"[^>]*>' /srv/5
     scp_to_remote(host, sql_path, "/tmp/fork-maintenance/login-agreement.sql", apply=apply)
     db_cmd = """set -eu
 docker cp /tmp/fork-maintenance/login-agreement.sql sub2api-postgres:/tmp/login-agreement.sql
-for db in sub2api sub2api_ap1 sub2api_test; do
+for db in sub2api sub2api_ap1 sub2api_3dbooks; do
   docker exec sub2api-postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$1" -v ON_ERROR_STOP=1 -f /tmp/login-agreement.sql' sh "$db"
 done
 """
     remote(host, db_cmd, apply=apply)
 
-    verify_cmd = f"""set -eu
-curl -fsS https://ai.upit.top/health
-curl -fsS https://api.upit.top/health
-curl -fsS https://a1.upit.top/health
-curl -fsS https://ap1.upit.top/health
-curl -fsS https://test.upit.top/health
-curl -fsS https://a2t.upit.top/health
+    settings_check = (
+        "import json,sys; d=json.load(sys.stdin)['data']; "
+        f"expected={state!r}; "
+        "assert all(d.get(k) == v for k,v in expected.items()), 'login agreement state mismatch'; "
+        "print('login agreement state verified')"
+    )
+    verify_cmd = f"""set -euo pipefail
+for url in https://ai.upit.top/health https://api.upit.top/health https://a1.upit.top/health https://ap1.upit.top/health https://ai.3dbooks.top/health https://api.3dbooks.top/health; do
+  curl -fsS --max-time 20 "$url" | python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "ok"'
+done
 curl -k -fsS 'https://ai.upit.top/?v={version}' -o /tmp/fork-maintenance/home.html
 if grep -q 'favicon.ico\\|alternate icon' /tmp/fork-maintenance/home.html; then
   echo 'old favicon reference still present' >&2
   exit 1
 fi
 grep -o '<link rel="[^"]*"[^>]*>' /tmp/fork-maintenance/home.html | grep -E 'icon|apple-touch'
-curl -fsS http://127.0.0.1:8081/api/v1/settings/public | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print("primary_docs", len(d.get("login_agreement_documents") or []), d.get("login_agreement_enabled"), d.get("login_agreement_mode"))'
-curl -fsS http://127.0.0.1:8082/api/v1/settings/public | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print("ap1_docs", len(d.get("login_agreement_documents") or []), d.get("login_agreement_enabled"), d.get("login_agreement_mode"))'
-curl -fsS http://127.0.0.1:8083/api/v1/settings/public | python3 -c 'import json,sys; d=json.load(sys.stdin)["data"]; print("test_docs", len(d.get("login_agreement_documents") or []), d.get("login_agreement_enabled"), d.get("login_agreement_mode"))'
+curl -fsS --max-time 20 http://127.0.0.1:8081/api/v1/settings/public | python3 -c {shlex.quote(settings_check)}
+curl -fsS --max-time 20 http://127.0.0.1:8082/api/v1/settings/public | python3 -c {shlex.quote(settings_check)}
+curl -fsS --max-time 20 http://127.0.0.1:8083/api/v1/settings/public | python3 -c {shlex.quote(settings_check)}
 """
     remote(host, verify_cmd, apply=apply)
     return 0

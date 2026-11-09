@@ -85,6 +85,8 @@ func UsageLogForView(log *UsageLog, mode UsageViewMode) UsageLog {
 	out.CacheReadTokens = multiplyInt(out.CacheReadTokens, multiplier)
 	out.CacheCreation5mTokens = multiplyInt(out.CacheCreation5mTokens, multiplier)
 	out.CacheCreation1hTokens = multiplyInt(out.CacheCreation1hTokens, multiplier)
+	out.CacheCreation30mTokens = multiplyInt(out.CacheCreation30mTokens, multiplier)
+	out.CacheCreation12hTokens = multiplyInt(out.CacheCreation12hTokens, multiplier)
 	out.ImageOutputTokens = multiplyInt(out.ImageOutputTokens, multiplier)
 	out.InputCost *= multiplier
 	out.OutputCost *= multiplier

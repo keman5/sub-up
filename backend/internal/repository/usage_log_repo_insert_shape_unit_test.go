@@ -21,6 +21,20 @@ var (
 	usageLogPlaceholderRe       = regexp.MustCompile(`\$(\d+)`)
 )
 
+func TestPrepareUsageLogInsertPresentationSnapshot(t *testing.T) {
+	for _, snapshot := range []float64{2.5, 1, 0, -1} {
+		log := &service.UsageLog{PresentationMultiplier: snapshot, Group: &service.Group{UsageMultiplierEnabled: true, UsageMultiplier: 9}}
+		prepared := prepareUsageLogInsert(log)
+		want := snapshot
+		if want <= 0 {
+			want = 1
+		}
+		require.Equal(t, want, prepared.args[len(prepared.args)-2])
+		require.Equal(t, "numeric", usageLogInsertArgTypes[len(prepared.args)-2])
+		require.Equal(t, snapshot, log.PresentationMultiplier)
+	}
+}
+
 // newSQLCapturingMock 返回把实际下发 SQL 记录到 captured 的 sqlmock；语句一律视为匹配，
 // 参数仍由 WithArgs 校验。
 func newSQLCapturingMock(t *testing.T, captured *[]string) (*sql.DB, sqlmock.Sqlmock) {
@@ -129,7 +143,7 @@ func TestPrepareUsageLogInsert_UpstreamRequestIDArgWiring(t *testing.T) {
 	})
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
 
-	idx := len(prepared.args) - 4
+	idx := len(prepared.args) - 7
 	arg, ok := prepared.args[idx].(sql.NullString)
 	require.True(t, ok, "upstream_request_id arg should be sql.NullString, got %T", prepared.args[idx])
 	require.True(t, arg.Valid)

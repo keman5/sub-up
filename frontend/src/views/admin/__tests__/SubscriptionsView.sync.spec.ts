@@ -5,13 +5,13 @@ import SubscriptionsView from '../SubscriptionsView.vue'
 const mocks = vi.hoisted(() => ({
   auth: { user: { email: 'macseek@upit.top' } },
   getSubscriptionSyncRequests: vi.fn(), requestSubscriptionSyncBySubscription: vi.fn(),
-  list: vi.fn(), showError: vi.fn(), showSuccess: vi.fn(),
+  list: vi.fn(), resetQuota: vi.fn(), showError: vi.fn(), showSuccess: vi.fn(),
 }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => mocks.auth }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => mocks }))
 vi.mock('@/api/admin/payment', () => ({ adminPaymentAPI: mocks }))
 vi.mock('@/api/admin', () => ({ adminAPI: {
-  subscriptions: { list: mocks.list }, groups: { getAll: async () => [] },
+  subscriptions: { list: mocks.list, resetQuota: mocks.resetQuota }, groups: { getAll: async () => [] },
   usage: { searchUsers: async () => [] },
 } }))
 vi.mock('vue-i18n', async (original) => ({
@@ -22,11 +22,28 @@ function render() {
     AppLayout: { template: '<main><slot /></main>' },
     TablePageLayout: { template: '<div><slot /><slot name="table" /></div>' },
     DataTable: { props: ['data'], template: '<div><slot v-for="row in data" name="cell-actions" :row="row" /></div>' },
-    BaseDialog: true, ConfirmDialog: true, BulkSubscriptionActionDialog: true,
+    BaseDialog: { props: ['show'], template: '<section v-if="show" data-reset-dialog><slot /><slot name="footer" /></section>' }, ConfirmDialog: true, BulkSubscriptionActionDialog: true,
     Pagination: true, Select: true, Icon: true, RouterLink: true,
   } } })
 }
 describe('subscription sync controls', () => {
+  it.each(['active', 'expired', 'revoked'])('reset quota availability for %s subscriptions', async (status) => {
+    mocks.list.mockResolvedValue({ items: [{ id: 9, user_id: 21, status }], total: 1, pages: 1 })
+    mocks.resetQuota.mockResolvedValue({})
+    const wrapper = render()
+    await flushPromises()
+    const button = wrapper.findAll('button').find(button => button.text() === 'admin.subscriptions.resetQuota')
+    expect(Boolean(button)).toBe(status !== 'revoked')
+    if (status === 'expired') {
+      await button!.trigger('click')
+      const dialog = wrapper.get('[data-reset-dialog]')
+      expect((dialog.get('input[value="daily"]').element as HTMLInputElement).checked).toBe(true)
+      await dialog.findAll('button').find(button => button.text() === 'admin.subscriptions.resetQuota')!.trigger('click')
+      await flushPromises()
+      expect(mocks.resetQuota).toHaveBeenCalledWith(9, { daily: true, weekly: false, monthly: false })
+    }
+    wrapper.unmount()
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.auth.user.email = 'macseek@upit.top'

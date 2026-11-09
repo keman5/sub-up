@@ -93,7 +93,7 @@ Do not deploy, force-push, reset, discard changes or abort the merge after a gat
 
    Also run every focused command named by each changed record, including backend Go tests, frontend Vitest tests, maintenance guards and deployment-script syntax checks. If a command is unavailable, record the exact blocker and stop before deployment.
 
-8. Only after both reviews and all required checks pass, read the current deployment instructions in `docs/VPS_DEPLOY_NOTES.md`, `deploy/README.md` and `deploy/local-gzip-binary-deploy.sh`. Confirm whether frontend assets changed: use `--skip-frontend-build` only for backend/API-only changes; otherwise build and publish the documented Pages artifacts as well.
+8. Only after both reviews and all required checks pass, read the current deployment instructions in `docs/VPS_DEPLOY_NOTES.md`, `deploy/DEPLOY_ALL.md`, `deploy/README.md` and `deploy/deploy-all.sh`. Build locally through `deploy/build.sh` and `services/a1-user-sync-service/build.sh`, clearing Go build cache and project `.artifacts` caches. Never compile or build images on the VPS. Publish the documented Pages artifacts with each environment.
 
 ## Deployment gates
 
@@ -103,20 +103,20 @@ First run both dry-runs and inspect the printed target, image, environment order
 
 ```bash
 tools/fork-maintenance/fork-maintenance.sh reapply-production-state --host 51tokens
-deploy/local-gzip-binary-deploy.sh --host 51tokens [--skip-frontend-build]
+HOST=51tokens npm run deploy -- --dry-run
 ```
 
-Then deploy the verified local commit in the documented order. The script must gate `test` before `ap1`, and `ap1` before `primary`; a failed environment stops the rollout:
+Then deploy the verified local commit in the current documented order: a1 (8082), 3dbooks (8083), primary (8081). Test is retired and must not be restored. A failed environment stops the rollout before changing the next environment:
 
 ```bash
-deploy/local-gzip-binary-deploy.sh --apply --deploy --host 51tokens [--skip-frontend-build]
+HOST=51tokens npm run deploy
 tools/fork-maintenance/fork-maintenance.sh reapply-production-state --host 51tokens --apply
 ```
 
-After each environment, verify its container, local port and public health endpoints. After the full rollout, verify all six documented health endpoints (`test/a2t`, `a1/ap1`, `ai/api`) and the relevant public settings/runtime-state checks. Restore recorded non-Git state only after the new code is healthy, then re-check the endpoints. Keep generated remote backup paths in the final report.
+After each environment, verify its container, local port and public health endpoints. After the full rollout, verify all six current health endpoints (`a1.upit.top/ap1.upit.top`, `ai.3dbooks.top/api.3dbooks.top`, `ai.upit.top/api.upit.top`) and relevant public settings/runtime-state checks. Restore recorded non-Git state only after the new code is healthy, targeting only databases `sub2api_ap1`, `sub2api_3dbooks`, and `sub2api`. Never write to the retired test database. Then re-check endpoints. Keep generated remote backup paths in the final report.
 
 Do not push `subapi` unless explicitly requested. If deployment changes remote state but a later check fails, stop, report the exact stage and preserved backup information, and do not continue to another environment.
 
 ## Final report
 
-Report the pull source, upstream SHA, merge commit and parents, conflicts and resolutions, each review table result, every focused/full verification command, deployment image tag, test -> a1 -> primary results, state restoration result and health endpoint results. State explicitly whether `subapi` was pushed.
+Report the pull source, upstream SHA, merge commit and parents, conflicts and resolutions, each review table result, every focused/full verification command, deployment image tag, a1 -> 3dbooks -> primary results, state restoration result and health endpoint results. State explicitly whether `subapi` was pushed.

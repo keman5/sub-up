@@ -724,7 +724,7 @@ curl -k -sS -H 'Cache-Control: no-cache' 'https://ai.upit.top/?redeploy=20260601
 | 2026-07 | `docs/fork-maintenance/2026-07.md` | 上游拆分结构适配、部署拓扑、路由筛选同步、账号用量刷新及后续本地补丁明细。 |
 | 2026-08 | `docs/fork-maintenance/2026-08.md` | 上游同步冲突审计、分组表单重复控件修复，以及认证、OpenAI quota、reset-credit、退款状态和未结算 usage-log 兼容修复。 |
 | 2026-09 | [2026-09 明细](fork-maintenance/2026-09.md) | 3dbooks 独立回源、配额错误详情、公告邮件注入与线上验证记录。 |
-| 2026-11 | [2026-11 明细](fork-maintenance/2026-11.md) | 个性化改动登记规则、现有统一部署入口与退役 test 边界、订阅同步通知，以及重置卡到期前自动使用的当前未提交改动。 |
+| 2026-11 | [2026-11 明细](fork-maintenance/2026-11.md) | 个性化改动登记、三环境统一部署与退役 test 边界、订阅同步通知、到期前自动用卡、已过期订阅的重置配额入口，以及 11 月 9—10 日非 fork 同步、build.sh、展示与配置持久化、发布备份及状态恢复修复；上游同步发布仍受验证与产品决策门禁约束。 |
 
 ### 2026-07-06: 自动记录本地改动
 
@@ -2305,7 +2305,9 @@ go test -tags=unit ./internal/service ./internal/handler/admin -run 'Test(.*Emai
 **自动记录：**
 
 - 本条由 pre-commit 护栏根据本次 staged 文件自动生成。
-- 提交后请补充业务目的、验证结果和同步官方后的复查方式；不要长期保留空泛记录。
+- 平台目录由 `domain.Platforms()` / `LookupPlatform()` 与前端 platform catalog 统一提供，保留 Kimi、智谱、DeepSeek、MiniMax、OpenCode、TypeSafe、Command Code、Cline 的分组、凭据、路由、定价和额度入口；具体 OAuth / 余额 / Coding Plan 能力仍由对应实现显式判断，不因“平台已登记”而自动开启。
+- 配额和组合路由的数据库约束不再固定老平台枚举；新增迁移删除旧约束，不能回改已上线迁移。运行态探测、协议路由及平台切换后的配置清理仍须按真实入口验证。
+- 构建版本与上游 go.mod 一致；仅对测试代码保留 SA5011 的既有误报排除，生产静态检查不豁免。下列命令是本条复查要求，历史自动登记不代表本轮已经通过。
 
 **涉及文件：**
 
@@ -2454,12 +2456,19 @@ go test -tags=unit ./internal/service ./internal/handler/admin -run 'Test(.*Emai
 **验证：**
 
 ```bash
-TODO: 填写验证命令
+cd backend
+go test -tags=unit ./internal/domain ./internal/model ./internal/handler/admin ./internal/service ./internal/repository ./migrations -run 'Test.*(Platform|CNProvider|Cline|CommandCode|OpenCodeGo|UpstreamProtocolRouting)' -count=1
+# 回到仓库根目录
+cd ..
+pnpm --dir frontend exec vitest run src/constants/__tests__/platforms.spec.ts src/components/account/__tests__/credentialsBuilder.platformCatalog.spec.ts src/components/account/__tests__/ModelWhitelistSelector.spec.ts src/views/admin/__tests__/channelPlatformOptions.spec.ts
+pnpm --dir frontend run typecheck
+make test
+make secret-scan
 ```
 
 **同步官方后的复查：**
 
-- TODO: 说明搜索什么、跑什么测试、什么情况下可以删除本地补丁。
+- 搜索 `Platforms`、`LookupPlatform`、`PlatformIDsWhere`、`platformCatalog`、`UpstreamProtocolRouting` 和迁移 `242_drop_platform_check_constraints.sql`；逐个平台核对创建/编辑凭据、平台切换、分组/额度列表、网关族和协议路由、模型目录与用量显示，不能仅验证工具函数存在。只有上游完整覆盖这些平台及各入口语义并通过专项和全量验证时，才能逐项删除对应本地实现。
 
 ## 同步官方版本后的复查流程
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -216,6 +217,10 @@ func (h *UsageHandler) List(c *gin.Context) {
 		return
 	}
 
+	if adminaccess.RestrictedFromContext(c.Request.Context()) != nil {
+		response.Paginated(c, adminUsageLogResponses(c, records), result.Total, page, pageSize)
+		return
+	}
 	out := make([]dto.AdminUsageLog, 0, len(records))
 	for i := range records {
 		out = append(out, *dto.UsageLogFromServiceAdminWithViewer(&records[i], viewMode))

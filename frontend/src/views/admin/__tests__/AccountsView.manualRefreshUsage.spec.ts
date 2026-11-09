@@ -93,6 +93,7 @@ const DataTableStub = {
 
 const DataTableWithoutUsageStub = {
   props: ['data', 'loading'],
+  emits: ['sort'],
   template: `
     <div data-test="data-table">
       <div v-if="loading" data-test="loading">loading</div>
@@ -260,7 +261,7 @@ describe('admin AccountsView manual usage refresh', () => {
       expect.not.objectContaining({ refresh_usage: 'true' }),
       expect.anything()
     )
-    expect(getUsage).toHaveBeenCalledWith(1, 'active')
+    expect(getUsage).toHaveBeenCalledWith(1, 'active', true)
 
     wrapper.unmount()
   })
@@ -340,7 +341,7 @@ describe('admin AccountsView manual usage refresh', () => {
     await flushPromises()
 
     expect(getUsage).toHaveBeenCalledTimes(1)
-    expect(getUsage).toHaveBeenCalledWith(1, 'active')
+    expect(getUsage).toHaveBeenCalledWith(1, 'active', true)
     expect(getBatchUsage).not.toHaveBeenCalled()
 
     getById.mockResolvedValueOnce(createAccount(1, 'anthropic-oauth'))
@@ -351,9 +352,9 @@ describe('admin AccountsView manual usage refresh', () => {
     releaseFirstUsage?.()
     await flushPromises()
 
-    expect(getUsage).toHaveBeenNthCalledWith(2, 2, 'active')
+    expect(getUsage).toHaveBeenNthCalledWith(2, 2, 'active', true)
     expect(getUsage).toHaveBeenCalledTimes(2)
-    expect(getUsage).not.toHaveBeenCalledWith(3, 'active')
+    expect(getUsage).not.toHaveBeenCalledWith(3, 'active', true)
     expect(wrapper.get('[data-test="edit-modal"]').text()).toBe('anthropic-oauth')
     wrapper.unmount()
   })
@@ -376,7 +377,7 @@ describe('admin AccountsView manual usage refresh', () => {
     await flushPromises()
 
     expect(calls).toEqual(['quota', 'usage'])
-    expect(getUsage).toHaveBeenCalledWith(1, 'active')
+    expect(getUsage).toHaveBeenCalledWith(1, 'active', true)
     wrapper.unmount()
   })
 
@@ -400,7 +401,7 @@ describe('admin AccountsView manual usage refresh', () => {
     // automatic refresh is verified by its required upstream usage calls.
     expect(listWithEtag).toHaveBeenCalled()
     expect(refreshOpenAIQuota).toHaveBeenCalledWith(1)
-    expect(getUsage).toHaveBeenCalledWith(1, 'active')
+    expect(getUsage).toHaveBeenCalledWith(1, 'active', true)
 
     wrapper.unmount()
     vi.useRealTimers()
@@ -413,13 +414,29 @@ describe('admin AccountsView manual usage refresh', () => {
 
     const wrapper = mountView(false, true)
     await flushPromises()
-    expect(getUsage).toHaveBeenLastCalledWith(1, 'active')
+    expect(getUsage).toHaveBeenLastCalledWith(1, 'active', true)
 
     await wrapper.get('[data-test="next-page"]').trigger('click')
     await flushPromises()
 
-    expect(getUsage).toHaveBeenLastCalledWith(2, 'active')
+    expect(getUsage).toHaveBeenLastCalledWith(2, 'active', true)
     expect(getBatchUsage).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('refreshes each usage window only once after sorting', async () => {
+    listAccounts.mockResolvedValue(pageResponse([createAccount(1, 'account')]))
+    const wrapper = mountView(false)
+    await flushPromises()
+    getUsage.mockClear()
+    listAccounts.mockClear()
+
+    wrapper.findComponent(DataTableWithoutUsageStub).vm.$emit('sort', 'name', 'desc')
+    await flushPromises()
+
+    expect(listAccounts).toHaveBeenCalledTimes(1)
+    expect(getUsage).toHaveBeenCalledTimes(1)
+    expect(getUsage).toHaveBeenCalledWith(1, 'active', true)
     wrapper.unmount()
   })
 

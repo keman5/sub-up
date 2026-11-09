@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PublicSettings } from '@/types'
+import { FeatureFlags, isFeatureFlagEnabled, resolveFeatureFlag } from '../featureFlags'
 
 const appStore = vi.hoisted(() => ({
   cachedPublicSettings: null as null | Record<string, unknown>,
@@ -33,5 +35,21 @@ describe('feature flag refresh helpers', () => {
 
     await expect(refreshAndResolveFeatureFlag(FeatureFlags.riskControl)).resolves.toBe(true)
     expect(appStore.fetchPublicSettings).not.toHaveBeenCalled()
+  })
+})
+
+describe('FeatureFlags.mcp', () => {
+  beforeEach(() => {
+    appStore.cachedPublicSettings = null
+    delete (window as any).__APP_CONFIG__
+  })
+
+  it('stays hidden unless the deployment explicitly enables MCP', () => {
+    expect(FeatureFlags.mcp.key).toBe('mcp_enabled')
+    expect(FeatureFlags.mcp.mode).toBe('opt-in')
+    expect(isFeatureFlagEnabled(FeatureFlags.mcp)).toBe(false)
+    expect(resolveFeatureFlag({} as PublicSettings, FeatureFlags.mcp)).toBe(false)
+    expect(resolveFeatureFlag({ mcp_enabled: false } as PublicSettings, FeatureFlags.mcp)).toBe(false)
+    expect(resolveFeatureFlag({ mcp_enabled: true } as PublicSettings, FeatureFlags.mcp)).toBe(true)
   })
 })

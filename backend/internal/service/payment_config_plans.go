@@ -88,6 +88,8 @@ type PlanGroupInfo struct {
 	MonthlyLimitUSD       *float64 `json:"monthly_limit_usd"`
 	TotalLimitUSD         *float64 `json:"total_limit_usd"`
 	ModelScopes           []string `json:"supported_model_scopes"`
+	// handler 按请求语言选择分组名称，不直接输出翻译表。
+	I18n GroupI18n `json:"-"`
 }
 
 // GetGroupPlatformMap returns a map of group_id → platform for the given plans.
@@ -133,6 +135,7 @@ func (s *PaymentConfigService) GetGroupInfoMap(ctx context.Context, plans []*dbe
 			MonthlyLimitUSD:       g.MonthlyLimitUsd,
 			TotalLimitUSD:         g.TotalLimitUsd,
 			ModelScopes:           g.SupportedModelScopes,
+			I18n:                  g.I18n,
 		}
 	}
 	return m

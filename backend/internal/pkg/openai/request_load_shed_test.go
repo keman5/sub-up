@@ -15,7 +15,7 @@ func TestIsCodexLoadShedOriginator(t *testing.T) {
 	require.False(t, IsCodexLoadShedOriginator(""))
 }
 
-func TestNormalizeCodexClientIdentityToCLI(t *testing.T) {
+func TestNormalizeCodexClientIdentityToCLI_LegacyFingerprints(t *testing.T) {
 	tests := []struct {
 		name           string
 		originator     string

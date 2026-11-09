@@ -113,7 +113,17 @@ describe('admin AccountsView search suggest wiring', () => {
     vi.useRealTimers()
   })
 
-  it('loads active accounts by default', async () => {
+  it.each([
+    { stored: null, query: '', expected: 'active' },
+    { stored: '{invalid', query: '', expected: 'active' },
+    { stored: '{"status":"unknown"}', query: '', expected: 'active' },
+    { stored: '{"status":"inactive"}', query: '', expected: 'inactive' },
+    { stored: '{"status":""}', query: '', expected: '' },
+    { stored: '{"status":"inactive"}', query: '?status=active', expected: 'active' },
+    { stored: null, query: '?status=all', expected: '' },
+  ])('restores filters with active as the default: $stored $query', async ({ stored, query, expected }) => {
+    window.history.replaceState({}, '', `/admin/accounts${query}`)
+    if (stored !== null) localStorage.setItem('account-filter-values', stored)
     mount(AccountsView, {
       global: {
         stubs: {
@@ -156,7 +166,7 @@ describe('admin AccountsView search suggest wiring', () => {
     expect(listAccounts).toHaveBeenCalledWith(
       1,
       20,
-      expect.objectContaining({ status: 'active' }),
+      expect.objectContaining({ status: expected }),
       expect.any(Object),
     )
   })
