@@ -101,6 +101,13 @@ func ProvideOAuthRefreshAPI(accountRepo AccountRepository, tokenCache GeminiToke
 	return NewOAuthRefreshAPI(accountRepo, tokenCache)
 }
 
+// ProvideOpenAIQuotaRefreshService creates and starts background quota recovery.
+func ProvideOpenAIQuotaRefreshService(accountRepo AccountRepository, accountUsageService *AccountUsageService) *OpenAIQuotaRefreshService {
+	svc := NewOpenAIQuotaRefreshService(accountRepo, accountUsageService, openAIQuotaRefreshInterval)
+	svc.Start()
+	return svc
+}
+
 // ProvideAccountPoolHealthNotifyService creates and starts AccountPoolHealthNotifyService.
 func ProvideAccountPoolHealthNotifyService(accountRepo AccountRepository, settingRepo SettingRepository, notificationEmailService *NotificationEmailService) *AccountPoolHealthNotifyService {
 	svc := NewAccountPoolHealthNotifyService(accountRepo, settingRepo, notificationEmailService, time.Minute)
@@ -973,6 +980,7 @@ var ProviderSet = wire.NewSet(
 	NewUsageRecordWorkerPool,
 	ProvideSchedulerSnapshotService,
 	ProvideAccountPoolHealthNotifyService,
+	ProvideOpenAIQuotaRefreshService,
 	NewIdentityService,
 	NewCRSSyncService,
 	ProvideUpdateService,

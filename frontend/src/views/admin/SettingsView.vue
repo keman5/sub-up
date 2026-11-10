@@ -8767,6 +8767,79 @@
             </div>
           </div>
 
+          <div class="card p-6 space-y-4">
+            <h3 class="text-base font-medium text-gray-900 dark:text-white">
+              {{ t("admin.settings.emailDefaultLocale.title") }}
+            </h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400">
+              {{ t("admin.settings.emailDefaultLocale.description") }}
+            </p>
+            <label for="notification-email-default-locale" class="block text-sm font-medium">
+              {{ t("admin.settings.emailDefaultLocale.label") }}
+            </label>
+            <Select
+              id="notification-email-default-locale"
+              v-model="form.notification_email_default_locale"
+              :options="[
+                { value: 'zh', label: t('admin.settings.emailDefaultLocale.zh') },
+                { value: 'en', label: t('admin.settings.emailDefaultLocale.en') },
+              ]"
+            />
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.settings.emailDefaultLocale.hint") }}
+            </p>
+          </div>
+
+          <div class="card p-6 space-y-4">
+            <h3 class="text-base font-medium text-gray-900 dark:text-white">
+              {{ t("admin.settings.subscriptionExpiredAdminNotify.title") }}
+            </h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400">
+              {{ t("admin.settings.subscriptionExpiredAdminNotify.description") }}
+            </p>
+            <div class="flex items-center justify-between gap-4">
+              <label for="subscription-expired-admin-notify-enabled" class="text-sm font-medium">
+                {{ t("admin.settings.subscriptionExpiredAdminNotify.enabled") }}
+              </label>
+              <Toggle id="subscription-expired-admin-notify-enabled" v-model="form.subscription_expired_admin_notify_enabled" />
+            </div>
+            <div v-if="form.subscription_expired_admin_notify_enabled" class="space-y-2">
+              <label class="block text-sm font-medium">
+                {{ t("admin.settings.subscriptionExpiredAdminNotify.emails") }}
+              </label>
+              <div v-for="(entry, index) in form.subscription_expired_admin_notify_emails" :key="index" class="flex items-center gap-2">
+                <input
+                  data-admin-notify-recipient-enabled
+                  type="checkbox"
+                  :aria-label="t('admin.settings.subscriptionExpiredAdminNotify.enabled')"
+                  :checked="!entry.disabled"
+                  @change="entry.disabled = !entry.disabled"
+                />
+                <input
+                  v-model="entry.email"
+                  data-admin-notify-email
+                  type="email"
+                  class="input flex-1"
+                  :aria-label="t('admin.settings.subscriptionExpiredAdminNotify.emails')"
+                  :placeholder="t('admin.settings.subscriptionExpiredAdminNotify.emailPlaceholder')"
+                />
+                <label class="flex items-center gap-1 text-sm">
+                  <input v-model="entry.verified" data-admin-notify-recipient-confirmed type="checkbox" />
+                  {{ t("admin.settings.subscriptionExpiredAdminNotify.confirmRecipient") }}
+                </label>
+                <button data-remove-admin-notify-email type="button" class="btn btn-secondary px-2" :aria-label="t('common.delete')" @click="form.subscription_expired_admin_notify_emails.splice(index, 1)">
+                  <Icon name="x" size="xs" class="h-4 w-4" />
+                </button>
+              </div>
+              <button data-add-admin-notify-email type="button" class="btn btn-secondary btn-sm" @click="addSubscriptionExpiredAdminNotifyEmail">
+                + {{ t("admin.settings.subscriptionExpiredAdminNotify.addEmail") }}
+              </button>
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.subscriptionExpiredAdminNotify.emailsHint") }}
+              </p>
+            </div>
+          </div>
+
           <EmailTemplateEditor />
 
           <!-- Balance Low Notification -->
@@ -10064,6 +10137,9 @@ const form = reactive<SettingsForm>({
   balance_low_notify_threshold: 0,
   balance_low_notify_recharge_url: "",
   subscription_expiry_notify_enabled: true,
+  notification_email_default_locale: "zh" as "zh" | "en",
+  subscription_expired_admin_notify_enabled: false,
+  subscription_expired_admin_notify_emails: [] as NotifyEmailEntry[],
   account_quota_notify_enabled: false,
   account_quota_notify_emails: [] as NotifyEmailEntry[],
   // Channel Monitor feature switch
@@ -10724,6 +10800,15 @@ function handleForwardedClientIpHeaderPaste(event: ClipboardEvent) {
 }
 
 // Quota notify email helpers
+const addSubscriptionExpiredAdminNotifyEmail = () => {
+  // Administrators confirm recipients locally; no OTP email is sent.
+  form.subscription_expired_admin_notify_emails.push({
+    email: "",
+    disabled: false,
+    verified: false,
+  });
+};
+
 const addQuotaNotifyEmail = () => {
   if (!form.account_quota_notify_emails) {
     form.account_quota_notify_emails = [];
@@ -11086,6 +11171,9 @@ async function loadSettings() {
     }
     syncCaptchaProviderSelection();
     form.email_blocked_keywords = settings.email_blocked_keywords ?? [];
+    form.notification_email_default_locale = settings.notification_email_default_locale === "en" ? "en" : "zh";
+    form.subscription_expired_admin_notify_enabled = settings.subscription_expired_admin_notify_enabled ?? false;
+    form.subscription_expired_admin_notify_emails = settings.subscription_expired_admin_notify_emails ?? [];
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
         defaultClaudeOAuthSystemPromptBlocks;
@@ -11351,6 +11439,17 @@ const siteBillingModeHint = computed(() =>
 async function saveSettings() {
   saving.value = true;
   try {
+    // The form uses novalidate, so validate recipients before any settings write.
+    const recipientInput = document.createElement("input");
+    recipientInput.type = "email";
+    for (const entry of form.subscription_expired_admin_notify_emails) {
+      recipientInput.value = entry.email.trim();
+      if (!recipientInput.checkValidity()) {
+        appStore.showError(t("common.invalidEmail"));
+        return;
+      }
+    }
+
     const normalizedTableDefaultPageSize = Math.floor(
       Number(form.table_default_page_size),
     );
@@ -11813,6 +11912,9 @@ async function saveSettings() {
         form.balance_low_notify_recharge_url || currentOrigin),
       subscription_expiry_notify_enabled:
         form.subscription_expiry_notify_enabled,
+      notification_email_default_locale: form.notification_email_default_locale,
+      subscription_expired_admin_notify_enabled: form.subscription_expired_admin_notify_enabled,
+      subscription_expired_admin_notify_emails: form.subscription_expired_admin_notify_emails.filter((entry) => entry.email.trim() !== ""),
       account_quota_notify_enabled: form.account_quota_notify_enabled,
       account_quota_notify_emails: (
         form.account_quota_notify_emails || []

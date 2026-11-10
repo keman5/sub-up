@@ -988,6 +988,7 @@ export default {
         enabledHint: '开启后，系统会在订阅到期前 7 天、3 天、1 天各发送一次提醒。'
       },
       subscriptionExpiredAdminNotify: {
+        confirmRecipient: '确认收件人',
         title: '订阅过期管理员提醒',
         description: '订阅过期后向指定管理员邮箱发送一次提醒。',
         enabled: '启用订阅过期管理员提醒',

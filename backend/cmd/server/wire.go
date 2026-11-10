@@ -96,6 +96,7 @@ func provideCleanup(
 	authCacheInvalidationWorker *service.AuthCacheInvalidationWorker,
 	schedulerSnapshot *service.SchedulerSnapshotService,
 	accountPoolHealthNotify *service.AccountPoolHealthNotifyService,
+	openAIQuotaRefresh *service.OpenAIQuotaRefreshService,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
 	cnProviderBalanceCheck *service.CNProviderBalanceCheckService,
@@ -251,6 +252,12 @@ func provideCleanup(
 			{"AccountPoolHealthNotifyService", func() error {
 				if accountPoolHealthNotify != nil {
 					accountPoolHealthNotify.Stop()
+				}
+				return nil
+			}},
+			{"OpenAIQuotaRefreshService", func() error {
+				if openAIQuotaRefresh != nil {
+					openAIQuotaRefresh.Stop()
 				}
 				return nil
 			}},

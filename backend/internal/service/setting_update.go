@@ -541,6 +541,21 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyBalanceLowNotifyThreshold] = strconv.FormatFloat(settings.BalanceLowNotifyThreshold, 'f', 8, 64)
 	updates[SettingKeyBalanceLowNotifyRechargeURL] = settings.BalanceLowNotifyRechargeURL
 	updates[SettingKeySubscriptionExpiryNotifyEnabled] = strconv.FormatBool(settings.SubscriptionExpiryNotifyEnabled)
+	locale := strings.ToLower(strings.TrimSpace(settings.NotificationEmailDefaultLocale))
+	if locale != "" && locale != "zh" && locale != "en" {
+		return nil, infraerrors.BadRequest("INVALID_NOTIFICATION_EMAIL_DEFAULT_LOCALE", "notification email default locale must be zh or en")
+	}
+	settings.NotificationEmailDefaultLocale = locale
+	updates[SettingKeyNotificationEmailDefaultLocale] = locale
+	for i := range settings.SubscriptionExpiredAdminNotifyEmails {
+		entry := &settings.SubscriptionExpiredAdminNotifyEmails[i]
+		if _, err := parseSMTPAddress(entry.Email, "recipient"); err != nil {
+			return nil, infraerrors.BadRequest("INVALID_SUBSCRIPTION_EXPIRED_ADMIN_NOTIFY_EMAIL", "invalid subscription expired admin notification email")
+		}
+		entry.Email = strings.TrimSpace(entry.Email)
+	}
+	updates[SettingKeySubscriptionExpiredAdminNotifyEnabled] = strconv.FormatBool(settings.SubscriptionExpiredAdminNotifyEnabled)
+	updates[SettingKeySubscriptionExpiredAdminNotifyEmails] = MarshalNotifyEmails(settings.SubscriptionExpiredAdminNotifyEmails)
 	updates[SettingKeyAccountQuotaNotifyEnabled] = strconv.FormatBool(settings.AccountQuotaNotifyEnabled)
 	updates[SettingKeyAccountQuotaNotifyEmails] = MarshalNotifyEmails(settings.AccountQuotaNotifyEmails)
 

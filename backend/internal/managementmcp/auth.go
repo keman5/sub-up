@@ -99,7 +99,7 @@ func setSubject(c *gin.Context, principal *service.MCPPrincipal) {
 func toolAllowed(p *service.MCPPrincipal, spec ToolSpec) bool {
 	return p != nil && p.UserID > 0 &&
 		(p.Scope == service.MCPScopeUser || p.Scope == service.MCPScopeAdmin) &&
-		(!spec.Admin || (p.Scope == service.MCPScopeAdmin && p.Role == service.RoleAdmin)) &&
+		(!spec.Admin || (p.Scope == service.MCPScopeAdmin && (&service.User{Role: p.Role}).IsAdmin())) &&
 		(!p.ReadOnly || spec.ReadOnly)
 }
 

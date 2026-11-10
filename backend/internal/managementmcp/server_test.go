@@ -122,6 +122,65 @@ func TestMCPInitializeAndPermissionFilteredDiscovery(t *testing.T) {
 	}
 }
 
+func TestMCPSuperAdminDiscoveryAndDispatch(t *testing.T) {
+	inner := gin.New()
+	calls := 0
+	handle := func(c *gin.Context) {
+		calls++
+		require.Equal(t, service.RoleSuperAdmin, c.GetString(string(middleware.ContextKeyUserRole)))
+		c.JSON(http.StatusOK, gin.H{"data": gin.H{"ok": true}})
+	}
+	inner.GET("/api/v1/admin/dashboard/stats", DispatchAuth(true), handle)
+	inner.PUT("/api/v1/admin/users/:id", DispatchAuth(true), handle)
+	r, auth := newTestEndpoint(inner)
+	for _, tc := range []struct {
+		name, scope string
+		readOnly    bool
+	}{
+		{"admin-scope", service.MCPScopeAdmin, false},
+		{"admin-read-only", service.MCPScopeAdmin, true},
+		{"user-scope", service.MCPScopeUser, false},
+		{"user-read-only", service.MCPScopeUser, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			auth.principals[tc.name] = &service.MCPPrincipal{
+				UserID: 4, GrantID: tc.name, Role: service.RoleSuperAdmin, Scope: tc.scope, ReadOnly: tc.readOnly,
+			}
+			status, listed := rpc(t, r, tc.name, "tools/list", map[string]any{})
+			require.Equal(t, http.StatusOK, status)
+			names := toolNames(t, listed)
+			for _, tool := range []struct {
+				name  string
+				args  map[string]any
+				write bool
+			}{
+				{"admin_get_dashboard", map[string]any{}, false},
+				{"admin_update_user", map[string]any{"id": 2, "body": map[string]any{"notes": "updated"}}, true},
+			} {
+				t.Run(tool.name, func(t *testing.T) {
+					allowed := tc.scope == service.MCPScopeAdmin && (!tc.readOnly || !tool.write)
+					if allowed {
+						require.Contains(t, names, tool.name)
+					} else {
+						require.NotContains(t, names, tool.name)
+					}
+					before := calls
+					status, result := rpc(t, r, tc.name, "tools/call", map[string]any{"name": tool.name, "arguments": tool.args})
+					require.Equal(t, http.StatusOK, status)
+					if allowed {
+						require.NotContains(t, result, "error")
+						require.NotEqual(t, true, rpcObject(t, result["result"])["isError"])
+						require.Equal(t, before+1, calls, "allowed tool must reach the private authenticated route")
+					} else {
+						require.Contains(t, result, "error")
+						require.Equal(t, before, calls, "scope and read-only restrictions must reject before dispatch")
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestMCPRejectsUnauthorizedToolsAndUnknownArgumentsBeforeDispatch(t *testing.T) {
 	calls := 0
 	r, _ := newTestEndpoint(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))

@@ -169,6 +169,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyForceEmailOnThirdPartySignup:              "false",
 		SettingKeySMTPPort:                                  "587",
 		SettingKeySMTPUseTLS:                                "false",
+		SettingKeyNotificationEmailDefaultLocale:            notificationEmailConfiguredDefaultLocale,
+		SettingKeySubscriptionExpiredAdminNotifyEnabled:     "false",
+		SettingKeySubscriptionExpiredAdminNotifyEmails:      "[]",
 		SettingKeyEmailBlockedKeywords:                      "[]",
 		// Model fallback defaults
 		SettingKeyEnableModelFallback:      "false",
@@ -965,6 +968,15 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.BalanceLowNotifyRechargeURL = settings[SettingKeyBalanceLowNotifyRechargeURL]
 	result.SubscriptionExpiryNotifyEnabled = !isFalseSettingValue(settings[SettingKeySubscriptionExpiryNotifyEnabled])
+	result.NotificationEmailDefaultLocale = notificationEmailConfiguredDefaultLocale
+	if locale := strings.ToLower(strings.TrimSpace(settings[SettingKeyNotificationEmailDefaultLocale])); locale == "en" || locale == "zh" {
+		result.NotificationEmailDefaultLocale = locale
+	}
+	result.SubscriptionExpiredAdminNotifyEnabled = settings[SettingKeySubscriptionExpiredAdminNotifyEnabled] == "true"
+	result.SubscriptionExpiredAdminNotifyEmails = ParseNotifyEmails(settings[SettingKeySubscriptionExpiredAdminNotifyEmails])
+	if result.SubscriptionExpiredAdminNotifyEmails == nil {
+		result.SubscriptionExpiredAdminNotifyEmails = []NotifyEmailEntry{}
+	}
 
 	// 账号限额通知
 	result.AccountQuotaNotifyEnabled = settings[SettingKeyAccountQuotaNotifyEnabled] == "true"

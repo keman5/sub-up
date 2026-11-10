@@ -993,6 +993,7 @@ export default {
         enabledHint: 'When enabled, the system sends reminders 7, 3, and 1 day before expiry.'
       },
       subscriptionExpiredAdminNotify: {
+        confirmRecipient: 'Confirm recipient',
         title: 'Subscription Expired Admin Alert',
         description: 'Send a one-time alert to configured admin emails after a subscription expires.',
         enabled: 'Enable Subscription Expired Admin Alert',

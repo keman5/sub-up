@@ -1,6 +1,11 @@
 package main
 
 import (
+	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,6 +55,11 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 	idempotencyCleanupSvc := service.NewIdempotencyCleanupService(nil, cfg)
 	schedulerSnapshotSvc := service.NewSchedulerSnapshotService(nil, nil, nil, nil, cfg)
 	accountPoolHealthSvc := service.NewAccountPoolHealthNotifyService(nil, nil, nil, time.Minute)
+	quotaRepo := &quotaRefreshCleanupRepo{}
+	quotaRefreshSvc := service.NewOpenAIQuotaRefreshService(quotaRepo, &service.AccountUsageService{}, 5*time.Millisecond)
+	quotaRefreshSvc.Start()
+	t.Cleanup(quotaRefreshSvc.Stop)
+	require.Eventually(t, func() bool { return quotaRepo.calls.Load() >= 2 }, time.Second, time.Millisecond)
 	opsSystemLogSinkSvc := service.NewOpsSystemLogSink(nil)
 
 	cleanup := provideCleanup(
@@ -67,6 +77,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // authCacheInvalidationWorker
 		schedulerSnapshotSvc,
 		accountPoolHealthSvc,
+		quotaRefreshSvc,
 		tokenRefreshSvc,
 		accountExpirySvc,
 		nil, // cnProviderBalanceCheck
@@ -110,4 +121,50 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 	require.NotPanics(t, func() {
 		cleanup()
 	})
+	calls := quotaRepo.calls.Load()
+	require.Never(t, func() bool { return quotaRepo.calls.Load() != calls }, 30*time.Millisecond, time.Millisecond)
+}
+
+type quotaRefreshCleanupRepo struct {
+	service.AccountRepository
+	calls atomic.Int64
+}
+
+func (r *quotaRefreshCleanupRepo) ListByPlatform(context.Context, string) ([]service.Account, error) {
+	r.calls.Add(1)
+	return nil, nil
+}
+
+func TestGeneratedWireConnectsOpenAIQuotaRefresh(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "wire_gen.go", nil, 0)
+	require.NoError(t, err)
+	var providedName string
+	var cleanupArgs []ast.Expr
+	ast.Inspect(file, func(node ast.Node) bool {
+		if assign, ok := node.(*ast.AssignStmt); ok && len(assign.Rhs) == 1 {
+			if call, ok := assign.Rhs[0].(*ast.CallExpr); ok {
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "ProvideOpenAIQuotaRefreshService" {
+					require.Len(t, assign.Lhs, 1)
+					provided, ok := assign.Lhs[0].(*ast.Ident)
+					require.True(t, ok)
+					providedName = provided.Name
+					require.Len(t, call.Args, 2)
+				}
+			}
+		}
+		if call, ok := node.(*ast.CallExpr); ok {
+			if name, ok := call.Fun.(*ast.Ident); ok && name.Name == "provideCleanup" {
+				cleanupArgs = call.Args
+			}
+		}
+		return true
+	})
+	require.NotEmpty(t, providedName, "production injector must construct and start the quota refresher")
+	connected := false
+	for _, arg := range cleanupArgs {
+		if name, ok := arg.(*ast.Ident); ok && name.Name == providedName {
+			connected = true
+		}
+	}
+	require.True(t, connected, "the started instance must be owned by server cleanup")
 }

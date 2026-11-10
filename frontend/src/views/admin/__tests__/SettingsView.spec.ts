@@ -739,6 +739,104 @@ describe("admin SettingsView payment visible method controls", () => {
     adminSettingsFetch.mockResolvedValue(undefined);
   });
 
+  describe("notification mail settings", () => {
+    it.each(["zh", "en"])("hydrates %s and saves the selected default locale without email verification", async (locale) => {
+      getSettings.mockResolvedValue({ ...baseSettingsResponse, email_verify_enabled: false, notification_email_default_locale: locale });
+      const wrapper = mountView();
+      try {
+        await flushPromises();
+        await openEmailTab(wrapper);
+        const select = wrapper.get<HTMLSelectElement>("#notification-email-default-locale");
+        expect(select.isVisible()).toBe(true);
+        expect(select.element.value).toBe(locale);
+        expect(select.findAll("option").map((option) => option.attributes("value"))).toEqual(["zh", "en"]);
+        const next = locale === "zh" ? "en" : "zh";
+        await select.setValue(next);
+        await wrapper.find("form").trigger("submit.prevent");
+        await flushPromises();
+        expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ notification_email_default_locale: next }));
+      } finally { wrapper.unmount(); }
+    });
+
+    it("defaults legacy settings to Chinese and disabled administrator notifications", async () => {
+      const wrapper = mountView();
+      try {
+        await flushPromises();
+        await openEmailTab(wrapper);
+        expect(wrapper.get<HTMLSelectElement>("#notification-email-default-locale").element.value).toBe("zh");
+        expect(wrapper.get<HTMLInputElement>("#subscription-expired-admin-notify-enabled").element.checked).toBe(false);
+        await wrapper.find("form").trigger("submit.prevent");
+        await flushPromises();
+        expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ notification_email_default_locale: "zh", subscription_expired_admin_notify_enabled: false, subscription_expired_admin_notify_emails: [] }));
+      } finally { wrapper.unmount(); }
+    });
+
+    it("hydrates recipients and retains verification and disabled states when switched off", async () => {
+      const recipients = [
+        { email: "verified@example.com", verified: true, disabled: false },
+        { email: "unverified@example.com", verified: false, disabled: false },
+        { email: "disabled@example.com", verified: true, disabled: true },
+      ];
+      getSettings.mockResolvedValue({ ...baseSettingsResponse, subscription_expired_admin_notify_enabled: true, subscription_expired_admin_notify_emails: recipients.map((entry) => ({ ...entry })) });
+      const wrapper = mountView();
+      try {
+        await flushPromises();
+        await openEmailTab(wrapper);
+        const inputs = wrapper.findAll<HTMLInputElement>("[data-admin-notify-email]");
+        expect(inputs.map((input) => input.element.value)).toEqual(recipients.map((entry) => entry.email));
+        const toggles = wrapper.findAll<HTMLInputElement>("[data-admin-notify-recipient-enabled]");
+        expect(toggles.map((input) => input.element.checked)).toEqual([true, true, false]);
+        expect(wrapper.findAll<HTMLInputElement>("[data-admin-notify-recipient-confirmed]").map((input) => input.element.checked)).toEqual([true, false, true]);
+        await wrapper.get("#subscription-expired-admin-notify-enabled").setValue(false);
+        await wrapper.find("form").trigger("submit.prevent");
+        await flushPromises();
+        expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ subscription_expired_admin_notify_enabled: false, subscription_expired_admin_notify_emails: recipients, subscription_expiry_notify_enabled: true }));
+      } finally { wrapper.unmount(); }
+    });
+
+    it("adds, edits, disables and removes administrator recipients using existing admin confirmation semantics", async () => {
+      const wrapper = mountView();
+      try {
+        await flushPromises();
+        await openEmailTab(wrapper);
+        await wrapper.get("#subscription-expired-admin-notify-enabled").setValue(true);
+        await wrapper.get("[data-add-admin-notify-email]").trigger("click");
+        await wrapper.get("[data-admin-notify-email]").setValue("admin@example.com");
+        expect(wrapper.get<HTMLInputElement>("[data-admin-notify-recipient-confirmed]").element.checked).toBe(false);
+        await wrapper.get("[data-admin-notify-recipient-confirmed]").setValue(true);
+        await wrapper.get("[data-admin-notify-recipient-enabled]").setValue(false);
+        await wrapper.get("[data-add-admin-notify-email]").trigger("click");
+        await wrapper.findAll("[data-remove-admin-notify-email]")[1].trigger("click");
+        await wrapper.find("form").trigger("submit.prevent");
+        await flushPromises();
+        expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ subscription_expired_admin_notify_enabled: true, subscription_expired_admin_notify_emails: [{ email: "admin@example.com", disabled: true, verified: true }] }));
+      } finally { wrapper.unmount(); }
+    });
+
+    it("blocks invalid recipient submission with an i18n error, then saves a valid unconfirmed recipient", async () => {
+      const wrapper = mountView();
+      try {
+        await flushPromises();
+        await openEmailTab(wrapper);
+        await wrapper.get("#subscription-expired-admin-notify-enabled").setValue(true);
+        await wrapper.get("[data-add-admin-notify-email]").trigger("click");
+        const input = wrapper.get<HTMLInputElement>("[data-admin-notify-email]");
+        await input.setValue("invalid-address");
+        expect(input.element.validity.typeMismatch).toBe(true);
+        await wrapper.find("form").trigger("submit.prevent");
+        await flushPromises();
+        expect(updateSettings).not.toHaveBeenCalled();
+        expect(showError).toHaveBeenCalledWith("common.invalidEmail");
+        expect(showError.mock.calls.filter(([message]) => message === "common.invalidEmail")).toHaveLength(1);
+        await input.setValue("unconfirmed@example.com");
+        expect(input.element.checkValidity()).toBe(true);
+        await wrapper.find("form").trigger("submit.prevent");
+        await flushPromises();
+        expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ subscription_expired_admin_notify_emails: [{ email: "unconfirmed@example.com", disabled: false, verified: false }] }));
+      } finally { wrapper.unmount(); }
+    });
+  });
+
   describe("email blocked keywords", () => {
     it("loads keywords even when email verification is disabled and preserves them on save", async () => {
       getSettings.mockResolvedValue({

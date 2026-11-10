@@ -51,6 +51,10 @@ type UpdateSettingsRequest struct {
 	SMTPUseTLS           bool     `json:"smtp_use_tls"`
 	EmailBlockedKeywords []string `json:"email_blocked_keywords"`
 
+	NotificationEmailDefaultLocale        string                 `json:"notification_email_default_locale"`
+	SubscriptionExpiredAdminNotifyEnabled bool                   `json:"subscription_expired_admin_notify_enabled"`
+	SubscriptionExpiredAdminNotifyEmails  []dto.NotifyEmailEntry `json:"subscription_expired_admin_notify_emails"`
+
 	// Cloudflare Turnstile 设置
 	TurnstileEnabled   bool   `json:"turnstile_enabled"`
 	TurnstileSiteKey   string `json:"turnstile_site_key"`
@@ -1532,6 +1536,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		DefaultPlatformQuotas:       req.DefaultPlatformQuotas,
 		AccountSchedulingThresholds: req.AccountSchedulingThresholds,
 
+		NotificationEmailDefaultLocale:        req.NotificationEmailDefaultLocale,
+		SubscriptionExpiredAdminNotifyEnabled: req.SubscriptionExpiredAdminNotifyEnabled,
+		SubscriptionExpiredAdminNotifyEmails:  dto.NotifyEmailEntriesToService(req.SubscriptionExpiredAdminNotifyEmails),
+
 		RegistrationEnabled:                 req.RegistrationEnabled,
 		EmailVerifyEnabled:                  req.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:    req.RegistrationEmailSuffixWhitelist,
@@ -2227,6 +2235,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SMTPFromName:                                           updatedSettings.SMTPFromName,
 		SMTPUseTLS:                                             updatedSettings.SMTPUseTLS,
 		EmailBlockedKeywords:                                   updatedSettings.EmailBlockedKeywords,
+		NotificationEmailDefaultLocale:                         updatedSettings.NotificationEmailDefaultLocale,
+		SubscriptionExpiredAdminNotifyEnabled:                  updatedSettings.SubscriptionExpiredAdminNotifyEnabled,
+		SubscriptionExpiredAdminNotifyEmails:                   dto.NotifyEmailEntriesFromService(updatedSettings.SubscriptionExpiredAdminNotifyEmails),
 		TurnstileEnabled:                                       updatedSettings.TurnstileEnabled,
 		TurnstileSiteKey:                                       updatedSettings.TurnstileSiteKey,
 		TurnstileSecretKeyConfigured:                           updatedSettings.TurnstileSecretKeyConfigured,
