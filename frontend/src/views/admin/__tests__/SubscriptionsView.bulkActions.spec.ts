@@ -48,6 +48,7 @@ beforeEach(async () => {
   sessionStorage.clear()
   localStorage.setItem('auth_user', JSON.stringify({ id: 777 }))
   list.mockResolvedValue({ items: rows, total: 60, pages: 3 })
+  listUsers.mockResolvedValue({ items: [], total: 0, pages: 0 })
   wrapper = mountView()
   await flushPromises()
 })

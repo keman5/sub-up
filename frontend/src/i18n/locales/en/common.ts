@@ -268,6 +268,8 @@ export default {
     turnstileFailed: 'Verification failed, please try again',
     captchaVerified: 'Verification completed',
     captchaLoading: 'Loading verification…',
+    captchaLoadFailed: 'Verification failed to load',
+    captchaReloadPage: 'Click to reload the page',
     captchaClickToVerify: 'Click to complete verification',
     captchaVerifying: 'Verifying…',
     completeVerification: 'Please complete the verification',

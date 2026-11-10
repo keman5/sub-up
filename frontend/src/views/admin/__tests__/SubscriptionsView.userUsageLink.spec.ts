@@ -163,13 +163,28 @@ describe('admin subscription users', () => {
       await flushPromises()
       await wrapper.get('[data-assign-user-search] button').trigger('click')
 
+      const callsBeforeEdit = listUsers.mock.calls.length
+      expect(callsBeforeEdit).toBe(3)
+      for (const call of [1, 2]) {
+        expect(listUsers).toHaveBeenNthCalledWith(call, 1, 100, {
+          sort_by: 'created_at', sort_order: 'desc'
+        })
+      }
+      expect(listUsers).toHaveBeenLastCalledWith(1, 30, {
+        search: 'reader', sort_by: 'email', sort_order: 'asc'
+      })
+
       await search.setValue(keyword)
       await form.trigger('submit')
       await flushPromises()
 
       expect(assignSubscription).not.toHaveBeenCalled()
       expect(showError).toHaveBeenCalledWith('admin.subscriptions.pleaseSelectUser')
-      expect(listUsers).toHaveBeenCalledTimes(1)
+      expect(listUsers).toHaveBeenCalledTimes(callsBeforeEdit)
+      await vi.advanceTimersByTimeAsync(299)
+      await flushPromises()
+      expect(listUsers).toHaveBeenCalledTimes(callsBeforeEdit)
+      expect(assignSubscription).not.toHaveBeenCalled()
 
       listUsers.mockResolvedValue({ items: [{ id: 84, email: 'another@example.com' }] })
       await search.trigger('focus')

@@ -84,6 +84,7 @@ const DataTableStub = {
       <div v-if="loading" data-test="loading">loading</div>
       <div v-else v-for="row in data" :key="row.id" data-test="row">
         <span data-test="account-name">{{ row.name }}</span>
+        <span data-test="account-status">{{ row.status }}</span>
         <slot name="cell-usage" :row="row" />
         <slot name="cell-actions" :row="row" />
       </div>
@@ -99,6 +100,7 @@ const DataTableWithoutUsageStub = {
       <div v-if="loading" data-test="loading">loading</div>
       <div v-else v-for="row in data" :key="row.id" data-test="row">
         <span data-test="account-name">{{ row.name }}</span>
+        <span data-test="account-status">{{ row.status }}</span>
         <slot name="cell-actions" :row="row" />
       </div>
     </div>
@@ -405,6 +407,93 @@ describe('admin AccountsView manual usage refresh', () => {
 
     wrapper.unmount()
     vi.useRealTimers()
+  })
+
+  it('reconciles runtime state after automatic quota refresh releases the list request', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    const account = { ...createAccount(1, 'openai-oauth'), platform: 'openai', status: 'rate_limited' }
+    listAccounts.mockResolvedValueOnce(pageResponse([account]))
+    const wrapper = mountView(false)
+    try {
+      await flushPromises()
+      listWithEtag.mockReset()
+        .mockResolvedValueOnce({ notModified: false, data: pageResponse([account]), etag: 'before-quota' })
+        .mockResolvedValueOnce({ notModified: false, data: pageResponse([{ ...account, status: 'active' }]), etag: 'after-quota' })
+      refreshOpenAIQuota.mockClear()
+      getUsage.mockClear()
+
+      await vi.advanceTimersByTimeAsync(6_000)
+      await flushPromises()
+
+      expect(wrapper.get('[data-test="account-status"]').text()).toBe('active')
+      expect(listWithEtag).toHaveBeenCalledTimes(2)
+      expect(listWithEtag.mock.calls.map(call => call[3].refreshUsage)).toEqual([true, false])
+      expect(refreshOpenAIQuota).toHaveBeenCalledTimes(1)
+      expect(getUsage).toHaveBeenCalledTimes(1)
+      expect(getUsage).toHaveBeenCalledWith(1, 'active', true)
+    } finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it('retains failed runtime reconciliation until an independent refresh without spinning', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    const account = { ...createAccount(1, 'account'), status: 'rate_limited' }
+    listAccounts.mockResolvedValueOnce(pageResponse([account]))
+    const wrapper = mountView()
+    try {
+      await flushPromises()
+      listWithEtag.mockReset()
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockRejectedValueOnce(new Error('still offline'))
+        .mockResolvedValueOnce({ notModified: true, data: null })
+        .mockResolvedValueOnce({ notModified: false, data: pageResponse([{ ...account, status: 'active' }]) })
+      getUsage.mockClear()
+      await wrapper.get('[data-test="runtime-state-updated"]').trigger('click')
+      await flushPromises()
+      expect(listWithEtag).toHaveBeenCalledTimes(1)
+      expect(wrapper.get('[data-test="account-status"]').text()).toBe('rate_limited')
+      await vi.advanceTimersByTimeAsync(6_000)
+      await flushPromises()
+      expect(listWithEtag).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(6_000)
+      await flushPromises()
+      expect(listWithEtag).toHaveBeenCalledTimes(4)
+      expect(listWithEtag.mock.calls.map(call => call[3].refreshUsage)).toEqual([false, true, true, false])
+      expect(wrapper.get('[data-test="account-status"]').text()).toBe('active')
+    } finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it('coalesces later runtime events during reconciliation without repeating upstream usage', async () => {
+    const account = createAccount(1, 'account')
+    listAccounts.mockResolvedValueOnce(pageResponse([account]))
+    const wrapper = mountView()
+    try {
+      await flushPromises()
+      let finishFirst!: (value: unknown) => void
+      listWithEtag.mockReset()
+        .mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve }))
+        .mockResolvedValueOnce({ notModified: false, data: pageResponse([{ ...account, status: 'inactive' }]) })
+      getUsage.mockClear()
+      await wrapper.get('[data-test="runtime-state-updated"]').trigger('click')
+      await flushPromises()
+      await wrapper.get('[data-test="runtime-state-updated"]').trigger('click')
+      await wrapper.get('[data-test="runtime-state-updated"]').trigger('click')
+      expect(listWithEtag).toHaveBeenCalledTimes(1)
+      finishFirst({ notModified: false, data: pageResponse([account]) })
+      await flushPromises()
+      expect(listWithEtag).toHaveBeenCalledTimes(2)
+      expect(wrapper.get('[data-test="account-status"]').text()).toBe('inactive')
+      expect(getUsage).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+    }
   })
 
   it('force-queries the new current page after pagination changes', async () => {

@@ -4,6 +4,7 @@ import PaymentView from '../PaymentView.vue'
 import { PAYMENT_RECOVERY_STORAGE_KEY } from '@/components/payment/paymentFlow'
 import { formatPaymentAmount } from '@/components/payment/currency'
 import AmountInput from '@/components/payment/AmountInput.vue'
+import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import en from '@/i18n/locales/en'
 import zh from '@/i18n/locales/zh'
@@ -498,6 +499,82 @@ describe('PaymentView subscription confirmation amounts', () => {
     expect(text).toContain(fee)
     expect(text).toContain(total)
     expect(wrapper.findAll('button').some(button => button.text().includes(total))).toBe(true)
+  })
+})
+
+describe('PaymentView payment method and plan presentation', () => {
+  const wrappers: ReturnType<typeof shallowMount>[] = []
+
+  afterEach(() => {
+    wrappers.splice(0).forEach(wrapper => wrapper.unmount())
+  })
+
+  async function mountFlow(flow: 'recharge' | 'subscription') {
+    vi.useRealTimers()
+    routeState.path = '/purchase'
+    routeState.query = flow === 'subscription' ? { tab: flow, group: '3' } : {}
+    window.localStorage.clear()
+    appStoreState.setPublicSettings(undefined)
+    routerReplace.mockReset().mockResolvedValue(undefined)
+    const method = checkoutInfoFixture().data.methods.wxpay
+    const types = ['alipay', 'alipay_direct', 'wxpay', 'wxpay_direct', 'card_alipay', 'card_wxpay']
+    getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoWithPlansFixture({
+      checkout: {
+        methods: Object.fromEntries(types.map(type => [type, { ...method, display_name: `Custom ${type}` }])),
+      },
+      method: { display_name: 'Custom wxpay' },
+      plan: {
+        rate_multiplier: 9,
+        display_rate_multiplier: 1.25,
+        total_limit_usd: 123,
+        peak_rate_enabled: true,
+        peak_start: '14:00',
+        peak_end: '18:00',
+        peak_rate_multiplier: 2,
+      },
+    }))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: {
+        AppLayout: { template: '<div><slot /></div>' },
+        Teleport: true,
+        Transition: false,
+      } },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    await flushPromises()
+    return wrapper
+  }
+
+  it.each(['recharge', 'subscription'] as const)('passes custom method names through the %s page', async flow => {
+    const wrapper = await mountFlow(flow)
+    const methods = wrapper.getComponent(PaymentMethodSelector).props('methods')
+    expect(methods.find(method => method.type === 'card_alipay')?.display_name).toBe('Custom card_alipay')
+    expect(methods.find(method => method.type === 'card_wxpay')?.display_name).toBe('Custom card_wxpay')
+  })
+
+  it.each(['recharge', 'subscription'] as const)('uses exact built-in button styles on the %s page', async flow => {
+    const wrapper = await mountFlow(flow)
+    const selector = wrapper.getComponent(PaymentMethodSelector)
+    for (const [type, expected] of [
+      ['alipay', 'btn-alipay'], ['alipay_direct', 'btn-alipay'],
+      ['wxpay', 'btn-wxpay'], ['wxpay_direct', 'btn-wxpay'],
+      ['card_alipay', 'btn-primary'], ['card_wxpay', 'btn-primary'],
+    ]) {
+      selector.vm.$emit('select', type)
+      await flushPromises()
+      const button = wrapper.get('button.w-full.py-3')
+      expect(button.classes().filter(name => ['btn-primary', 'btn-alipay', 'btn-wxpay'].includes(name))).toEqual([expected])
+    }
+  })
+
+  it('shows peak pricing once while preserving display multiplier and total quota', async () => {
+    const wrapper = await mountFlow('subscription')
+    expect(wrapper.text().match(/14:00-18:00 ×2/g)).toHaveLength(1)
+    expect(wrapper.text()).toContain('×1.25')
+    expect(wrapper.text()).not.toContain('×9')
+    expect(wrapper.text()).toContain('payment.planCard.totalLimit')
+    expect(wrapper.text()).toContain('$123')
   })
 })
 

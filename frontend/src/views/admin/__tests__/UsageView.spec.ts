@@ -749,12 +749,34 @@ describe('admin UsageView model audit export', () => {
 				upstream_model: 'gpt-5.5',
 				upstream_response_model: 'gpt-5.4',
 				upstream_model_mismatch: true,
+				user: { email: 'customer@example.test' },
+				api_key: { name: 'key-name' },
+				account: { name: 'account-name' },
+				group: { name: 'group-name' },
+				reasoning_effort: 'medium',
+				upstream_reasoning_effort: 'high',
+				inbound_endpoint: '/v1/responses',
+				upstream_endpoint: '/backend-api/codex/responses',
 				request_type: 'sync',
 				input_tokens: 1,
 				output_tokens: 1,
 				cache_read_tokens: 0,
 				cache_creation_tokens: 0,
+				input_cost: 0.1,
+				output_cost: 0.2,
+				cache_read_cost: 0.3,
+				cache_creation_cost: 0.4,
+				rate_multiplier: 1.5,
+				account_rate_multiplier: 2,
+				total_cost: 1,
+				actual_cost: 1.5,
+				account_stats_cost: 3,
+				first_token_ms: 4,
 				duration_ms: 10,
+				request_id: 'request-id',
+				upstream_request_id: 'upstream-id',
+				user_agent: 'test-client',
+				ip_address: '192.0.2.1',
 			}],
 			total: 1,
 			pages: 1,
@@ -798,6 +820,24 @@ describe('admin UsageView model audit export', () => {
 		])
 		const row = sheetAddAoa.mock.calls[0][1][0]
 		expect(row.slice(4, 8)).toEqual(['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4', 'Yes'])
+		expect(headers).toHaveLength(33)
+		expect(row).toHaveLength(headers.length)
+		expect(headers.slice(8)).toEqual([
+			'usage.requestedReasoningEffort', 'usage.reasoningEffort', 'admin.usage.group',
+			'usage.inboundEndpoint', 'usage.upstreamEndpoint', 'usage.type',
+			'admin.usage.inputTokens', 'admin.usage.outputTokens', 'admin.usage.cacheReadTokens', 'admin.usage.cacheCreationTokens',
+			'admin.usage.inputCost', 'admin.usage.outputCost', 'admin.usage.cacheReadCost', 'admin.usage.cacheCreationCost',
+			'usage.rate', 'usage.accountMultiplier', 'usage.original', 'usage.userBilled', 'usage.accountBilled',
+			'usage.firstToken', 'usage.duration', 'Request ID', 'Upstream ID', 'usage.userAgent', 'admin.usage.ipAddress',
+		])
+		expect(row).toEqual([
+			'2026-08-04T00:00:00Z', 'customer@example.test', 'key-name', 'account-name',
+			'gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4', 'Yes', 'medium', 'high', 'group-name',
+			'/v1/responses', '/backend-api/codex/responses', 'usage.sync', 1, 1, 0, 0,
+			'0.100000', '0.200000', '0.300000', '0.400000', '1.500', '2.000',
+			'1.000000', '1.500000', '6.000000', 4, 10, 'request-id', 'upstream-id', 'test-client', '192.0.2.1',
+		])
 		expect(saveAs).toHaveBeenCalledTimes(1)
+		wrapper.unmount()
 	})
 })

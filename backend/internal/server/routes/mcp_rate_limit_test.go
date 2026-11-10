@@ -38,6 +38,7 @@ func newMCPRateLimitEndpoint(t *testing.T, role string, rpm int) (*gin.Engine, s
 	h := mcpRouteHandlers()
 	h.MCPOAuth = handler.NewMCPOAuthHandler(oauth, nil, nil, settings, cfg)
 	h.APIKey = handler.NewAPIKeyHandler(service.NewAPIKeyService(&mcpRouteAPIKeyRepo{}, nil, nil, nil, nil, nil, nil))
+	h.Admin.User = mcpRouteAdminUserHandler()
 	router := gin.New()
 	RegisterMCPRoutes(router.Group("/api/v1"), h, middleware.AuditLogMiddleware(mcpRouteNext),
 		middleware.StepUpAuthMiddleware(mcpRouteNext), settings, middleware.NewPanelRateLimiter(rdb, settings), nil, rdb)
@@ -65,8 +66,9 @@ func TestMCPToolCallsConsumeGlobalBudgetOnce(t *testing.T) {
 		status     int
 	}{
 		{service.RoleUser, "user_get_api_key", map[string]any{"id": 9}, http.StatusOK},
-		// The compliance response proves the request passed the admin limiter.
-		{service.RoleAdmin, "admin_get_dashboard", map[string]any{}, http.StatusLocked},
+		// Exercise a real admin handler, independent of the fork's documented
+		// disabled compliance acknowledgement (do not rely on a nil dashboard).
+		{service.RoleAdmin, "admin_get_user", map[string]any{"id": 9}, http.StatusNotFound},
 	} {
 		t.Run(tc.role, func(t *testing.T) {
 			endpoint, token, mr := newMCPRateLimitEndpoint(t, tc.role, 2)

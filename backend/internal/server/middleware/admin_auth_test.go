@@ -66,7 +66,7 @@ func TestAdminAuthJWTValidatesTokenVersion(t *testing.T) {
 	})
 
 	t.Run("ordinary_user_cannot_access_user_breakdown", func(t *testing.T) {
-		token, err := authService.GenerateToken(ordinaryUser)
+		token, err := authService.GenerateToken(context.Background(), ordinaryUser)
 		require.NoError(t, err)
 
 		w := httptest.NewRecorder()

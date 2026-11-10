@@ -13,6 +13,13 @@ const mockGetRuntimeLogConfig = vi.fn()
 const mockDialogConfirm = vi.fn()
 const mockUpdateRuntimeLogConfig = vi.fn()
 const mockShowError = vi.fn()
+const viewport = vi.hoisted(() => ({ desktop: true }))
+
+vi.mock('@vueuse/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@vueuse/core')>()
+  const { ref } = await import('vue')
+  return { ...actual, useMediaQuery: () => ref(viewport.desktop) }
+})
 
 vi.mock('@/api/admin/ops', () => ({
   opsAPI: {
@@ -84,6 +91,7 @@ const sinkHealth = {
 describe('OpsSystemLogTable host support', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    viewport.desktop = true
     mockDialogConfirm.mockResolvedValue(true)
     mockListSystemLogs.mockResolvedValue({
       items: [
@@ -136,6 +144,34 @@ describe('OpsSystemLogTable host support', () => {
     await flushPromises()
 
     expect(mockCleanupSystemLogs).toHaveBeenCalledWith(expect.objectContaining({ host: 'api-node-2' }))
+  })
+
+  it('renders mobile log cards with host and detail instead of a wide table', async () => {
+    viewport.desktop = false
+    const wrapper = mount(OpsSystemLogTable, {
+      global: { stubs: { Select: SelectStub, Pagination: PaginationStub } },
+    })
+    await flushPromises()
+    expect(wrapper.find('table').exists()).toBe(false)
+    expect(wrapper.text()).toContain('api-node-1')
+    expect(wrapper.text()).toContain('request failed')
+    wrapper.unmount()
+  })
+
+  it.each([
+    { reason: 'OPS_SYSTEM_LOG_CLEANUP_FILTER_REQUIRED', message: 'raw server detail' },
+    { response: { data: { code: 'OPS_SYSTEM_LOG_CLEANUP_FILTER_REQUIRED', detail: 'raw server detail' } } },
+  ])('localizes cleanup filter errors from supported API shapes', async (error) => {
+    mockCleanupSystemLogs.mockRejectedValueOnce(error)
+    const wrapper = mount(OpsSystemLogTable, {
+      global: { stubs: { Select: SelectStub, Pagination: PaginationStub } },
+    })
+    await flushPromises()
+    const button = wrapper.findAll('button').find(item => item.text() === 'admin.ops.systemLogs.cleanCurrentFilters')!
+    await button.trigger('click')
+    await flushPromises()
+    expect(mockShowError).toHaveBeenCalledWith('admin.ops.systemLogs.cleanupFilterRequired')
+    wrapper.unmount()
   })
 
   it('keeps database access-log persistence opt-in', async () => {

@@ -2,7 +2,7 @@ import type { SubscriptionProgress, UserSubscription } from '@/types'
 
 type UsageWindowProgress = NonNullable<SubscriptionProgress['daily']>
 
-const getUsedUSD = (window: UsageWindowProgress): number | null => {
+const getUsedUSD = (window: { used_usd?: number; used?: number }): number | null => {
   if (typeof window.used_usd === 'number') return window.used_usd
   if (typeof window.used === 'number') return window.used
   return null
@@ -40,6 +40,11 @@ export function mergeSubscriptionProgress(
     if (used !== null) next.monthly_usage_usd = used
     const windowStart = getWindowStart(progress.monthly)
     if (windowStart) next.monthly_window_start = windowStart
+  }
+
+  if (progress.total) {
+    const used = getUsedUSD(progress.total)
+    if (used !== null) next.total_usage_usd = used
   }
 
   if (progress.expires_at) {

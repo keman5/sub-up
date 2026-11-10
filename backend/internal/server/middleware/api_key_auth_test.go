@@ -6,8 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -327,10 +330,14 @@ func TestSimpleModeBypassesQuotaCheck(t *testing.T) {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/t", nil)
 		req.Header.Set("x-api-key", apiKey.Key)
+		req.Header.Set("Accept-Language", "zh-CN")
 		router.ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusTooManyRequests, w.Code)
-		require.Contains(t, w.Body.String(), "USAGE_LIMIT_EXCEEDED")
+		var quotaResponse ErrorResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &quotaResponse))
+		require.Equal(t, "DAILY_LIMIT_EXCEEDED", quotaResponse.Code)
+		requireDetailedQuotaResetMessage(t, quotaResponse.Message, "套餐日限额 $1 已用尽（已用 $10）", *sub.DailyResetTime())
 	})
 }
 
@@ -1537,11 +1544,12 @@ func TestAPIKeyAuthOpenAISubscriptionQuotaErrorFormat(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
-		name        string
-		path        string
-		configure   func(*service.Group, *service.UserSubscription, float64)
-		wantCode    string
-		wantMessage string
+		name      string
+		path      string
+		configure func(*service.Group, *service.UserSubscription, float64)
+		wantCode  string
+		wantLabel string
+		wantReset bool
 	}{
 		{
 			name: "daily limit through chat completions",
@@ -1550,8 +1558,9 @@ func TestAPIKeyAuthOpenAISubscriptionQuotaErrorFormat(t *testing.T) {
 				group.DailyLimitUSD = &limit
 				sub.DailyUsageUSD = limit
 			},
-			wantCode:    "DAILY_LIMIT_EXCEEDED",
-			wantMessage: "当前套餐今日额度已用完，请在额度重置后重试",
+			wantCode:  "DAILY_LIMIT_EXCEEDED",
+			wantLabel: "日",
+			wantReset: true,
 		},
 		{
 			name: "weekly limit through responses",
@@ -1560,8 +1569,8 @@ func TestAPIKeyAuthOpenAISubscriptionQuotaErrorFormat(t *testing.T) {
 				group.WeeklyLimitUSD = &limit
 				sub.WeeklyUsageUSD = limit
 			},
-			wantCode:    "WEEKLY_LIMIT_EXCEEDED",
-			wantMessage: "当前套餐本周额度已用完，请在额度重置后重试",
+			wantCode:  "WEEKLY_LIMIT_EXCEEDED",
+			wantLabel: "周",
 		},
 		{
 			name: "monthly limit through responses",
@@ -1570,8 +1579,8 @@ func TestAPIKeyAuthOpenAISubscriptionQuotaErrorFormat(t *testing.T) {
 				group.MonthlyLimitUSD = &limit
 				sub.MonthlyUsageUSD = limit
 			},
-			wantCode:    "MONTHLY_LIMIT_EXCEEDED",
-			wantMessage: "当前套餐本月额度已用完，请在额度重置后重试",
+			wantCode:  "MONTHLY_LIMIT_EXCEEDED",
+			wantLabel: "月",
 		},
 	}
 
@@ -1641,7 +1650,14 @@ func TestAPIKeyAuthOpenAISubscriptionQuotaErrorFormat(t *testing.T) {
 				} `json:"error"`
 			}
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
-			require.Equal(t, tt.wantMessage, response.Error.Message)
+			prefix := fmt.Sprintf("套餐%s限额 $1 已用尽（已用 $1）", tt.wantLabel)
+			if tt.wantReset {
+				requireDetailedQuotaResetMessage(t, response.Error.Message, prefix, *sub.DailyResetTime())
+			} else {
+				// Weekly/monthly windows outlive this 24-hour subscription:
+				// the client must not be promised automatic quota recovery.
+				require.Equal(t, prefix+"，套餐将在额度重置前到期，请续费或更换套餐。", response.Error.Message)
+			}
 			require.Equal(t, "insufficient_quota", response.Error.Type)
 			require.Equal(t, tt.wantCode, response.Error.Code)
 		})
@@ -1701,7 +1717,26 @@ func TestAPIKeyAuthQuotaErrorKeepsLegacyFormatOutsideResponses(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusTooManyRequests, w.Code)
-	requireAPIKeyAuthError(t, w, "API_KEY_QUOTA_EXHAUSTED", "API key 额度已用完")
+	requireAPIKeyAuthError(t, w, "API_KEY_QUOTA_EXHAUSTED", "The API key quota has been exhausted. (API Key 额度已用完)")
+}
+
+// Check the enforced amount, exact reset timestamp and countdown semantics,
+// rather than accepting any message containing a quota keyword.
+func requireDetailedQuotaResetMessage(t *testing.T, message, prefix string, reset time.Time) {
+	t.Helper()
+	pattern := "^" + regexp.QuoteMeta(prefix) + `，还有 (\d+) 天 (\d+) 小时 (\d+) 分钟恢复（` + regexp.QuoteMeta(reset.Format(time.RFC3339)) + `）。$`
+	parts := regexp.MustCompile(pattern).FindStringSubmatch(message)
+	require.Len(t, parts, 4, message)
+	days, err := strconv.Atoi(parts[1])
+	require.NoError(t, err)
+	hours, err := strconv.Atoi(parts[2])
+	require.NoError(t, err)
+	minutes, err := strconv.Atoi(parts[3])
+	require.NoError(t, err)
+	require.Less(t, hours, 24)
+	require.Less(t, minutes, 60)
+	remaining := time.Duration(days*1440+hours*60+minutes) * time.Minute
+	require.InDelta(t, time.Until(reset).Seconds(), remaining.Seconds(), 61, "countdown must describe the same enforcement window")
 }
 
 func newAuthTestRouter(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) *gin.Engine {

@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -17,6 +18,7 @@ type updateFieldsAPIKeyRepoStub struct {
 	quotaBaseAPIKeyRepoStub
 	key          *APIKey
 	updateFields []APIKeyUpdateFields
+	updatedKey   *APIKey
 }
 
 // IncrementQuotaUsed 模拟计费热路径上的原子递增：只动 quota_used。
@@ -30,9 +32,58 @@ func (s *updateFieldsAPIKeyRepoStub) GetByID(context.Context, int64) (*APIKey, e
 	return &clone, nil
 }
 
-func (s *updateFieldsAPIKeyRepoStub) Update(_ context.Context, _ *APIKey, fields APIKeyUpdateFields) error {
+func (s *updateFieldsAPIKeyRepoStub) Update(_ context.Context, key *APIKey, fields APIKeyUpdateFields) error {
 	s.updateFields = append(s.updateFields, fields)
+	clone := *key
+	s.updatedKey = &clone
 	return nil
+}
+
+type resetWindowCacheSpy struct{ ids []int64 }
+
+func (s *resetWindowCacheSpy) InvalidateAPIKeyRateLimit(_ context.Context, id int64) error {
+	s.ids = append(s.ids, id)
+	return nil
+}
+
+func TestAPIKeyUpdate_SingleWindowResetPersistsOnlyRequestedWindow(t *testing.T) {
+	for _, window := range []string{"5h", "1d", "7d"} {
+		t.Run(window, func(t *testing.T) {
+			start := time.Now().Add(-time.Hour).Truncate(time.Second)
+			key := &APIKey{ID: 1, UserID: 7, Key: "sk-window", Status: StatusActive,
+				Quota: 100, QuotaUsed: 19, RateLimit5h: 50, RateLimit1d: 100, RateLimit7d: 200,
+				Usage5h: 11, Usage1d: 22, Usage7d: 33,
+				Window5hStart: &start, Window1dStart: &start, Window7dStart: &start}
+			svc, repo := newUpdateFieldsAPIKeyService(key)
+			cache := &resetWindowCacheSpy{}
+			svc.SetRateLimitCacheInvalidator(cache)
+			got, err := svc.Update(context.Background(), 1, 7, UpdateAPIKeyRequest{ResetRateLimitWindow: &window})
+			require.NoError(t, err)
+			require.Len(t, repo.updateFields, 1)
+			require.False(t, repo.updateFields[0].IsEmpty(), "reset must declare persistence columns")
+			want := *key
+			wantFields := APIKeyUpdateFields{}
+			switch window {
+			case "5h":
+				want.Usage5h, want.Window5hStart = 0, nil
+				wantFields.RateLimitUsage5h = true
+			case "1d":
+				want.Usage1d, want.Window1dStart = 0, nil
+				wantFields.RateLimitUsage1d = true
+			case "7d":
+				want.Usage7d, want.Window7dStart = 0, nil
+				wantFields.RateLimitUsage7d = true
+			}
+			require.Equal(t, wantFields, repo.updateFields[0])
+			require.Equal(t, want, *repo.updatedKey, "actual repository update payload")
+			require.NotNil(t, got.CompiledIPWhitelist)
+			require.NotNil(t, got.CompiledIPBlacklist)
+			returned := *got
+			returned.CompiledIPWhitelist, returned.CompiledIPBlacklist = nil, nil
+			require.Equal(t, want, returned)
+			require.Equal(t, []int64{1}, cache.ids)
+		})
+	}
 }
 
 func newUpdateFieldsAPIKeyService(key *APIKey) (*APIKeyService, *updateFieldsAPIKeyRepoStub) {

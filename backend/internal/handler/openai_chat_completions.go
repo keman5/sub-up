@@ -115,8 +115,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// 解析渠道级模型映射
-	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
-	forwardModel := openAIChannelForwardModel(channelMapping, reqModel)
+	h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 
 	if h.errorPassthroughService != nil {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
@@ -144,7 +143,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 	reqModel, body = applyGroupModelPolicyToBody(apiKey.Group, reqModel, body)
 	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
-	channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	// Quota fallback may change both the group policy and channel mapping.
+	// Schedule against the same final model that will be written to forwardBody.
+	forwardModel := openAIChannelForwardModel(channelMapping, reqModel)
 	setOpsRequestContext(c, reqModel, reqStream)
 
 	// 余额模式在途预留：防止并发请求在预检时看到同一份余额而集体透支。

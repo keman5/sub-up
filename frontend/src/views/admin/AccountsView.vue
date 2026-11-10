@@ -1615,9 +1615,10 @@ const mergeAccountsIncrementally = (nextRows: Account[]) => {
 }
 
 const refreshAccountsIncrementally = async (options?: { refreshUsage?: boolean }) => {
-  if (autoRefreshFetching.value) return
+  if (autoRefreshFetching.value) return false
   syncAccountListDerivedParams()
   autoRefreshFetching.value = true
+  let succeeded = false
   try {
     const result = await adminAPI.accounts.listWithEtag(
       pagination.page,
@@ -1654,10 +1655,18 @@ const refreshAccountsIncrementally = async (options?: { refreshUsage?: boolean }
       await refreshCurrentPageUsageCells()
     }
     await refreshTodayStatsBatch()
+    succeeded = true
+    return true
   } catch (error) {
     console.error('Auto refresh failed:', error)
+    return false
   } finally {
     autoRefreshFetching.value = false
+    // Usage queries and row events can update runtime state while this list
+    // request owns the refresh lock. Drain those updates only after releasing it.
+    // A failed read keeps pending work for the next independent refresh/event;
+    // retrying from finally would spin while the server remains unavailable.
+    if (succeeded && runtimeStateRefreshPending) handleAccountRuntimeStateUpdated()
   }
 }
 
@@ -1665,7 +1674,7 @@ const refreshAccountsIncrementally = async (options?: { refreshUsage?: boolean }
 // updates so a serial list refresh cannot lose a later account's status change.
 const handleAccountRuntimeStateUpdated = () => {
   runtimeStateRefreshPending = true
-  if (runtimeStateRefreshInFlight) return
+  if (runtimeStateRefreshInFlight || autoRefreshFetching.value) return
 
   void (async () => {
     runtimeStateRefreshInFlight = true
@@ -1673,7 +1682,10 @@ const handleAccountRuntimeStateUpdated = () => {
       while (runtimeStateRefreshPending) {
         runtimeStateRefreshPending = false
         resetAutoRefreshCache()
-        await refreshAccountsIncrementally({ refreshUsage: false })
+        if (!await refreshAccountsIncrementally({ refreshUsage: false })) {
+          runtimeStateRefreshPending = true
+          break
+        }
       }
     } finally {
       runtimeStateRefreshInFlight = false

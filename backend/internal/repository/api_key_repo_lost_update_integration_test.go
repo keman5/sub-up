@@ -3,8 +3,71 @@
 package repository
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
+
+// A single-window reset must not write the other windows from a stale snapshot.
+func (s *APIKeyRepoSuite) TestUpdate_SingleWindowResetPreservesConcurrentUsage() {
+	for _, window := range []string{"5h", "1d", "7d"} {
+		s.Run(window, func() {
+			user := s.mustCreateUser(fmt.Sprintf("apikey-reset-%s@example.com", window))
+			key := &service.APIKey{UserID: user.ID, Key: "sk-single-reset-" + window,
+				Name: "preserved", Status: service.StatusActive, Quota: 100,
+				RateLimit5h: 100, RateLimit1d: 200, RateLimit7d: 300}
+			s.Require().NoError(s.repo.Create(s.ctx, key))
+			s.Require().NoError(s.repo.IncrementRateLimitUsage(s.ctx, key.ID, 12))
+			stale, err := s.repo.GetByID(s.ctx, key.ID)
+			s.Require().NoError(err)
+			s.Require().NoError(s.repo.IncrementRateLimitUsage(s.ctx, key.ID, 30))
+			_, err = s.repo.IncrementQuotaUsed(s.ctx, key.ID, 9)
+			s.Require().NoError(err)
+			before, err := s.repo.GetByID(s.ctx, key.ID)
+			s.Require().NoError(err)
+			fields := service.APIKeyUpdateFields{}
+			switch window {
+			case "5h":
+				stale.Usage5h, stale.Window5hStart = 0, nil
+				fields.RateLimitUsage5h = true
+			case "1d":
+				stale.Usage1d, stale.Window1dStart = 0, nil
+				fields.RateLimitUsage1d = true
+			case "7d":
+				stale.Usage7d, stale.Window7dStart = 0, nil
+				fields.RateLimitUsage7d = true
+			}
+			s.Require().NoError(s.repo.Update(s.ctx, stale, fields))
+			got, err := s.repo.GetByID(s.ctx, key.ID)
+			s.Require().NoError(err)
+			for _, other := range []struct {
+				name               string
+				usage              float64
+				start, beforeStart *time.Time
+			}{
+				{"5h", got.Usage5h, got.Window5hStart, before.Window5hStart},
+				{"1d", got.Usage1d, got.Window1dStart, before.Window1dStart},
+				{"7d", got.Usage7d, got.Window7dStart, before.Window7dStart},
+			} {
+				if other.name == window {
+					s.Require().Zero(other.usage)
+					s.Require().Nil(other.start)
+				} else {
+					s.Require().Equal(float64(42), other.usage, other.name)
+					s.Require().NotNil(other.start)
+					s.Require().Equal(other.beforeStart, other.start, other.name)
+				}
+			}
+			s.Require().Equal(float64(9), got.QuotaUsed)
+			s.Require().Equal("preserved", got.Name)
+			s.Require().Equal(float64(100), got.Quota)
+			s.Require().Equal(float64(100), got.RateLimit5h)
+			s.Require().Equal(float64(200), got.RateLimit1d)
+			s.Require().Equal(float64(300), got.RateLimit7d)
+		})
+	}
+}
 
 // api_keys 上的用量列由计费热路径原子递增（IncrementQuotaUsed /
 // IncrementRateLimitUsage）。编辑 Key 时若整行回写，

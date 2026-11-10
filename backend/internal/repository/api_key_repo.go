@@ -287,23 +287,24 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fiel
 			SetRateLimit1d(key.RateLimit1d).
 			SetRateLimit7d(key.RateLimit7d)
 	}
-	if fields.RateLimitUsage {
-		builder.
-			SetUsage5h(key.Usage5h).
-			SetUsage1d(key.Usage1d).
-			SetUsage7d(key.Usage7d)
-
-		// Rate limit window start times
+	if fields.RateLimitUsage || fields.RateLimitUsage5h {
+		builder.SetUsage5h(key.Usage5h)
 		if key.Window5hStart != nil {
 			builder.SetWindow5hStart(*key.Window5hStart)
 		} else {
 			builder.ClearWindow5hStart()
 		}
+	}
+	if fields.RateLimitUsage || fields.RateLimitUsage1d {
+		builder.SetUsage1d(key.Usage1d)
 		if key.Window1dStart != nil {
 			builder.SetWindow1dStart(*key.Window1dStart)
 		} else {
 			builder.ClearWindow1dStart()
 		}
+	}
+	if fields.RateLimitUsage || fields.RateLimitUsage7d {
+		builder.SetUsage7d(key.Usage7d)
 		if key.Window7dStart != nil {
 			builder.SetWindow7dStart(*key.Window7dStart)
 		} else {

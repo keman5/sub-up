@@ -452,7 +452,7 @@
               :title="t('admin.subscriptions.noSubscriptionsYet')"
               :description="t('admin.subscriptions.assignFirstSubscription')"
               :action-text="t('admin.subscriptions.assignSubscription')"
-              @action="showAssignModal = true"
+              @action="openAssignModal"
             />
           </template>
         </DataTable>
@@ -509,7 +509,7 @@
               class="input pr-8"
               :placeholder="t('admin.usage.searchUserPlaceholder')"
               @input="debounceSearchUsers"
-              @focus="showUserDropdown = true"
+              @focus="showUserDropdown = true; searchUsers()"
             />
             <button
               v-if="selectedUser"
@@ -915,6 +915,7 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useAppDialog } from '@/composables/useAppDialog'
 import { useRouteQuerySync } from '@/composables/useRouteQuerySync'
 import { getSubscriptionUserLabel, getSubscriptionUserNotes } from './subscriptionUserDisplay'
+import { filterRecentRegisteredUsers } from './subscriptionRecentUsers'
 import { mergeSubscriptionProgressById } from './subscriptionProgressMerge'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -1196,6 +1197,7 @@ const batchAssignEnabled = ref(false)
 const assignUsers = ref<AdminUser[]>([])
 const batchAssignResult = ref<BulkAssignSubscriptionResult | null>(null)
 let userSearchTimeout: ReturnType<typeof setTimeout> | null = null
+let userSearchRun = 0
 
 const filters = reactive({
   status: 'active',
@@ -1522,6 +1524,7 @@ const formatSimpleUserMeta = (user: Pick<SimpleUser, 'notes' | 'username'>) =>
 const openAssignModal = () => {
   showAssignModal.value = true
   showUserDropdown.value = true
+  void searchUsers()
 }
 
 // User search with debounce
@@ -1538,23 +1541,35 @@ const debounceSearchUsers = () => {
 
 const searchUsers = async () => {
   const keyword = userSearchKeyword.value.trim()
-
-  if (!keyword) {
-    userSearchResults.value = []
-    return
-  }
-
+  const run = ++userSearchRun
   userSearchLoading.value = true
   try {
-    const result = await adminAPI.users.list(1, 30, {
-      search: keyword, sort_by: 'email', sort_order: 'asc'
-    })
-    userSearchResults.value = result.items
+    if (keyword) {
+      const result = await adminAPI.users.list(1, 30, {
+        search: keyword, sort_by: 'email', sort_order: 'asc'
+      })
+      if (run === userSearchRun) userSearchResults.value = result.items
+    } else {
+      const now = new Date()
+      const recent: AdminUser[] = []
+      for (let page = 1; ; page++) {
+        const result = await adminAPI.users.list(page, 100, {
+          sort_by: 'created_at', sort_order: 'desc'
+        })
+        if (run !== userSearchRun) return
+        const users = filterRecentRegisteredUsers(result.items, now)
+        recent.push(...users)
+        // Descending creation order means subsequent pages are older as soon
+        // as this page reaches the 48-hour boundary.
+        if (page >= result.pages || result.items.length === 0 || users.length < result.items.length) break
+      }
+      userSearchResults.value = recent
+    }
   } catch (error) {
     console.error('Failed to search users:', error)
-    userSearchResults.value = []
+    if (run === userSearchRun) userSearchResults.value = []
   } finally {
-    userSearchLoading.value = false
+    if (run === userSearchRun) userSearchLoading.value = false
   }
 }
 
@@ -1580,6 +1595,8 @@ const clearUserSelection = () => {
   userSearchKeyword.value = ''
   userSearchResults.value = []
   assignForm.user_id = null
+  showUserDropdown.value = true
+  void searchUsers()
 }
 
 const resetAssignUsers = () => {
@@ -1611,6 +1628,11 @@ const handleSort = (key: string, order: 'asc' | 'desc') => {
 
 const closeAssignModal = () => {
   if (submitting.value) return
+  if (userSearchTimeout) {
+    clearTimeout(userSearchTimeout)
+    userSearchTimeout = null
+  }
+  userSearchRun++
   showAssignModal.value = false
   batchAssignEnabled.value = false
   assignUsers.value = []
@@ -1986,6 +2008,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  userSearchRun++
   syncViewDisposed = true
   if (syncRefreshTimer) clearInterval(syncRefreshTimer)
   progressRefreshRun++

@@ -77,6 +77,10 @@ type APIKeyUpdateFields struct {
 	// RateLimitUsage 覆盖 usage_5h/_1d/_7d 与三个窗口起点，
 	// 仅供"重置限流用量"路径声明；常规计费走 IncrementRateLimitUsage。
 	RateLimitUsage bool
+	// Single-window resets leave other windows' concurrent billing increments intact.
+	RateLimitUsage5h bool
+	RateLimitUsage1d bool
+	RateLimitUsage7d bool
 	// IPRules 覆盖 ip_whitelist 与 ip_blacklist。
 	IPRules bool
 }
@@ -930,14 +934,17 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		case "5h":
 			apiKey.Usage5h = 0
 			apiKey.Window5hStart = nil
+			fields.RateLimitUsage5h = true
 			resetRateLimit = true
 		case "1d":
 			apiKey.Usage1d = 0
 			apiKey.Window1dStart = nil
+			fields.RateLimitUsage1d = true
 			resetRateLimit = true
 		case "7d":
 			apiKey.Usage7d = 0
 			apiKey.Window7dStart = nil
+			fields.RateLimitUsage7d = true
 			resetRateLimit = true
 		}
 	}

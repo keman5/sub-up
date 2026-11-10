@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -281,6 +282,32 @@ func TestSettingHandler_GetSettings_ReturnsPersistedOpsMonitoringEnabledWithoutO
 	data, ok := resp.Data.(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, true, data["ops_monitoring_enabled"])
+}
+
+func TestSettingHandler_GetSettings_ReturnsPersistedOpsMonitoringWhenRuntimeDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, persisted := range []bool{false, true} {
+		t.Run(fmt.Sprint(persisted), func(t *testing.T) {
+			repo := &settingHandlerRepoStub{values: map[string]string{
+				service.SettingKeyOpsMonitoringEnabled: fmt.Sprint(persisted),
+			}}
+			cfg := &config.Config{Default: config.DefaultConfig{UserConcurrency: 5}}
+			ops := service.NewOpsService(nil, repo, cfg, nil, nil, nil, nil, nil, nil, nil, nil)
+			require.False(t, ops.IsMonitoringEnabled(context.Background()))
+			handler := NewSettingHandler(service.NewSettingService(repo, cfg), nil, nil, ops, nil, nil, nil)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/settings", nil)
+			handler.GetSettings(c)
+			require.Equal(t, http.StatusOK, rec.Code)
+			var resp response.Response
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			data, ok := resp.Data.(map[string]any)
+			require.True(t, ok)
+			require.Equal(t, persisted, data["ops_monitoring_enabled"])
+			require.False(t, ops.IsMonitoringEnabled(context.Background()), "settings projection must not enable runtime monitoring")
+		})
+	}
 }
 
 func TestSettingHandler_UpdateSettings_PreservesLegacyBlankPaymentVisibleMethodSource(t *testing.T) {

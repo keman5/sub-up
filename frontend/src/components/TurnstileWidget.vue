@@ -14,8 +14,8 @@
       data-testid="turnstile-reload-prompt"
       @click="reloadPage"
     >
-      <span class="turnstile-reload-title">验证码加载失败</span>
-      <span class="turnstile-reload-desc">点击刷新页面</span>
+      <span class="turnstile-reload-title">{{ t('auth.captchaLoadFailed') }}</span>
+      <span class="turnstile-reload-desc">{{ t('auth.captchaReloadPage') }}</span>
     </button>
     <div v-else ref="containerRef" class="turnstile-container"></div>
   </div>

@@ -267,6 +267,8 @@ export default {
     turnstileFailed: '验证失败，请重试',
     captchaVerified: '验证已完成',
     captchaLoading: '正在加载验证码…',
+    captchaLoadFailed: '验证码加载失败',
+    captchaReloadPage: '点击刷新页面',
     captchaClickToVerify: '点击完成人机验证',
     captchaVerifying: '验证中…',
     completeVerification: '请完成验证',

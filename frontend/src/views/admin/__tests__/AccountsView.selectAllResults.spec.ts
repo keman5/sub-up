@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 
 import AccountsView from '../AccountsView.vue'
+
+enableAutoUnmount(afterEach)
 
 const {
   listAccounts,
@@ -178,6 +180,7 @@ describe('admin AccountsView select all filtered results', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.useRealTimers()
   })
 
   it.each([
@@ -208,6 +211,7 @@ describe('admin AccountsView select all filtered results', () => {
   })
 
   it('selects all matching IDs in one commit and clears the selection when filters change', async () => {
+    vi.useFakeTimers()
     const allAccounts = makeAccounts(45)
     listAccounts.mockImplementation(async (_page: number, pageSize: number) => {
       if (pageSize === 1000) {
@@ -246,6 +250,11 @@ describe('admin AccountsView select all filtered results', () => {
 
     expect(wrapper.get('[data-test="selected-count"]').text()).toBe('0')
     expect(wrapper.get('[data-test="all-results-selected"]').text()).toBe('false')
+    // Complete the real debounced reload before the next test resets its API
+    // mock; otherwise it can resolve undefined in a later test/file teardown.
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    expect(listAccounts).toHaveBeenCalledTimes(3)
   })
 
   it('keeps the original page selection when loading all results fails', async () => {

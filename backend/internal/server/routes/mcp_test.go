@@ -10,6 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	adminhandler "github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/managementmcp"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -131,6 +132,19 @@ func callMCPRouteTool(t *testing.T, endpoint http.Handler, name string, args map
 
 type mcpRouteAPIKeyRepo struct{ service.APIKeyRepository }
 
+// Exercise the actual admin handler after the documented fork policy disables
+// mandatory compliance acknowledgement. Registration-only nil handlers cannot
+// be used as request fixtures once the compliance middleware allows dispatch.
+type mcpRouteAdminService struct{ service.AdminService }
+
+func (*mcpRouteAdminService) GetUser(context.Context, int64) (*service.User, error) {
+	return nil, service.ErrUserNotFound
+}
+
+func mcpRouteAdminUserHandler() *adminhandler.UserHandler {
+	return adminhandler.NewUserHandler(&mcpRouteAdminService{}, nil, nil, nil, nil, nil, nil)
+}
+
 func (r *mcpRouteAPIKeyRepo) GetByID(context.Context, int64) (*service.APIKey, error) {
 	return &service.APIKey{ID: 9, UserID: 7, Name: "owner-key", Key: "must-not-leak", Status: service.StatusActive}, nil
 }
@@ -202,8 +216,16 @@ func TestMCPDispatchRetainsBackendModeAndAdminCompliance(t *testing.T) {
 	require.Contains(t, string(result.Result.Payload.Result), "Backend mode is active")
 
 	admin := &service.MCPPrincipal{GrantID: "admin", UserID: 8, Role: service.RoleAdmin, Scope: service.MCPScopeAdmin, ReadOnly: true}
-	result = callMCPRouteTool(t, newMCPRouteTestEndpoint(h, admin, settings, middleware.AuditLogMiddleware(mcpRouteNext)), "admin_get_dashboard", map[string]any{})
+	h.Admin.User = mcpRouteAdminUserHandler()
+	result = callMCPRouteTool(t, newMCPRouteTestEndpoint(h, admin, settings, middleware.AuditLogMiddleware(mcpRouteNext)), "admin_get_user", map[string]any{"id": 9})
 	require.True(t, result.Result.IsError)
-	require.Equal(t, http.StatusLocked, result.Result.Payload.HTTPStatus)
-	require.Contains(t, string(result.Result.Payload.Result), "ADMIN_COMPLIANCE_ACK_REQUIRED")
+	if service.AdminComplianceEnabled {
+		require.Equal(t, http.StatusLocked, result.Result.Payload.HTTPStatus)
+		require.Contains(t, string(result.Result.Payload.Result), "ADMIN_COMPLIANCE_ACK_REQUIRED")
+	} else {
+		// Existing non-fork contract: no forced acknowledgement. A real handler
+		// response proves admin dispatch still passes the compliance middleware.
+		require.Equal(t, http.StatusNotFound, result.Result.Payload.HTTPStatus)
+		require.Contains(t, string(result.Result.Payload.Result), "USER_NOT_FOUND")
+	}
 }

@@ -12,6 +12,7 @@ const makeSubscription = (id: number): UserSubscription => ({
   daily_usage_usd: 1,
   weekly_usage_usd: 2,
   monthly_usage_usd: 3,
+  total_usage_usd: 9,
   daily_window_start: '2026-06-03T00:00:00Z',
   weekly_window_start: '2026-06-01T00:00:00Z',
   monthly_window_start: '2026-06-01T00:00:00Z',
@@ -20,6 +21,25 @@ const makeSubscription = (id: number): UserSubscription => ({
 })
 
 describe('mergeSubscriptionProgressById', () => {
+  it.each([
+    [{ used_usd: 7, used: 99, percentage: 7 }, 7],
+    [{ used_usd: 0, used: 99, percentage: 0 }, 0],
+    [{ used: 6, percentage: 6 }, 6],
+    [{ percentage: 0 }, 9],
+    [null, 9],
+    [undefined, 9]
+  ])('merges total using the existing used_usd/used precedence without changing other fields (%j)', (total, expected) => {
+    const subscriptions = [makeSubscription(1), makeSubscription(2)]
+    const before = structuredClone(subscriptions)
+    const next = mergeSubscriptionProgressById(subscriptions, 2, {
+      subscription_id: 2, daily: null, weekly: null, monthly: null,
+      total, expires_at: null, days_remaining: null
+    })
+    expect(next[0]).toBe(subscriptions[0])
+    expect(next[1]).toEqual({ ...subscriptions[1], total_usage_usd: expected })
+    expect(subscriptions).toEqual(before)
+  })
+
   it('updates only the matching subscription with latest progress fields', () => {
     const subscriptions = [makeSubscription(1), makeSubscription(2)]
     const progress: SubscriptionProgress = {
