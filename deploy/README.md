@@ -4,6 +4,8 @@ This directory contains files for deploying Sub2API on Linux servers and Apple-s
 
 本仓库当前线上发布使用 `npm run deploy`，仅更新 a1 → 3dbooks → 主环境；test 已退役。构建仅在本地通过 `build.sh` 执行，VPS 不构建。步骤、备份及验收以 [DEPLOY_ALL.md](DEPLOY_ALL.md) 为准；下方通用安装方式不替代现有环境的发布流程。
 
+2026-11-11 三环境已发布 v0.2.21 / `0d03a0114`，Pages 和订阅同步消费者同时更新，非 Git 状态已恢复，六个 health 与三库 936 条迁移 checksum 核验通过。备份为 `/opt/sub2api-release-backups/20261111140508/`；本轮未 push。完整记录见 [NF-20261111-02](../docs/fork-maintenance/2026-11.md)。
+
 ## Deployment Methods
 
 | Method | Best For | Setup Wizard |

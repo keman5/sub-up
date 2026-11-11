@@ -268,7 +268,7 @@ describe('admin AccountsView manual usage refresh', () => {
     wrapper.unmount()
   })
 
-  it('refreshes remounted current-page usage cells after the table reload finishes', async () => {
+  it('refreshes retained current-page usage cells after the table reload finishes', async () => {
     listAccounts
       .mockResolvedValueOnce(pageResponse([createAccount(1, 'before-refresh')]))
       .mockResolvedValueOnce(pageResponse([createAccount(1, 'after-refresh')]))
@@ -282,8 +282,9 @@ describe('admin AccountsView manual usage refresh', () => {
     await wrapper.get('[data-test="refresh-accounts"]').trigger('click')
     await flushPromises()
 
-    expect(usageCellMountedTokens).toEqual([0, 1])
+    expect(usageCellMountedTokens).toEqual([0])
     expect(usageCellRefreshTransitions).toContainEqual([1, 2])
+    expect(wrapper.get('[data-test="account-name"]').text()).toBe('after-refresh')
 
     wrapper.unmount()
   })
@@ -301,8 +302,9 @@ describe('admin AccountsView manual usage refresh', () => {
     await wrapper.get('[data-test="bulk-updated"]').trigger('click')
     await flushPromises()
 
-    expect(usageCellMountedTokens).toEqual([0, 1])
+    expect(usageCellMountedTokens).toEqual([0])
     expect(usageCellRefreshTransitions).toContainEqual([1, 2])
+    expect(wrapper.get('[data-test="account-name"]').text()).toBe('after-reload')
 
     wrapper.unmount()
   })

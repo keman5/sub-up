@@ -132,6 +132,18 @@ describe('ccswitchImport utils', () => {
 })
 
 describe('CC Switch usage script', () => {
+  it.each([
+    [{ daily_limit_usd: 20, daily_usage_usd: 5, total_limit_usd: 0, total_usage_usd: 100 }, 15],
+    [{ daily_limit_usd: 20, daily_usage_usd: 5, total_limit_usd: 110, total_usage_usd: 100 }, 10],
+    [{ total_limit_usd: 0, total_usage_usd: 100 }, 8]
+  ])('ignores unlimited cumulative quota and preserves finite limits', (subscription, remaining) => {
+    // eslint-disable-next-line no-new-func
+    const config = new Function(`return ${CC_SWITCH_USAGE_SCRIPT}`)() as {
+      extractor: (response: unknown) => { remaining: number }
+    }
+    expect(config.extractor({ subscription, rate_limits: [{ remaining: 8 }] }).remaining).toBe(remaining)
+  })
+
   // Mirrors CC Switch: substitute the template vars as text, evaluate, read request.url.
   function usageUrlFor(baseUrl: string): string {
     const script = CC_SWITCH_USAGE_SCRIPT.split('{{baseUrl}}').join(baseUrl).split('{{apiKey}}').join('sk-test')

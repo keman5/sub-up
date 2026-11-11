@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,8 +13,9 @@ import (
 // groupPlatformRepoStub 只实现 UpdateGroup 走到的两个方法，其余靠内嵌接口占位。
 type groupPlatformRepoStub struct {
 	GroupRepository
-	group   *Group
-	updated *Group
+	group     *Group
+	updated   *Group
+	updateErr error
 }
 
 func (r *groupPlatformRepoStub) GetByID(_ context.Context, _ int64) (*Group, error) {
@@ -23,7 +25,7 @@ func (r *groupPlatformRepoStub) GetByID(_ context.Context, _ int64) (*Group, err
 
 func (r *groupPlatformRepoStub) Update(_ context.Context, group *Group) error {
 	r.updated = group
-	return nil
+	return r.updateErr
 }
 
 type channelCacheInvalidatorSpy struct {
@@ -40,6 +42,7 @@ func TestUpdateGroupInvalidatesChannelCacheOnPlatformChange(t *testing.T) {
 		fromPlatform  string
 		inputPlatform string
 		wantCalls     int
+		updateErr     error
 	}{
 		{
 			name:          "platform changed invalidates",
@@ -54,6 +57,12 @@ func TestUpdateGroupInvalidatesChannelCacheOnPlatformChange(t *testing.T) {
 			wantCalls:     0,
 		},
 		{
+			name:          "failed update does not invalidate",
+			fromPlatform:  PlatformAnthropic,
+			inputPlatform: PlatformOpenAI,
+			updateErr:     errors.New("update failed"),
+		},
+		{
 			// 请求里不带 platform 字段时不应该动缓存
 			name:          "platform omitted does not invalidate",
 			fromPlatform:  PlatformAnthropic,
@@ -64,11 +73,16 @@ func TestUpdateGroupInvalidatesChannelCacheOnPlatformChange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := &groupPlatformRepoStub{group: &Group{ID: 7, Name: "g", Platform: tt.fromPlatform}}
+			repo := &groupPlatformRepoStub{group: &Group{ID: 7, Name: "g", Platform: tt.fromPlatform}, updateErr: tt.updateErr}
 			spy := &channelCacheInvalidatorSpy{}
 			svc := &adminServiceImpl{groupRepo: repo, channelCacheInvalidator: spy}
 
 			got, err := svc.UpdateGroup(context.Background(), 7, &UpdateGroupInput{Platform: tt.inputPlatform})
+			if tt.updateErr != nil {
+				require.ErrorIs(t, err, tt.updateErr)
+				require.Equal(t, 0, spy.calls)
+				return
+			}
 			require.NoError(t, err)
 			require.NotNil(t, got)
 			require.Equal(t, tt.wantCalls, spy.calls)

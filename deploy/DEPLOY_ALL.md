@@ -1,5 +1,7 @@
 # 全量发布
 
+2026-11-11 已按 a1 → 3dbooks → main 发布 `0d03a0114` / v0.2.21：镜像 `sub2api:subapi-0d03a0114-all-20261111140508`，三容器 healthy，镜像 ID 与实际二进制 commit 均匹配；Pages 为 `94ca0650`、`bec0d8a7`、`af89930f`，Production/subapi Source 均为 `0d03a01`。备份根目录 `/opt/sub2api-release-backups/20261111140508/`，每套归档切换前验证。消费者 `/opt/a1-sync-release/20261111142313/a1-user-sync` active/running，主环境/3dbooks 各 27 条回执匹配 a1。状态恢复后六个 health 正常，三库各 312 条迁移 checksum 全匹配。首轮本地 Docker metadata 超时未触及线上，拉取基础镜像后原脚本重试成功。构建全部本地完成，test 仍退役，未 push；完整验证边界见 NF-20261111-02。
+
 2026-11-10 已按 a1 → 3dbooks → main 发布 `251b6fd0d`：镜像 `sub2api:subapi-251b6fd0d-all-20261110100505`，三容器 healthy 且实际二进制 commit 一致；Pages 分别 `5d60cb83`、`a04f2e54`、`22ef9add`。备份根目录 `/opt/sub2api-release-backups/20261110100505/`，每套归档均通过读取验证。消费者 `/opt/a1-sync-release/20261110101902/a1-user-sync` active，主环境/3dbooks 各 27 条执行回执匹配 a1。恢复非 Git 状态后六个 health 均 ok，三库各 311 条迁移 checksum 全匹配。所有构建在本地完成，test 保持退役，未 push。详细验证边界见 `docs/fork-maintenance/2026-11.md` 的 NF-20261110-02。
 
 2026-10-11 21:16 已发布订阅执行状态修复：三个活动后端均为 `sub2api:subapi-9fddec9ff-all-20261011205921` 且 healthy；Pages a1 `12f86d50`、3dbooks `ade8039b`、main `9cf57ccc`；消费者二进制 `/opt/a1-sync-release/20261011211529/a1-user-sync`。`bash deploy/verify-subscription-sync.sh` 验证主环境和 3dbooks 各 26 条映射回执与 a1 一致，用户 24/41/71 的取消请求已执行。Edge 核验 a1 #595 显示未同步且没有取消按钮，#734 显示已同步且只有取消按钮。

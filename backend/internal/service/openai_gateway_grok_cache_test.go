@@ -236,9 +236,9 @@ func TestResolveGrokCacheIdentityIDEHeaderPriority(t *testing.T) {
 		} else {
 			want := resolveGrokCacheIdentity(onlyCurrent, body, "", "grok-4.5")
 			require.Equal(t, want, got, header.name)
+			want = resolveGrokCacheIdentity(onlyCurrent, nil, "", "grok-4.5")
+			require.Equal(t, want, got, header.name)
 		}
-		want := resolveGrokCacheIdentity(onlyCurrent, nil, "", "grok-4.5")
-		require.Equal(t, want, got, header.name)
 		c.Request.Header.Del(header.name)
 	}
 }

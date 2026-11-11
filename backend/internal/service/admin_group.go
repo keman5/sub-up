@@ -808,6 +808,7 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		normalizeUpdateGroupInputForSimpleMode(input)
 	}
+	originalPlatform := group.Platform
 
 	if input.Name != "" {
 		group.Name = input.Name
@@ -1142,6 +1143,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 
 	if err := s.groupRepo.Update(ctx, group); err != nil {
 		return nil, err
+	}
+	if group.Platform != originalPlatform && s.channelCacheInvalidator != nil {
+		s.channelCacheInvalidator.InvalidateCache()
 	}
 
 	if s.authCacheInvalidator != nil {

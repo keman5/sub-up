@@ -17,6 +17,11 @@ awk '
   }
 ' deploy/.env.example > "$gateway_variables"
 
+if cut -f1 "$gateway_variables" | sort | uniq -d | grep -q .; then
+  printf 'Duplicate GATEWAY variable in deploy/.env.example\n' >&2
+  exit 1
+fi
+
 for compose_file in \
   deploy/docker-compose.yml \
   deploy/docker-compose.local.yml \
@@ -32,6 +37,7 @@ do
       GATEWAY_MAX_CONNS_PER_HOST) value=1024 ;;
       GATEWAY_MAX_IDLE_CONNS) value=2560 ;;
       GATEWAY_MAX_IDLE_CONNS_PER_HOST) value=120 ;;
+      GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT) value=0 ;;
     esac
 
     expected=$(printf '      - %s=${%s:-%s}' "$key" "$key" "$value")

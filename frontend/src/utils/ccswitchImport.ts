@@ -42,14 +42,13 @@ export const CC_SWITCH_USAGE_SCRIPT = `({
             .sort(function(a, b) { return a - b; })[0]
         : undefined;
       const subscriptionRemaining = response?.subscription
-        ? Math.min(
-            ...[
+        ? [
               response.subscription.daily_limit_usd != null ? response.subscription.daily_limit_usd - (response.subscription.daily_usage_usd ?? 0) : undefined,
               response.subscription.weekly_limit_usd != null ? response.subscription.weekly_limit_usd - (response.subscription.weekly_usage_usd ?? 0) : undefined,
               response.subscription.monthly_limit_usd != null ? response.subscription.monthly_limit_usd - (response.subscription.monthly_usage_usd ?? 0) : undefined,
-              response.subscription.total_limit_usd != null ? response.subscription.total_limit_usd - (response.subscription.total_usage_usd ?? 0) : undefined
+              response.subscription.total_limit_usd > 0 ? response.subscription.total_limit_usd - (response.subscription.total_usage_usd ?? 0) : undefined
             ].filter(function(value) { return typeof value === "number"; })
-          )
+              .sort(function(a, b) { return a - b; })[0]
         : undefined;
       const remaining = response?.remaining ?? response?.quota?.remaining ?? response?.balance ?? subscriptionRemaining ?? rateLimitRemaining;
       const unit = response?.unit ?? response?.quota?.unit ?? "USD";
