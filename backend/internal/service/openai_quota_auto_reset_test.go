@@ -95,6 +95,36 @@ func TestOpenAIQuotaAutoResetService_ExpiryBelowUsageThreshold(t *testing.T) {
 	require.Equal(t, "expiry", openAIAutoResetStateFromExtra(repo.account.Extra).TriggerWindow)
 }
 
+func TestOpenAIQuotaAutoResetService_ExpiryIndependentOfUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		untilExpiry time.Duration
+		wantResets  int32
+	}{
+		{"before expiry window", 3 * time.Hour, 0},
+		{"inside expiry window", time.Hour, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, repo, quota := newResetThresholdTestFixture(t, nil, 1)
+			repo.account.Extra[OpenAIAutoResetCreditEnabledExtraKey] = false
+			repo.account.Extra[OpenAIAutoResetCreditExpiryEnabledExtraKey] = true
+			repo.account.Extra[OpenAIAutoResetCreditExpiryMinutesExtraKey] = 120.0
+			// Both usage windows exceed the configured thresholds.
+			repo.account.Extra["codex_5h_used_percent"] = 99.0
+			quota.usage.RateLimit.PrimaryWindow = &OpenAIRateLimitWindow{UsedPercent: 99, LimitWindowSeconds: 5 * 3600}
+			expires := time.Now().Add(tc.untilExpiry).UTC().Format(time.RFC3339)
+			quota.usage.RateLimitResetCredits.Credits = []OpenAIRateLimitResetCreditDetail{{ExpiresAt: expires}}
+			repo.account.Extra[openaiQuotaResetCreditsKey] = quota.usage.RateLimitResetCredits
+			quota.usage.autoResetCandidates = []openAIAutoResetCreditCandidate{{ID: "expiring-credit", ExpiresAt: expires}}
+			require.NoError(t, svc.evaluateAccount(context.Background(), repo.account.ID))
+			require.Equal(t, tc.wantResets, quota.resetCalls.Load())
+			if tc.wantResets > 0 {
+				require.Equal(t, "expiry", openAIAutoResetStateFromExtra(repo.account.Extra).TriggerWindow)
+			}
+		})
+	}
+}
+
 func TestShouldAutoPauseOpenAIAccountByQuota_AutoResetCreditStates(t *testing.T) {
 	now := time.Now().UTC()
 	baseExtra := map[string]any{

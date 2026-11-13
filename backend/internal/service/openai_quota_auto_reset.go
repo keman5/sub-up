@@ -234,7 +234,8 @@ func (s *OpenAIQuotaAutoResetService) scanEnabledAccounts(ctx context.Context) {
 		}
 		for i := range accounts {
 			account := &accounts[i]
-			if account.Schedulable && ResolveOpenAIAutoResetCreditConfig(account).Enabled {
+			config := ResolveOpenAIAutoResetCreditConfig(account)
+			if account.Schedulable && (config.Enabled || config.ExpiryEnabled) {
 				s.Notify(account.ID)
 			}
 		}
@@ -288,7 +289,7 @@ func (s *OpenAIQuotaAutoResetService) evaluateAccount(ctx context.Context, accou
 		return nil
 	}
 	config := ResolveOpenAIAutoResetCreditConfig(account)
-	if !config.Enabled || !account.IsActive() || !account.Schedulable {
+	if (!config.Enabled && !config.ExpiryEnabled) || !account.IsActive() || !account.Schedulable {
 		return nil
 	}
 
@@ -348,7 +349,7 @@ func (s *OpenAIQuotaAutoResetService) evaluateAccount(ctx context.Context, accou
 		return err
 	}
 	config = ResolveOpenAIAutoResetCreditConfig(account)
-	if !config.Enabled {
+	if !config.Enabled && !config.ExpiryEnabled {
 		return nil
 	}
 	assessment = s.assessUsage(usage, account, config, now)
@@ -408,8 +409,12 @@ func (s *OpenAIQuotaAutoResetService) evaluateAccount(ctx context.Context, accou
 	}
 
 	account, err = s.accountRepo.GetByID(ctx, accountID)
-	if err != nil || account == nil || !ResolveOpenAIAutoResetCreditConfig(account).Enabled {
+	if err != nil || account == nil {
 		return err
+	}
+	config = ResolveOpenAIAutoResetCreditConfig(account)
+	if !s.assessUsage(usage, account, config, now).resetReached {
+		return nil
 	}
 	result, err := s.idempotency.Execute(ctx, IdempotencyExecuteOptions{
 		Scope:          "openai_auto_reset_credit",
@@ -564,8 +569,8 @@ func (s *OpenAIQuotaAutoResetService) buildAssessment(account *Account, config O
 		threshold5h:   config.Threshold5h,
 		threshold7d:   config.Threshold7d,
 	}
-	reset5h := utilization5h >= config.Threshold5h
-	reset7d := utilization7d >= config.Threshold7d
+	reset5h := config.Enabled && utilization5h >= config.Threshold5h
+	reset7d := config.Enabled && utilization7d >= config.Threshold7d
 	assessment.resetReached = reset5h || reset7d
 	assessment.triggerWindow = joinOpenAIAutoResetWindows(reset5h, reset7d)
 

@@ -1,0 +1,34 @@
+name: rustdesk
+services:
+  hbbs:
+    image: rustdesk/rustdesk-server:1.1.16@sha256:8ecdab65deb7c84652a626380e31d11a8f1fbafd97916d57f95c20628f943c00
+    container_name: rustdesk-hbbs
+    command: [hbbs, -r, '89.116.220.139:21117', -k, _]
+    ports:
+      - '21115:21115/tcp'
+      - '21116:21116/tcp'
+      - '21116:21116/udp'
+    volumes:
+      - ./data:/root
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+  hbbr:
+    image: rustdesk/rustdesk-server:1.1.16@sha256:8ecdab65deb7c84652a626380e31d11a8f1fbafd97916d57f95c20628f943c00
+    container_name: rustdesk-hbbr
+    command: [hbbr, -k, _]
+    ports:
+      - '21117:21117/tcp'
+    volumes:
+      - ./data:/root
+    depends_on:
+      - hbbs
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'

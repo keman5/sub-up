@@ -2878,12 +2878,12 @@
         </div>
         <p class="input-hint">{{ t('admin.accounts.autoResetCredit.thresholdHint') }}</p>
         <label class="flex items-center gap-2">
-          <input v-model="autoResetCreditExpiryEnabled" type="checkbox" :disabled="!autoResetCreditEnabled" data-testid="auto-reset-credit-expiry-enabled" />
+          <input v-model="autoResetCreditExpiryEnabled" type="checkbox" data-testid="auto-reset-credit-expiry-enabled" />
           {{ t('admin.accounts.autoResetCredit.expiryEnabled') }}
         </label>
         <div v-if="autoResetCreditExpiryEnabled">
           <label class="input-label">{{ t('admin.accounts.autoResetCredit.expiryMinutes') }}</label>
-          <input v-model.number="autoResetCreditExpiryMinutes" type="number" min="1" max="10080" step="1" class="input" :disabled="!autoResetCreditEnabled" data-testid="auto-reset-credit-expiry-minutes" />
+          <input v-model.number="autoResetCreditExpiryMinutes" type="number" min="1" max="10080" step="1" class="input" data-testid="auto-reset-credit-expiry-minutes" />
           <p class="input-hint">{{ t('admin.accounts.autoResetCredit.expiryHint') }}</p>
         </div>
       </div>
@@ -5664,11 +5664,11 @@ const handleSubmit = async () => {
     appStore.showError(t('admin.accounts.pleaseSelectStatus'))
     return
   }
+	if (autoResetCreditExpiryEnabled.value && (!Number.isInteger(autoResetCreditExpiryMinutes.value) || autoResetCreditExpiryMinutes.value < 1 || autoResetCreditExpiryMinutes.value > 10080)) {
+		appStore.showError(t('admin.accounts.autoResetCredit.expiryInvalid'))
+		return
+	}
 	if (autoResetCreditEnabled.value) {
-		if (autoResetCreditExpiryEnabled.value && (!Number.isInteger(autoResetCreditExpiryMinutes.value) || autoResetCreditExpiryMinutes.value < 1 || autoResetCreditExpiryMinutes.value > 10080)) {
-			appStore.showError(t('admin.accounts.autoResetCredit.expiryInvalid'))
-			return
-		}
 		const thresholds = [autoResetCredit5hThreshold.value, autoResetCredit7dThreshold.value]
 		if (thresholds.some((value) => !Number.isFinite(value) || value < 0.1 || value > 100)) {
 			appStore.showError(t('admin.accounts.autoResetCredit.thresholdInvalid'))

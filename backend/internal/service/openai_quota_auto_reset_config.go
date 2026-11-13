@@ -25,7 +25,7 @@ const (
 // OpenAIAutoResetCreditConfig 是账号级自动用卡配置。阈值采用 0-1 比例，
 // 避免后端调度与前端百分比展示混用同一数值语义。
 type OpenAIAutoResetCreditConfig struct {
-	Enabled       bool
+	Enabled       bool // 仅控制用量阈值策略；到期策略由 ExpiryEnabled 独立控制。
 	Threshold5h   float64
 	Threshold7d   float64
 	ExpiryEnabled bool

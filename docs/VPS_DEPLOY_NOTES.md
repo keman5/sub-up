@@ -1,5 +1,7 @@
 # VPS 部署与更新排障记录
 
+> 2026-11-13 最新发布：a1 / 3dbooks / 主环境均已更新至 `991f6dd61`，镜像 `sub2api:subapi-991f6dd61-all-20261113123728`，包含独立到期用卡开关；三容器实际版本一致且 healthy，六个 health 正常。Pages 和同步消费者同步更新，账号用卡设置未修改。备份 `/opt/sub2api-release-backups/20261113123728/`，详情见当月 NF-20261113-02。
+
 > 2026-11-11 最新发布：三个活动后端为 v0.2.21 / commit `0d03a0114`，镜像 `sub2api:subapi-0d03a0114-all-20261111140508`，均 healthy 且实际镜像/二进制匹配。Pages a1 `94ca0650`、3dbooks `bec0d8a7`、main `af89930f`；消费者 `/opt/a1-sync-release/20261111142313/a1-user-sync` active/running。逐环境备份 `/opt/sub2api-release-backups/20261111140508/`，状态恢复后六个 health 正常，三库 936 条迁移 checksum 全匹配。构建仅本地，test 保持退役，未 push；详见当月 NF-20261111-02 和 `deploy/DEPLOY_ALL.md`。
 
 > 2026-11-10 发布完成：三个活动后端实际版本 0.2.20 / commit `251b6fd0d`，镜像 `sub2api:subapi-251b6fd0d-all-20261110100505`，均 healthy；Pages 与同步消费者同时更新。逐环境数据库/配置备份在 `/opt/sub2api-release-backups/20261110100505/`；状态恢复后六个公网 health 均 ok。迁移 246 按用户授权保留上游默认行为并已登记，三库 933 条迁移 checksum 全匹配。构建仅在本地，test 不恢复，未 push。详见当月 NF-20261110-02 和 `deploy/DEPLOY_ALL.md`。
