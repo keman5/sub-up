@@ -1786,10 +1786,12 @@ func accountUsageStatsForView(stats *usagestats.AccountUsageStatsResponse, viewM
 	out.Endpoints = append([]usagestats.EndpointStat(nil), stats.Endpoints...)
 	for i := range out.Endpoints {
 		out.Endpoints[i].ActualCost = out.Endpoints[i].Cost
+		out.Endpoints[i].AccountCost = 0
 	}
 	out.UpstreamEndpoints = append([]usagestats.EndpointStat(nil), stats.UpstreamEndpoints...)
 	for i := range out.UpstreamEndpoints {
 		out.UpstreamEndpoints[i].ActualCost = out.UpstreamEndpoints[i].Cost
+		out.UpstreamEndpoints[i].AccountCost = 0
 	}
 	return &out
 }

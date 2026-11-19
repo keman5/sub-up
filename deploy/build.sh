@@ -5,7 +5,7 @@ cd "$ROOT"
 work="${1:?output directory required}"
 image="${2:?image tag required}"
 [[ -d "$work" && "$work" != / ]]
-export GOTOOLCHAIN=go1.27.3
+export GOTOOLCHAIN=go1.27.4
 unset GO_COMPAT_VERSION GOFLAGS
 endpoint="$(docker context inspect --format '{{.Endpoints.docker.Host}}')"
 [[ "$endpoint" == unix://* && "${DOCKER_HOST:-$endpoint}" == unix://* ]] || { echo 'Use a local Docker unix socket context and DOCKER_HOST.' >&2; exit 1; }

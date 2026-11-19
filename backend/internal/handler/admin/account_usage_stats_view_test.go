@@ -45,8 +45,8 @@ func TestAccountUsageStatsForViewHidesAccountCostForAdmin(t *testing.T) {
 			}{Date: "2026-06-22", Cost: 8, UserCost: 4},
 		},
 		Models:            []usagestats.ModelStat{{Model: "gpt-5.5", Cost: 3, ActualCost: 5, AccountCost: 6}},
-		Endpoints:         []usagestats.EndpointStat{{Endpoint: "/v1/responses", Cost: 1.2, ActualCost: 2.4}},
-		UpstreamEndpoints: []usagestats.EndpointStat{{Endpoint: "https://upstream.example/v1/responses", Cost: 1.4, ActualCost: 2.8}},
+		Endpoints:         []usagestats.EndpointStat{{Endpoint: "/v1/responses", Cost: 1.2, ActualCost: 2.4, AccountCost: 9}},
+		UpstreamEndpoints: []usagestats.EndpointStat{{Endpoint: "https://upstream.example/v1/responses", Cost: 1.4, ActualCost: 2.8, AccountCost: 10}},
 	}
 
 	got := accountUsageStatsForView(stats, service.UsageViewPresentation)
@@ -64,6 +64,10 @@ func TestAccountUsageStatsForViewHidesAccountCostForAdmin(t *testing.T) {
 	require.Zero(t, got.Models[0].AccountCost)
 	require.Equal(t, 1.2, got.Endpoints[0].ActualCost)
 	require.Equal(t, 1.4, got.UpstreamEndpoints[0].ActualCost)
+	require.Zero(t, got.Endpoints[0].AccountCost)
+	require.Zero(t, got.UpstreamEndpoints[0].AccountCost)
+	require.Equal(t, 9.0, stats.Endpoints[0].AccountCost)
+	require.Equal(t, 10.0, stats.UpstreamEndpoints[0].AccountCost)
 
 	require.Equal(t, 8.0, stats.History[0].ActualCost, "presentation view must not mutate raw history")
 	require.Equal(t, 8.0, stats.Summary.TotalCost, "presentation view must not mutate raw summary")

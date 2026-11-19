@@ -16,6 +16,10 @@ type accountPoolHealthRepoStub struct {
 
 var _ AccountRepository = (*accountPoolHealthRepoStub)(nil)
 
+func (r *accountPoolHealthRepoStub) ClearModelRateLimit(context.Context, int64, string) error {
+	return nil
+}
+
 func (r *accountPoolHealthRepoStub) Create(context.Context, *Account) error { return nil }
 func (r *accountPoolHealthRepoStub) GetByID(context.Context, int64) (*Account, error) {
 	return nil, ErrAccountNotFound

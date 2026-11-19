@@ -405,6 +405,12 @@ func usageStatsForView(stats *usagestats.UsageStats, viewMode service.UsageViewM
 	}
 	out := *stats
 	out.TotalAccountCost = nil
+	for _, endpoints := range []*[]usagestats.EndpointStat{&out.Endpoints, &out.UpstreamEndpoints, &out.EndpointPaths} {
+		*endpoints = append([]usagestats.EndpointStat(nil), (*endpoints)...)
+		for i := range *endpoints {
+			(*endpoints)[i].AccountCost = 0
+		}
+	}
 	return &out
 }
 

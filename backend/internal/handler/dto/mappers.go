@@ -153,6 +153,7 @@ func GroupFromServiceAdminWithViewer(g *service.Group, mode service.UsageViewMod
 	out := &AdminGroup{
 		Group:                       groupFromServiceBase(g),
 		ForceOpenAIFast:             g.ForceOpenAIFast,
+		ForceOpenAIUltrafast:        g.ForceOpenAIUltrafast,
 		FreeOpenAIFast:              g.FreeOpenAIFast,
 		BillingRateMultiplier:       g.RateMultiplier,
 		ProfitControlEnabled:        g.ProfitControlEnabled,

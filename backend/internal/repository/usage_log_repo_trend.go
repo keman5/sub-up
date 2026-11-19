@@ -476,10 +476,6 @@ func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Contex
 	totalTokensExpr := usagePresentationTotalTokensSQL("", presentationFactor)
 	totalCostExpr := usagePresentationCostSQL("total_cost", presentationFactor)
 	actualCostExpr := fmt.Sprintf("COALESCE(SUM(%s), 0) as actual_cost", usagePresentationCostSQL("actual_cost", presentationFactor))
-	// 当仅按 account_id 聚合时，实际费用使用账号倍率（total_cost * account_rate_multiplier）。
-	if accountID > 0 && userID == 0 && apiKeyID == 0 {
-		actualCostExpr = fmt.Sprintf("COALESCE(SUM(%s), 0) as actual_cost", usagePresentationCostSQL("COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)", presentationFactor))
-	}
 	accountCostExpr := fmt.Sprintf("COALESCE(SUM(%s), 0) as account_cost", usagePresentationCostSQL("COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)", presentationFactor))
 	modelExpr := resolveModelDimensionExpression(source)
 

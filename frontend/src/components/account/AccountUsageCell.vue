@@ -124,6 +124,15 @@
 
     <!-- OpenAI OAuth accounts: single source from /usage API -->
     <template v-else-if="account.platform === 'openai' && account.type === 'oauth'">
+      <div
+        v-if="error || usageInfo?.error || usageInfo?.error_code"
+        role="alert"
+        class="mb-1 text-[10px] text-amber-700 dark:text-amber-300"
+      >
+        {{ t(hasOpenAIQuotaObservation
+          ? 'admin.accounts.usageWindow.quotaRefreshFailedCached'
+          : 'admin.accounts.usageWindow.quotaRefreshFailedUnknown') }}
+      </div>
       <div v-if="hasOpenAIUsageFallback || hasOpenAICodexSparkUsage" class="space-y-1">
         <UsageProgressBar
           v-if="openAIMainFiveHour"
@@ -131,6 +140,7 @@
           :utilization="openAIMainFiveHour.utilization"
           :resets-at="openAIMainFiveHour.resets_at"
           :window-stats="openAIMainFiveHour.window_stats"
+          :utilization-unknown="openAIMainFiveHour.utilization_unknown"
           :show-now-when-idle="true"
           color="indigo"
         />
@@ -140,6 +150,7 @@
           :utilization="openAIMainSevenDay.utilization"
           :resets-at="openAIMainSevenDay.resets_at"
           :window-stats="openAIMainSevenDay.window_stats"
+          :utilization-unknown="openAIMainSevenDay.utilization_unknown"
           :estimated-total-cost="openAISevenDayEstimatedTotalCost"
           :show-now-when-idle="true"
           color="emerald"
@@ -168,6 +179,13 @@
             :show-now-when-idle="true"
             :color="sparkWindow.label === '5h' ? 'purple' : 'amber'"
           />
+        </div>
+        <div v-if="hasOpenAIQuotaObservation" class="text-[10px] text-gray-500 dark:text-gray-400">
+          {{ t('admin.accounts.usageWindow.quotaObservedAt') }}
+          <time v-if="usageInfo?.updated_at" :datetime="usageInfo.updated_at">
+            {{ formatDateTime(usageInfo.updated_at) }}
+          </time>
+          <span v-else>{{ t('admin.accounts.usageWindow.quotaObservationUnknown') }}</span>
         </div>
         <!--
           Upstream codex /wham/usage quota query + reset. The local active-sampling
@@ -655,7 +673,7 @@
             color="purple"
           />
         </template>
-        <div v-if="loading" class="space-y-1">
+        <div v-if="loading && !usageInfo" class="space-y-1">
           <div class="flex items-center gap-1">
             <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
             <div class="h-1.5 w-8 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
@@ -784,7 +802,7 @@ import type { GrokQuotaProbeResult } from '@/api/admin/grok'
 import type { Account, AccountUsageInfo, GeminiCredentials, UsageProgress, WindowStats } from '@/types'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueActiveUsageRefresh, enqueueUsageRequest } from '@/utils/usageLoadQueue'
-import { formatCompactNumber } from '@/utils/format'
+import { formatCompactNumber, formatDateTime } from '@/utils/format'
 import { queryOpenAIQuota } from '@/api/admin/accounts'
 import { isOfficialGeminiBaseUrl } from '@/utils/geminiExplicitCache'
 import { supportsAccountQuota } from '@/utils/accountQuota'
@@ -1008,11 +1026,17 @@ const hasOpenAICodexSparkUsage = computed(() => {
     openAICodexSparkWindows.value.length > 0
 })
 
+const hasOpenAIQuotaObservation = computed(() => {
+  const windows = [usageInfo.value?.five_hour, usageInfo.value?.seven_day]
+  return windows.some(window => window && !window.utilization_unknown)
+})
+
 const openAISevenDayEstimatedTotalCost = computed(() => {
   const sevenDay = usageInfo.value?.seven_day
   const utilization = sevenDay?.utilization
   const currentCost = sevenDay?.window_stats?.cost
   if (
+    sevenDay?.utilization_unknown ||
     typeof utilization !== 'number' ||
     typeof currentCost !== 'number' ||
     !Number.isFinite(utilization) ||
@@ -1744,6 +1768,8 @@ const loadActiveUsage = async (options?: {
   notifyRuntimeState?: boolean
 }) => {
   const { refreshQuotaFromUpstream = false } = options ?? {}
+  const accountID = props.account.id
+  error.value = null
   activeQueryLoading.value = true
 
   const fetchUsage = async () => {
@@ -1756,9 +1782,11 @@ const loadActiveUsage = async (options?: {
     }
 
     const result = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
-    usageInfo.value = result
-    _usageCache.set(props.account.id, { data: result, ts: Date.now() })
-    if (options?.notifyRuntimeState) emit('runtime-state-updated')
+    if (!unmounted.value && props.account.id === accountID) {
+      usageInfo.value = result
+      _usageCache.set(accountID, { data: result, ts: Date.now() })
+      if (options?.notifyRuntimeState) emit('runtime-state-updated')
+    }
   }
 
   try {
@@ -1768,9 +1796,12 @@ const loadActiveUsage = async (options?: {
       await fetchUsage()
     }
   } catch (e: any) {
-    console.error('Failed to load active usage:', e)
+    if (!unmounted.value && props.account.id === accountID) {
+      error.value = t('common.error')
+      console.error('Failed to load active usage:', e)
+    }
   } finally {
-    activeQueryLoading.value = false
+    if (!unmounted.value) activeQueryLoading.value = false
   }
 }
 
