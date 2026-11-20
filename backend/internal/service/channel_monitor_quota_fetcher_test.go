@@ -763,8 +763,8 @@ func TestQuotaFetcher_OpenAIQuotaRefreshFailureDoesNotFlap(t *testing.T) {
 		Status:   StatusActive,
 		// 只有 7d 窗口 → shouldRefreshOpenAICodexSnapshot 恒为 true；无 access token → 探测必失败。
 		Extra: map[string]any{
-			"codex_7d_used_percent":  95.0,
-			"codex_usage_updated_at": observedAt.Format(time.RFC3339),
+			"codex_main_7d_used_percent":  95.0,
+			"codex_main_usage_updated_at": observedAt.Format(time.RFC3339),
 		},
 	}
 	fetcher := &ChannelMonitorQuotaFetcher{

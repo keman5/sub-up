@@ -1,5 +1,7 @@
 # 全量发布
 
+2026-11-19 已发布 `a577c0906` / v0.2.23：镜像 `sub2api:subapi-a577c0906-all-20261119225350`，按 a1 → 3dbooks → main 完成；Pages 分别 `66b35163`、`2c90de81`、`76a36a8b`。三容器 healthy、实际二进制和镜像 ID 匹配；状态恢复后六个 health 正常，三库各 315 条迁移 checksum 全匹配。备份 `/opt/sub2api-release-backups/20261119225350/{a1,3dbooks,main}/`；消费者 `/opt/a1-sync-release/20261119230927/a1-user-sync` active/running，两套目标各 27 条同步回执匹配。旧验收脚本的永久取消假设改为比较当前请求/回执，不改用户数据。全部本地构建，未 push，test 保持退役；完整验证及失败复验边界见 NF-20261119-02。
+
 2026-11-13 已发布 `991f6dd61`（独立到期用卡开关）：镜像 `sub2api:subapi-991f6dd61-all-20261113123728`，三容器实际二进制版本一致且 healthy，六个公网 health 正常。Pages a1 `70d1d718`、3dbooks `dbccbb8c`、main `f7638a20`；备份 `/opt/sub2api-release-backups/20261113123728/`，消费者 `/opt/a1-sync-release/20261113125218/a1-user-sync` active，主环境/3dbooks 各 27 条回执匹配。未修改账号用卡设置、未 push、未恢复 test，详见 NF-20261113-02。
 
 2026-11-11 已按 a1 → 3dbooks → main 发布 `0d03a0114` / v0.2.21：镜像 `sub2api:subapi-0d03a0114-all-20261111140508`，三容器 healthy，镜像 ID 与实际二进制 commit 均匹配；Pages 为 `94ca0650`、`bec0d8a7`、`af89930f`，Production/subapi Source 均为 `0d03a01`。备份根目录 `/opt/sub2api-release-backups/20261111140508/`，每套归档切换前验证。消费者 `/opt/a1-sync-release/20261111142313/a1-user-sync` active/running，主环境/3dbooks 各 27 条回执匹配 a1。状态恢复后六个 health 正常，三库各 312 条迁移 checksum 全匹配。首轮本地 Docker metadata 超时未触及线上，拉取基础镜像后原脚本重试成功。构建全部本地完成，test 仍退役，未 push；完整验证边界见 NF-20261111-02。
@@ -14,7 +16,7 @@
 
 同步消费者配置更新依赖 VPS 的 Python3 / PyYAML；缺失时会在修改 unit/config 前停止。配置以 YAML 语义重写，保留值与文件 owner/mode，但移除注释；两个文件的更新可在异常时回滚，不保证断电事务性。
 
-回归检查：`bash deploy/check-subscription-sync.sh`。当前构建固定使用 Go 1.27.3，不再使用旧 Go 1.26 jsonv2 / 临时 modfile 降级路径。应用构建由 `deploy/build.sh` 执行，同步消费者由 `services/a1-user-sync-service/build.sh` 执行；两个脚本均在本地清理 Go build cache 与各自项目 `.artifacts` 后测试、构建。
+回归检查：`bash deploy/check-subscription-sync.sh`。当前构建固定使用 Go 1.27.4，不再使用旧 Go 1.26 jsonv2 / 临时 modfile 降级路径。应用构建由 `deploy/build.sh` 执行，同步消费者由 `services/a1-user-sync-service/build.sh` 执行；两个脚本均在本地清理 Go build cache 与各自项目 `.artifacts` 后测试、构建。
 
 在仓库根目录执行 `npm run deploy`，或先用 `npm run deploy -- --dry-run` 查看目标；`npm run deploy:check` 检查脚本。
 

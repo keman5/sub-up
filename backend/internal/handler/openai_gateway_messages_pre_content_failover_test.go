@@ -332,5 +332,6 @@ func TestOpenAIMessagesHTTPStatusFailoverExhaustedIgnoresPassthroughRule(t *test
 	t.Logf("status=%d body=%q", rec.Code, body)
 	require.Equal(t, 1, upstream.calls(), "body: %q", body)
 	require.NotEqual(t, http.StatusTeapot, rec.Code, "body: %q", body)
-	require.Equal(t, "Upstream service temporarily unavailable", gjson.Get(body, "error.message").String(), "body: %q", body)
+	require.Equal(t, http.StatusBadGateway, rec.Code, "body: %q", body)
+	require.Equal(t, "Upstream rate limit exceeded, please retry later (上游限流，请稍后重试)", gjson.Get(body, "error.message").String(), "body: %q", body)
 }

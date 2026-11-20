@@ -162,6 +162,8 @@ func TestAnthropicCacheCreationMissingDetailForwardBillingBoundary(t *testing.T)
 					recorder := httptest.NewRecorder()
 					ctx, _ := gin.CreateTestContext(recorder)
 					ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+					// This boundary checks raw client usage; presentation has separate regressions.
+					ctx.Set("api_key", &APIKey{Group: &Group{}})
 					response := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(payload))}
 					service := &GatewayService{cfg: &config.Config{}, rateLimitService: &RateLimitService{}}
 					var result *ForwardResult

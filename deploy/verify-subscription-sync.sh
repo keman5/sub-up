@@ -10,9 +10,10 @@ source=read('sub2api_ap1')
 by_id={u['id']:u for u in source}
 for uid in (24,41,71):
     u=by_id[uid]
-    assert u['result'] and not u['result']['enabled'], 'Expected cancelled user still synced'
-    assert u['result']['updated_at']==u['request']['updated_at'], 'Cancellation not acknowledged'
-print('a1: three reported cancellations have matching executed receipts')
+    assert u['request'] and u['result'], 'Missing current sync request or receipt'
+    assert u['result']['enabled']==u['request']['enabled'], 'Current sync state not acknowledged'
+    assert u['result']['updated_at']==u['request']['updated_at'], 'Current sync timestamp not acknowledged'
+print('a1: three historical users have matching current requests and executed receipts')
 for db in ('sub2api','sub2api_3dbooks'):
     target={u['identity']:u for u in read(db)}
     checked=0

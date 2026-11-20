@@ -135,6 +135,8 @@ func TestCacheTTLOverrideForwardBillingBoundary(t *testing.T) {
 					recorder := httptest.NewRecorder()
 					ctx, _ := gin.CreateTestContext(recorder)
 					ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+					// Explicit raw view keeps the TTL/billing assertions independent of presentation.
+					ctx.Set("api_key", &APIKey{Group: &Group{}})
 					response := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{contentType}}, Body: io.NopCloser(strings.NewReader(payload))}
 					service := &GatewayService{cfg: &config.Config{}, rateLimitService: &RateLimitService{}, settingService: settings}
 					var result *ForwardResult
